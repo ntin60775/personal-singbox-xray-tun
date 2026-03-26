@@ -1,0 +1,6 @@
+/logs/*.log
+/xray-tun-subvost.json
+
+*~
+*.swp
+*.swo
