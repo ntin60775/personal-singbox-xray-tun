@@ -1,5 +1,6 @@
 /logs/*.log
 /xray-tun-subvost.json
+/__pycache__/
 
 *~
 *.swp
