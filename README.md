@@ -117,6 +117,75 @@ sudo /путь/к/capture-xray-tun-state.sh
 
 Скрытый файл состояния хранится в `${HOME}/.xray-tun-subvost.state`.
 
+## Troubleshooting
+
+Если старт не дошёл до `Готово` или трафик не пошёл через туннель, проверяй систему в одном и том же порядке:
+
+1. `TUN-устройство`
+
+```bash
+ls -l /dev/net/tun
+lsmod | grep tun
+```
+
+Если `/dev/net/tun` отсутствует или модуль `tun` не загружен, `sing-box` не сможет создать TUN-интерфейс из текущего `SINGBOX_CONFIG`.
+
+2. `Интерфейс`
+
+```bash
+ip -brief link show tun0
+ip -brief address show tun0
+```
+
+После старта ожидается TUN-интерфейс из текущего `SINGBOX_CONFIG` в состоянии `UP` и с назначенным адресом.
+
+3. `Маршруты и policy-routing`
+
+```bash
+ip rule show
+ip route show table main
+ip route show table all | grep -E 'tun|xray'
+```
+
+Минимальный инвариант для bundle: после старта должен появиться ожидаемый TUN-интерфейс из текущего `SINGBOX_CONFIG` и получить адрес, описанный в этом конфиге. Конкретные маршруты и split-tunnel-поведение остаются operator-managed, поэтому проверка не должна зависеть ни от одного фиксированного внешнего IP, ни от обязательного наличия IPv4-маршрута определённого вида.
+
+4. `DNS`
+
+```bash
+ls -l /etc/resolv.conf
+readlink -f /etc/resolv.conf
+cat /etc/resolv.conf
+systemctl is-active systemd-resolved
+systemctl is-active NetworkManager
+resolvectl status
+```
+
+Если `run-xray-tun-subvost.sh` предупреждает про `systemd-resolved` или `NetworkManager`, это не блокирует старт само по себе: bundle всё равно временно перепишет `/etc/resolv.conf` и затем восстановит его. Такие предупреждения означают только повышенный риск DNS-гонок при проблемах с сетью, поэтому в спорных случаях сразу снимай полный диагностический дамп. Постоянную перенастройку этих сервисов bundle автоматически не делает.
+
+5. `Firewall`
+
+```bash
+nft list ruleset
+iptables-save
+ip6tables-save
+```
+
+Bundle не настраивает `iptables`/`nftables` автоматически. На обычном клиенте NAT и `ip_forward` не включаются; здесь нужно только убедиться, что локальный firewall не ломает трафик через ожидаемый TUN-интерфейс.
+
+6. `MTU`
+
+```bash
+ip link show tun0
+```
+
+Если туннель поднялся, но часть сайтов зависает или соединения рвутся, проверь текущий `mtu` у ожидаемого TUN-интерфейса и отдельно протестируй ручное снижение MTU как диагностический fallback. Автоматически bundle MTU не меняет.
+
+Для полного дампа состояния используй:
+
+```bash
+sudo /путь/к/capture-xray-tun-state.sh
+```
+
 ## Исследовательские документы
 
 Разовые исследования и аналитика лежат в `docs/research/`. Текущий отчёт для дальнейшего hardening: `docs/research/deep-research-report.md`.

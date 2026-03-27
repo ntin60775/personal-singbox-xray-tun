@@ -74,10 +74,10 @@ print_shell_block_as_real_user() {
 
   print_section "versions" bash -lc '
     XRAY_CANDIDATES=(
-      "'"${REAL_HOME}"'/.local/bin/xray"
-      "'"${HOME}"'/.local/bin/xray"
       /usr/local/bin/xray
       /usr/bin/xray
+      "'"${REAL_HOME}"'/.local/bin/xray"
+      "'"${HOME}"'/.local/bin/xray"
     )
     XRAY_BIN=""
     for candidate in "${XRAY_CANDIDATES[@]}"; do
@@ -119,6 +119,15 @@ print_shell_block_as_real_user() {
     env | sort | grep -iE "(^|_)(http|https|all|no)_proxy=" || true
   '
 
+  print_section "ls -l /dev/net/tun" ls -l /dev/net/tun
+  print_shell_block "lsmod | grep tun" '
+    if command -v lsmod >/dev/null 2>&1; then
+      lsmod | grep -iE "^tun\\b| tun\\b" || echo "tun module not listed"
+    else
+      echo "lsmod: not found"
+    fi
+  '
+
   print_section "processes" bash -lc '
     ps aux | grep -E "FlClashCore|FlClash|sing-box|xray|yandex_browser|chrome|chromium|firefox|curl" | grep -v grep || true
   '
@@ -129,6 +138,7 @@ print_shell_block_as_real_user() {
   print_section "ip -6 rule show" ip -6 rule show
   print_section "ip route show table main" ip route show table main
   print_section "ip route show table 2022" ip route show table 2022
+  print_shell_block "ip route show table all | grep tun/xray" 'ip route show table all | grep -E "\\b(tun|xray)[[:alnum:]_.-]*\\b" || true'
   print_section "ip -6 route show" ip -6 route show
   print_section "ip route get 152.53.39.18" ip route get 152.53.39.18
   print_section "ip route get 8.6.112.6" ip route get 8.6.112.6
@@ -137,13 +147,19 @@ print_shell_block_as_real_user() {
   print_section "ss -tnap" ss -tnap
   print_section "ss -unap" ss -unap
 
+  print_section "ls -l /etc/resolv.conf" ls -l /etc/resolv.conf
+  print_section "readlink -f /etc/resolv.conf" readlink -f /etc/resolv.conf
   print_section "resolv.conf" cat /etc/resolv.conf
+  print_section "systemctl is-active systemd-resolved" systemctl is-active systemd-resolved
+  print_section "systemctl is-enabled systemd-resolved" systemctl is-enabled systemd-resolved
   print_section "resolvectl status" resolvectl status
   print_section "resolvectl query chatgpt.com" resolvectl query chatgpt.com
   print_section "resolvectl query ifconfig.me" resolvectl query ifconfig.me
   print_section "getent ahostsv4 chatgpt.com" getent ahostsv4 chatgpt.com
   print_section "getent ahostsv4 ifconfig.me" getent ahostsv4 ifconfig.me
 
+  print_section "systemctl is-active NetworkManager" systemctl is-active NetworkManager
+  print_section "systemctl is-enabled NetworkManager" systemctl is-enabled NetworkManager
   print_section "NetworkManager DNS" bash -lc '
     if command -v nmcli >/dev/null 2>&1; then
       nmcli dev show | grep -E "GENERAL.DEVICE|IP4.DNS|IP6.DNS" || true
@@ -195,6 +211,10 @@ print_shell_block_as_real_user() {
 
   print_section "xray log tail" tail -n 200 "${LOG_DIR}/xray-subvost.log"
   print_section "sing-box log tail" tail -n 260 "${LOG_DIR}/singbox-subvost.log"
+  print_section "journalctl -k -b -n 200" journalctl -k -b --no-pager -n 200
+  print_shell_block "journalctl -k -b | grep -i tun" 'journalctl -k -b --no-pager | grep -i tun || true'
+  print_section "journalctl -b -u systemd-resolved -n 120" journalctl -b -u systemd-resolved --no-pager -n 120
+  print_section "journalctl -b -u NetworkManager -n 120" journalctl -b -u NetworkManager --no-pager -n 120
 } >"$OUT"
 
 echo "$OUT"
