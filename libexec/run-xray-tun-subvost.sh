@@ -36,6 +36,27 @@ capture_start_failure() {
   sudo timeout 5 "$@" >"$output_path" 2>&1 || true
 }
 
+service_is_active() {
+  local unit_name="$1"
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl is-active --quiet "$unit_name" 2>/dev/null
+}
+
+ensure_no_conflicting_xray_service() {
+  if service_is_active xray.service; then
+    echo "Обнаружен активный системный xray.service." >&2
+    echo "Для portable bundle он не нужен и может создавать дубли процесса Xray." >&2
+    echo "Останови его перед запуском bundle: sudo systemctl disable --now xray.service" >&2
+    exit 1
+  fi
+
+  if pgrep -xaf '/usr/local/bin/xray run -config /usr/local/etc/xray/config.json' >/dev/null 2>&1; then
+    echo "Обнаружен запущенный системный Xray с конфигом /usr/local/etc/xray/config.json." >&2
+    echo "Останови его перед запуском bundle, иначе диагностика и управление процессами будут неоднозначны." >&2
+    exit 1
+  fi
+}
+
 resolve_resolv_conf_target() {
   if readlink -f /etc/resolv.conf >/dev/null 2>&1; then
     readlink -f /etc/resolv.conf
@@ -336,11 +357,11 @@ fail_start_with_rollback() {
 
 XRAY_BIN_DEFAULT="$(
   subvost_find_executable \
+    "/usr/local/bin/xray" \
+    "/usr/bin/xray" \
     "${REAL_HOME}/.local/bin/xray" \
     "${HOME}/.local/bin/xray" \
     "$(command -v xray 2>/dev/null || true)" \
-    "/usr/local/bin/xray" \
-    "/usr/bin/xray" \
   || true
 )"
 XRAY_CONFIG="${XRAY_CONFIG:-${SCRIPT_DIR}/xray-tun-subvost.json}"
@@ -412,6 +433,8 @@ if [[ ! -x "$SINGBOX_BIN" ]]; then
   echo "Не найден исполняемый файл sing-box: $SINGBOX_BIN" >&2
   exit 1
 fi
+
+ensure_no_conflicting_xray_service
 
 echo "[1/8] Проверка TUN-окружения"
 ensure_tun_device_available
