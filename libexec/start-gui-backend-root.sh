@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+INTERNAL_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${INTERNAL_DIR}/../lib/subvost-common.sh"
+subvost_load_project_layout_from_env
+
 HOST="${SUBVOST_GUI_HOST:-127.0.0.1}"
 PORT="${SUBVOST_GUI_PORT:-8421}"
 REAL_USER="${SUBVOST_REAL_USER:-}"
@@ -21,6 +24,8 @@ if [[ -z "${REAL_USER}" || -z "${REAL_HOME}" ]]; then
   exit 1
 fi
 
+subvost_ensure_absolute_path "$REAL_HOME" "SUBVOST_REAL_HOME"
+
 stop_existing_backend() {
   local old_pid=""
 
@@ -34,7 +39,7 @@ stop_existing_backend() {
     rm -f "${PID_FILE}"
   fi
 
-  pkill -f "gui_server.py --host ${HOST} --port ${PORT}" 2>/dev/null || true
+  pkill -f "${SUBVOST_GUI_DIR}/gui_server.py --host ${HOST} --port ${PORT}" 2>/dev/null || true
 }
 
 if [[ "${FORCE_RESTART}" == "1" ]]; then
@@ -49,14 +54,15 @@ if [[ -f "${PID_FILE}" ]]; then
   rm -f "${PID_FILE}"
 fi
 
-cd "${SCRIPT_DIR}"
+cd "${SUBVOST_PROJECT_ROOT}"
 
 nohup env \
+  SUBVOST_PROJECT_ROOT="${SUBVOST_PROJECT_ROOT}" \
   SUBVOST_REAL_USER="${REAL_USER}" \
   SUBVOST_REAL_HOME="${REAL_HOME}" \
   PKEXEC_UID="${REAL_UID}" \
   PYTHONUNBUFFERED=1 \
-  python3 "${SCRIPT_DIR}/gui_server.py" --host "${HOST}" --port "${PORT}" \
+  python3 "${SUBVOST_GUI_DIR}/gui_server.py" --host "${HOST}" --port "${PORT}" \
   >"${LOG_FILE}" 2>&1 &
 
 GUI_PID=$!
