@@ -122,10 +122,10 @@ ensure_real_home_detected
 echo "[1/4] Проверка базовых системных утилит"
 if command -v apt-get >/dev/null 2>&1; then
   run_root apt-get update
-  run_root apt-get install -y ca-certificates curl iproute2 sudo unzip
+  run_root apt-get install -y ca-certificates curl iproute2 python3 sudo unzip
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
-  echo "Установи зависимости вручную: curl, unzip, iproute2, sudo, xray, sing-box." >&2
+  echo "Установи зависимости вручную: curl, unzip, iproute2, python3, sudo, xray, sing-box." >&2
   exit 1
 fi
 

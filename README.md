@@ -30,6 +30,7 @@
 
 - `xray` должен быть доступен в одном из путей: `${HOME}/.local/bin/xray`, путь из `command -v xray`, `/usr/local/bin/xray`, `/usr/bin/xray`
 - `sing-box` должен быть доступен в одном из путей: путь из `command -v sing-box`, `/usr/local/bin/sing-box`, `/usr/bin/sing-box`
+- нужен `python3`: bundle использует его для GUI launcher/backend и для runtime-разбора `SINGBOX_CONFIG`
 - нужен `sudo`
 - файловые логи по умолчанию выключены; чтобы включить их, задай `ENABLE_FILE_LOGS=1`
 
@@ -90,6 +91,7 @@ bash /путь/к/install-on-new-pc.sh
 
 - не копирует bundle и не создаёт обёртки
 - ставит системные зависимости
+- ставит `python3` как обязательную runtime-зависимость bundle
 - устанавливает `xray` и `sing-box`
 - для `sing-box` подключает официальный APT-репозиторий SagerNet
 - для `xray` использует официальный `XTLS/Xray-install`; при необходимости можно зафиксировать ref через `XRAY_INSTALL_REF`
