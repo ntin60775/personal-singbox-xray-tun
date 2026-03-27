@@ -65,6 +65,14 @@ resolve_resolv_conf_target() {
   fi
 }
 
+ensure_python3_available() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "Не найдена обязательная зависимость python3." >&2
+    echo "Установи python3 и повтори запуск bundle." >&2
+    exit 1
+  fi
+}
+
 ensure_tun_device_available() {
   if [[ ! -e /dev/net/tun ]]; then
     echo "Не найден /dev/net/tun. Без него sing-box не сможет поднять TUN-интерфейс." >&2
@@ -81,6 +89,8 @@ ensure_tun_device_available() {
 
 ensure_dns_environment_is_supported() {
   local resolv_target
+  local resolved_state="inactive"
+  local network_manager_state="inactive"
 
   if [[ ! -e /etc/resolv.conf ]]; then
     echo "Не найден /etc/resolv.conf. Старт остановлен до изменения DNS." >&2
@@ -95,27 +105,30 @@ ensure_dns_environment_is_supported() {
   fi
 
   if ! grep -Eq '^[[:space:]]*nameserver[[:space:]]+' /etc/resolv.conf; then
-    echo "В текущем /etc/resolv.conf нет ни одной строки nameserver." >&2
-    echo "Старт остановлен до временной подмены DNS. Сними диагностику: sudo ${SUBVOST_CAPTURE_WRAPPER}" >&2
-    exit 1
+    echo "Предупреждение: в текущем /etc/resolv.conf нет явных строк nameserver." >&2
+    echo "Bundle продолжит старт: файл всё равно будет сохранён в backup и временно переписан runtime-DNS." >&2
   fi
 
   resolv_target="$(resolve_resolv_conf_target)"
 
-  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-    if [[ "$resolv_target" == "/run/systemd/resolve/stub-resolv.conf" ]]; then
-      echo "Предупреждение: /etc/resolv.conf ведёт в ${resolv_target}, а systemd-resolved активен." >&2
-      echo "Bundle продолжит старт и временно перепишет /etc/resolv.conf, но при проблемах с DNS сначала сними диагностику." >&2
-      echo "Проверь: readlink -f /etc/resolv.conf ; systemctl status systemd-resolved" >&2
-    fi
+  if service_is_active systemd-resolved; then
+    resolved_state="active"
   fi
 
-  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager 2>/dev/null; then
-    if [[ "$resolv_target" == /run/NetworkManager/* ]]; then
-      echo "Предупреждение: /etc/resolv.conf ведёт в ${resolv_target}, а NetworkManager активен." >&2
-      echo "Bundle продолжит старт и временно перепишет /etc/resolv.conf, но при смене сети NetworkManager может перезаписать runtime-DNS." >&2
-      echo "Проверь: readlink -f /etc/resolv.conf ; systemctl status NetworkManager" >&2
-    fi
+  if service_is_active NetworkManager; then
+    network_manager_state="active"
+  fi
+
+  if [[ "$resolved_state" == "active" ]] && [[ "$resolv_target" == "/run/systemd/resolve/stub-resolv.conf" ]]; then
+    echo "Предупреждение: /etc/resolv.conf ведёт в ${resolv_target}, а systemd-resolved активен." >&2
+    echo "Bundle продолжит старт и временно перепишет /etc/resolv.conf, но при проблемах с DNS сначала сними диагностику." >&2
+    echo "Проверь: readlink -f /etc/resolv.conf ; systemctl status systemd-resolved" >&2
+  fi
+
+  if [[ "$network_manager_state" == "active" ]] && [[ "$resolv_target" == /run/NetworkManager/* ]]; then
+    echo "Предупреждение: /etc/resolv.conf ведёт в ${resolv_target}, а NetworkManager активен." >&2
+    echo "Bundle продолжит старт и временно перепишет /etc/resolv.conf, но при смене сети NetworkManager может перезаписать runtime-DNS." >&2
+    echo "Проверь: readlink -f /etc/resolv.conf ; systemctl status NetworkManager" >&2
   fi
 }
 
@@ -131,6 +144,24 @@ capture_runtime_diagnostic() {
 
 list_runtime_interfaces() {
   ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -v '^lo$' || true
+}
+
+normalize_ip_prefix() {
+  local raw_address="$1"
+
+  python3 - "$raw_address" <<'PY'
+import ipaddress
+import sys
+
+value = sys.argv[1].strip()
+if not value:
+    raise SystemExit(1)
+
+try:
+    print(ipaddress.ip_interface(value).with_prefixlen)
+except ValueError:
+    raise SystemExit(1)
+PY
 }
 
 load_singbox_tun_expectations() {
@@ -206,6 +237,10 @@ interface_matches_singbox_config() {
   local interface_name="$1"
   local configured_address
   local interface_addresses=""
+  local normalized_interface_addresses=""
+  local runtime_address
+  local normalized_configured_address
+  local normalized_runtime_address
   local saw_configured_address="0"
 
   if [[ -n "$EXPECTED_TUN_INTERFACE" ]] && [[ "$interface_name" != "$EXPECTED_TUN_INTERFACE" ]]; then
@@ -220,9 +255,27 @@ interface_matches_singbox_config() {
   interface_addresses="$(ip -o addr show dev "$interface_name" 2>/dev/null | awk '{print $4}')"
   [[ -n "$interface_addresses" ]] || return 1
 
+  while IFS= read -r runtime_address; do
+    [[ -n "$runtime_address" ]] || continue
+    normalized_runtime_address="$(normalize_ip_prefix "$runtime_address" || true)"
+    if [[ -n "$normalized_runtime_address" ]]; then
+      if [[ -n "$normalized_interface_addresses" ]]; then
+        normalized_interface_addresses+=$'\n'
+      fi
+      normalized_interface_addresses+="$normalized_runtime_address"
+    fi
+  done <<<"$interface_addresses"
+
   while IFS= read -r configured_address; do
     [[ -n "$configured_address" ]] || continue
     saw_configured_address="1"
+    normalized_configured_address="$(normalize_ip_prefix "$configured_address" || true)"
+    if [[ -n "$normalized_configured_address" ]]; then
+      if ! printf '%s\n' "$normalized_interface_addresses" | grep -Fx -- "$normalized_configured_address" >/dev/null 2>&1; then
+        return 1
+      fi
+      continue
+    fi
     if ! printf '%s\n' "$interface_addresses" | grep -Fx -- "$configured_address" >/dev/null 2>&1; then
       return 1
     fi
@@ -364,7 +417,6 @@ XRAY_BIN_DEFAULT="$(
     "$(command -v xray 2>/dev/null || true)" \
   || true
 )"
-XRAY_CONFIG="${XRAY_CONFIG:-${SCRIPT_DIR}/xray-tun-subvost.json}"
 SINGBOX_BIN_DEFAULT="$(
   subvost_find_executable \
     "$(command -v sing-box 2>/dev/null || true)" \
@@ -391,6 +443,7 @@ PRESTART_INTERFACES_READY="0"
 EXPECTED_TUN_INTERFACE=""
 EXPECTED_TUN_ADDRESSES=""
 
+ensure_python3_available
 load_singbox_tun_expectations
 
 mkdir -p "$LOG_DIR"
