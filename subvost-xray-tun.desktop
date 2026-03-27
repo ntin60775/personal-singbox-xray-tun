@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Subvost Xray TUN GUI
+Comment=Запуск локального GUI для управления туннелем
+Exec=/opt/subvost-xray-tun/open-subvost-gui.sh
+Path=/opt/subvost-xray-tun
+Icon=/opt/subvost-xray-tun/subvost-xray-tun-icon.svg
+Terminal=false
+Categories=Network;Utility;
+StartupNotify=true
