@@ -16,16 +16,29 @@ from pathlib import Path
 from typing import Any
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-RUN_SCRIPT = SCRIPT_DIR / "run-xray-tun-subvost.sh"
-STOP_SCRIPT = SCRIPT_DIR / "stop-xray-tun-subvost.sh"
-DIAG_SCRIPT = SCRIPT_DIR / "capture-xray-tun-state.sh"
-LOG_DIR = SCRIPT_DIR / "logs"
+GUI_DIR = Path(__file__).resolve().parent
 SETTINGS_BASENAME = ".xray-tun-subvost-gui.json"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
 GUI_VERSION = "2026-03-27-compact-v2"
+
+
+def discover_project_root() -> Path:
+    explicit_root = os.environ.get("SUBVOST_PROJECT_ROOT")
+    if explicit_root:
+        candidate = Path(explicit_root)
+        if not candidate.is_absolute():
+            raise SystemExit(f"SUBVOST_PROJECT_ROOT должен быть абсолютным путём: {explicit_root}")
+        if not candidate.is_dir():
+            raise SystemExit(f"SUBVOST_PROJECT_ROOT не найден: {explicit_root}")
+        return candidate
+
+    candidate = GUI_DIR.parent
+    if candidate.is_dir():
+        return candidate
+
+    raise SystemExit(f"Не удалось определить корень bundle рядом с {GUI_DIR}")
 
 
 def discover_real_user() -> tuple[str, Path]:
@@ -52,6 +65,13 @@ def discover_real_user() -> tuple[str, Path]:
     return user, Path(pw_entry.pw_dir)
 
 
+PROJECT_ROOT = discover_project_root()
+RUN_SCRIPT = PROJECT_ROOT / "run-xray-tun-subvost.sh"
+STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
+DIAG_SCRIPT = PROJECT_ROOT / "capture-xray-tun-state.sh"
+LOG_DIR = PROJECT_ROOT / "logs"
+XRAY_CONFIG_PATH = PROJECT_ROOT / "xray-tun-subvost.json"
+SINGBOX_CONFIG_PATH = PROJECT_ROOT / "singbox-tun-subvost.json"
 REAL_USER, REAL_HOME = discover_real_user()
 REAL_PW_ENTRY = pwd.getpwnam(REAL_USER)
 REAL_UID = REAL_PW_ENTRY.pw_uid
@@ -1010,7 +1030,7 @@ def iso_now() -> str:
 
 def read_json_file(path: Path) -> dict[str, Any]:
     if not path.exists():
-      return {}
+        return {}
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
@@ -1072,14 +1092,14 @@ def read_resolv_conf_nameservers() -> list[str]:
 
 def load_xray_config() -> dict[str, Any]:
     try:
-        return json.loads((SCRIPT_DIR / "xray-tun-subvost.json").read_text(encoding="utf-8"))
+        return json.loads(XRAY_CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
 def load_singbox_config() -> dict[str, Any]:
     try:
-        return json.loads((SCRIPT_DIR / "singbox-tun-subvost.json").read_text(encoding="utf-8"))
+        return json.loads(SINGBOX_CONFIG_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -1131,7 +1151,7 @@ def run_shell_action(name: str, script: Path, extra_env: dict[str, str] | None =
 
     completed = subprocess.run(
         command,
-        cwd=SCRIPT_DIR,
+        cwd=PROJECT_ROOT,
         text=True,
         capture_output=True,
         env=env,
@@ -1276,6 +1296,10 @@ def collect_status() -> dict[str, Any]:
             "resolv_backup": str(RESOLV_BACKUP),
             "log_files": ", ".join(log_files) if log_files else "Логи ещё не созданы",
         },
+        "bundle_identity": {
+            "project_root": str(PROJECT_ROOT),
+        },
+        "project_root": str(PROJECT_ROOT),
         "gui_version": GUI_VERSION,
         "last_action": LAST_ACTION.copy(),
         "timestamp": iso_now(),
@@ -1421,6 +1445,7 @@ def main() -> None:
 
     with ThreadingHTTPServer((args.host, args.port), Handler) as httpd:
         print(f"Subvost GUI доступен: http://{args.host}:{args.port}")
+        print(f"Корень bundle: {PROJECT_ROOT}")
         print(f"Реальный пользователь: {REAL_USER}")
         print(f"Файл настроек GUI: {SETTINGS_FILE}")
         print("Для остановки нажмите Ctrl+C")
