@@ -99,6 +99,14 @@ print_shell_block_as_real_user() {
     uname -a
   '
 
+  print_shell_block "systemctl status xray.service" '
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl status xray.service --no-pager -l || true
+    else
+      echo "systemctl: not found"
+    fi
+  '
+
   print_section "state file" bash -lc '
     if [[ -f "'"${STATE_FILE}"'" ]]; then
       cat "'"${STATE_FILE}"'"
