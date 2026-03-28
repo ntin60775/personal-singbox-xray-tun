@@ -24,10 +24,15 @@
     "rules": [
       {
         "action": "route",
+        "domain": [
+          "baucenter.ru"
+        ],
+        "server": "dns-direct"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
-          ".ru",
-          ".su",
-          ".xn--p1ai"
+          ".baucenter.ru"
         ],
         "server": "dns-direct"
       }
@@ -92,10 +97,15 @@
       },
       {
         "action": "route",
+        "domain": [
+          "baucenter.ru"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
-          ".ru",
-          ".su",
-          ".xn--p1ai"
+          ".baucenter.ru"
         ],
         "outbound": "direct"
       }
