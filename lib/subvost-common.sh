@@ -46,6 +46,8 @@ subvost_load_project_layout_from_env() {
   export SUBVOST_CAPTURE_WRAPPER="${project_root}/capture-xray-tun-state.sh"
   export SUBVOST_OPEN_GUI_WRAPPER="${project_root}/open-subvost-gui.sh"
   export SUBVOST_INSTALL_WRAPPER="${project_root}/install-on-new-pc.sh"
+  export SUBVOST_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun.desktop"
+  export SUBVOST_DESKTOP_ICON_PATH="${project_root}/assets/subvost-xray-tun-icon.svg"
 }
 
 subvost_export_project_layout() {
@@ -64,4 +66,44 @@ subvost_find_executable() {
     fi
   done
   return 1
+}
+
+subvost_sync_desktop_launcher_icon() {
+  local desktop_file="${SUBVOST_DESKTOP_LAUNCHER:-}"
+  local icon_path="${SUBVOST_DESKTOP_ICON_PATH:-}"
+  local tmp_file
+
+  [[ -n "$desktop_file" ]] || return 0
+  [[ -n "$icon_path" ]] || return 0
+  [[ -f "$desktop_file" ]] || return 0
+  [[ -f "$icon_path" ]] || return 0
+  [[ -w "$desktop_file" ]] || return 0
+
+  tmp_file="$(mktemp "${desktop_file}.tmp.XXXXXX")"
+  SUBVOST_SYNC_ICON_PATH="$icon_path" awk '
+    BEGIN {
+      replaced = 0
+    }
+    /^Icon=/ {
+      print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_PATH"]
+      replaced = 1
+      next
+    }
+    {
+      print
+    }
+    END {
+      if (!replaced) {
+        print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_PATH"]
+      }
+    }
+  ' "$desktop_file" > "$tmp_file"
+
+  if cmp -s -- "$desktop_file" "$tmp_file"; then
+    rm -f -- "$tmp_file"
+    return 0
+  fi
+
+  chmod --reference="$desktop_file" "$tmp_file"
+  mv -- "$tmp_file" "$desktop_file"
 }

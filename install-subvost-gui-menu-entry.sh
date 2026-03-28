@@ -6,6 +6,5 @@ source "${WRAPPER_DIR}/lib/subvost-common.sh"
 
 PROJECT_ROOT="$(subvost_resolve_project_root_from_entrypoint "${BASH_SOURCE[0]}")"
 subvost_export_project_layout "$PROJECT_ROOT"
-subvost_sync_desktop_launcher_icon
 
-exec "${SUBVOST_LIBEXEC_DIR}/install-on-new-pc.sh" "$@"
+exec "${SUBVOST_LIBEXEC_DIR}/install-subvost-gui-menu-entry.sh" "$@"
