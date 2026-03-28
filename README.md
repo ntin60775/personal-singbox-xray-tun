@@ -10,6 +10,7 @@
 - `stop-xray-tun-subvost.sh` — остановка стека
 - `capture-xray-tun-state.sh` — единый диагностический скрипт
 - `open-subvost-gui.sh` — пользовательский launcher GUI
+- `install-subvost-gui-menu-entry.sh` — установка ярлыка GUI в меню приложений текущего пользователя
 - `install-on-new-pc.sh` — установка зависимостей на Debian/Ubuntu
 - `subvost-xray-tun.desktop` — portable desktop launcher
 - `xray-tun-subvost.json` и `singbox-tun-subvost.json` — operator-managed runtime-конфиги
@@ -58,7 +59,8 @@ ENABLE_FILE_LOGS=1 sudo /путь/к/run-xray-tun-subvost.sh
 
 Для повседневного использования добавлены:
 
-- `open-subvost-gui.sh` — пользовательский launcher: при клике/запуске сам поднимает backend через `pkexec`, ждёт порт и автоматически открывает страницу в браузере
+- `open-subvost-gui.sh` — пользовательский launcher: при клике/запуске сам поднимает backend через `pkexec`, ждёт порт и автоматически открывает страницу в браузере; desktop-ярлыки вызывают его в режиме принудительного restart backend
+- `install-subvost-gui-menu-entry.sh` — ставит пункт меню в `~/.local/share/applications`, привязанный к текущему каталогу bundle
 - `subvost-xray-tun.desktop` — portable desktop launcher
 - `gui/gui_server.py` — internal backend и веб-интерфейс
 - `libexec/start-gui-backend-root.sh` — internal root-bootstrap для `pkexec`
@@ -77,7 +79,15 @@ ENABLE_FILE_LOGS=1 sudo /путь/к/run-xray-tun-subvost.sh
 - показывает текущее состояние стека, PID'ы, `tun0`, DNS и базовую информацию о соединении
 - даёт переключатель файлового логирования; настройка применяется при следующем запуске
 
-`subvost-xray-tun.desktop` self-locating: `Exec` использует `%k`, вычисляет каталог bundle по пути к самому desktop-файлу и запускает только публичный `open-subvost-gui.sh`. Поддерживаемый сценарий переносимости: launcher хранится внутри самого bundle и запускается оттуда. Для `Icon` используется portable системный fallback, а repo-managed SVG лежит в `assets/`.
+`subvost-xray-tun.desktop` self-locating: `Exec` использует `%k`, вычисляет каталог bundle по пути к самому desktop-файлу и запускает только публичный `open-subvost-gui.sh` с флагом принудительного restart backend. Этот launcher предназначен для запуска прямо из каталога bundle. В каноническом файле репозитория `Icon` остаётся на portable fallback `network-vpn`, а пользовательские launcher'ы `open-subvost-gui.sh` и `install-on-new-pc.sh` при первом подходящем запуске переписывают `Icon=` на absolute path к `assets/subvost-xray-tun-icon.svg` внутри текущего bundle. Это даёт корректную локальную иконку после переноса, не зашивая developer-specific path в Git.
+
+Чтобы добавить bundle в меню приложений, используй отдельный installer:
+
+```bash
+bash /путь/к/install-subvost-gui-menu-entry.sh
+```
+
+Он создаёт `~/.local/share/applications/personal-singbox-xray-tun.desktop` с абсолютными путями к текущему `open-subvost-gui.sh` и SVG-иконке bundle. Название пункта меню сделано отдельным: `Subvost Xray TUN GUI (Personal)`, чтобы установка не перезаписывала ярлык другого bundle. Установленный ярлык тоже запускает GUI в режиме принудительного restart backend. Если каталог bundle позже будет перемещён, этот installer нужно запустить повторно.
 
 ## Установка на другой ПК
 
