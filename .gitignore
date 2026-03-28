@@ -1,6 +1,5 @@
 /logs/*.log
 /xray-tun-subvost.json
-/singbox-tun-subvost.json
 /__pycache__/
 __pycache__/
 
