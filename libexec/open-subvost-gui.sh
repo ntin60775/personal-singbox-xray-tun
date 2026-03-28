@@ -11,11 +11,35 @@ URL="http://${HOST}:${PORT}"
 CURRENT_GUI_VERSION="2026-03-27-compact-v2"
 REAL_USER="${USER:-$(id -un)}"
 REAL_HOME="${HOME:-$(getent passwd "$REAL_USER" | cut -d: -f6)}"
+FORCE_RESTART=0
 
 if [[ -z "$REAL_HOME" ]]; then
   echo "Не удалось определить домашний каталог пользователя ${REAL_USER}" >&2
   exit 1
 fi
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force-restart-backend)
+        FORCE_RESTART=1
+        ;;
+      --help)
+        cat <<'EOF'
+Использование: open-subvost-gui.sh [--force-restart-backend]
+
+  --force-restart-backend  принудительно перезапустить GUI backend перед открытием браузера
+EOF
+        exit 0
+        ;;
+      *)
+        echo "Неизвестный аргумент: $1" >&2
+        exit 1
+        ;;
+    esac
+    shift
+  done
+}
 
 is_server_ready() {
   python3 - "$HOST" "$PORT" <<'PY'
@@ -74,7 +98,7 @@ open_browser() {
   xdg-open "${URL}" >/dev/null 2>&1 &
 }
 
-if ! is_server_ready || ! server_contract_matches; then
+start_backend() {
   pkexec env \
     SUBVOST_PROJECT_ROOT="${SUBVOST_PROJECT_ROOT}" \
     SUBVOST_REAL_USER="${REAL_USER}" \
@@ -83,6 +107,12 @@ if ! is_server_ready || ! server_contract_matches; then
     SUBVOST_GUI_PORT="${PORT}" \
     SUBVOST_GUI_RESTART=1 \
     /usr/bin/env bash "${SUBVOST_LIBEXEC_DIR}/start-gui-backend-root.sh"
+}
+
+parse_args "$@"
+
+if [[ "${FORCE_RESTART}" == "1" ]] || ! is_server_ready || ! server_contract_matches; then
+  start_backend
 fi
 
 if ! wait_for_server; then
