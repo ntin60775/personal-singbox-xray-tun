@@ -24,10 +24,15 @@
     "rules": [
       {
         "action": "route",
+        "domain": [
+          "public-service.example.com"
+        ],
+        "server": "dns-direct"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
-          ".ru",
-          ".su",
-          ".xn--p1ai"
+          ".public-service.example.com"
         ],
         "server": "dns-direct"
       }
@@ -92,10 +97,15 @@
       },
       {
         "action": "route",
+        "domain": [
+          "public-service.example.com"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
-          ".ru",
-          ".su",
-          ".xn--p1ai"
+          ".public-service.example.com"
         ],
         "outbound": "direct"
       }
