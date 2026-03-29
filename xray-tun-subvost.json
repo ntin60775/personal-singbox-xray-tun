@@ -1,0 +1,126 @@
+{
+  "log": {
+    "loglevel": "info"
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "45.137.69.71",
+            "port": 443,
+            "users": [
+              {
+                "id": "REPLACE_WITH_REALITY_UUID",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "sockopt": {
+          "interface": "eth0"
+        },
+        "realitySettings": {
+          "serverName": "fn.video.subvost.fun",
+          "fingerprint": "chrome",
+          "publicKey": "REPLACE_WITH_REALITY_PUBLIC_KEY",
+          "shortId": "REPLACE_WITH_REALITY_SHORT_ID",
+          "spiderX": "/"
+        },
+        "xhttpSettings": {
+          "host": "fn.video.subvost.fun",
+          "path": "/",
+          "mode": "auto",
+          "extra": {
+            "xmux": {
+              "cMaxReuseTimes": 0,
+              "maxConcurrency": "16-32",
+              "maxConnections": 0,
+              "hKeepAlivePeriod": 0,
+              "hMaxRequestTimes": "600-900",
+              "hMaxReusableSecs": "1800-3000"
+            },
+            "headers": {},
+            "noGRPCHeader": false,
+            "xPaddingBytes": "100-1000",
+            "scMaxEachPostBytes": 1000000,
+            "scMinPostsIntervalMs": 30,
+            "scStreamUpServerSecs": "20-80"
+          }
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom",
+      "streamSettings": {
+        "sockopt": {
+          "interface": "eth0"
+        }
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "socks-in"
+        ],
+        "ip": [
+          "10.3.40.33"
+        ],
+        "port": "60017",
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "socks-in"
+        ],
+        "ip": [
+          "127.0.0.0/8",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "169.254.0.0/16",
+          "100.64.0.0/10",
+          "224.0.0.0/4",
+          "240.0.0.0/4"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "socks-in"
+        ],
+        "network": "tcp,udp",
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}
