@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Репозиторий представляет собой переносимый bundle для запуска `Xray + sing-box` в TUN-режиме. Публичные точки входа в корне: `run-xray-tun-subvost.sh`, `stop-xray-tun-subvost.sh`, `capture-xray-tun-state.sh`, `open-subvost-gui.sh`, `install-on-new-pc.sh` и `subvost-xray-tun.desktop`. Рабочие JSON-конфиги лежат в корне (`xray-tun-subvost.json`, `singbox-tun-subvost.json`), диагностика и временные логи попадают в `logs/`. Внутренняя shell-реализация вынесена в `lib/` и `libexec/`, GUI backend — в `gui/`, исследовательские материалы — в `docs/research/`, вспомогательные repo-managed артефакты — в `assets/`.
+Репозиторий представляет собой переносимый bundle для запуска `Xray + sing-box` в TUN-режиме. Публичные точки входа в корне: `run-xray-tun-subvost.sh`, `stop-xray-tun-subvost.sh`, `capture-xray-tun-state.sh`, `open-subvost-gui.sh`, `install-on-new-pc.sh` и `subvost-xray-tun.desktop`. JSON-конфиги лежат в корне: `singbox-tun-subvost.json` является repo-managed runtime-конфигом, а `xray-tun-subvost.json` хранится в Git только как санитизированный шаблон, где перед реальным запуском оператор локально дозаполняет `id`, `publicKey` и `shortId`. Диагностика и временные логи попадают в `logs/`. Внутренняя shell-реализация вынесена в `lib/` и `libexec/`, GUI backend — в `gui/`, исследовательские материалы — в `docs/research/`, вспомогательные repo-managed артефакты — в `assets/`.
 
 Для проектных планов используется каталог `plans/`:
 
@@ -14,7 +14,7 @@
 
 Структура каталогов `plans/drafts/`, `plans/active/`, `plans/done/` и `plans/cancelled/` считается постоянной частью репозитория: планы перемещаются между этими каталогами, но сами каталоги должны сохраняться даже пустыми и не удаляются без отдельной явной команды.
 
-Планы являются частью инженерной документации репозитория и хранятся в Git. Рабочие JSON-конфиги по-прежнему считаются operator-managed и в Git не попадают.
+Планы являются частью инженерной документации репозитория и хранятся в Git. `xray-tun-subvost.json` допустим в Git только в санитизированном виде: live-значения `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны оставаться локальными operator-managed данными и не коммитятся.
 
 ## Build, Test, and Development Commands
 
@@ -76,6 +76,6 @@
 
 ## Security & Configuration Tips
 
-Файлы `xray-tun-subvost.json`, `singbox-tun-subvost.json`, `logs/*.log` и `__pycache__/` уже исключены из Git; не добавляйте в репозиторий секреты, локальные адреса и диагностические дампы с приватными данными. Любые изменения, требующие `sudo`, должны быть обратимыми и явно восстанавливать исходное состояние системы.
+В Git не должны попадать секреты, локальные адреса и диагностические дампы с приватными данными. `logs/*.log` и `__pycache__/` уже исключены из Git. `xray-tun-subvost.json` разрешён в репозитории только как санитизированный шаблон: поля `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны оставаться placeholders `REPLACE_WITH_REALITY_UUID`, `REPLACE_WITH_REALITY_PUBLIC_KEY` и `REPLACE_WITH_REALITY_SHORT_ID`. Если для локального smoke нужны live-значения, перед commit/PR верните placeholders. Любые изменения, требующие `sudo`, должны быть обратимыми и явно восстанавливать исходное состояние системы.
 
 Скрипты не должны автоматически менять постоянную системную конфигурацию DNS, firewall и network-manager-сервисов без отдельной и явно документированной причины. По умолчанию допустимы только обратимые runtime-изменения и диагностические проверки.
