@@ -13,7 +13,8 @@
 - `install-subvost-gui-menu-entry.sh` — установка ярлыка GUI в меню приложений текущего пользователя
 - `install-on-new-pc.sh` — установка зависимостей на Debian/Ubuntu
 - `subvost-xray-tun.desktop` — portable desktop launcher
-- `xray-tun-subvost.json` и `singbox-tun-subvost.json` — operator-managed runtime-конфиги
+- `xray-tun-subvost.json` — санитизированный шаблон `Xray`, который перед реальным запуском нужно локально дозаполнить
+- `singbox-tun-subvost.json` — repo-managed runtime-конфиг `sing-box`
 - `logs/` — runtime-логи и диагностические дампы
 - `plans/` — инженерные планы задач
 
@@ -42,6 +43,16 @@ export XRAY_BIN="/нужный/путь/xray"
 export SINGBOX_BIN="/нужный/путь/sing-box"
 export ENABLE_FILE_LOGS=1
 ```
+
+## Санитизированный xray-конфиг
+
+`xray-tun-subvost.json` хранится в Git только как санитизированный шаблон и не является готовым runtime-конфигом из коробки. Перед реальным запуском оператор должен локально заменить placeholders в следующих полях:
+
+- `outbounds[0].settings.vnext[0].users[0].id` → `REPLACE_WITH_REALITY_UUID`
+- `outbounds[0].streamSettings.realitySettings.publicKey` → `REPLACE_WITH_REALITY_PUBLIC_KEY`
+- `outbounds[0].streamSettings.realitySettings.shortId` → `REPLACE_WITH_REALITY_SHORT_ID`
+
+Эти значения остаются operator-managed. В Git, планах и документации должны оставаться только placeholders, а live-значения используются только локально для runtime и ручных smoke-проверок.
 
 ## Запуск
 
