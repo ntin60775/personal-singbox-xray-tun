@@ -31,6 +31,13 @@
       },
       {
         "action": "route",
+        "domain": [
+          "ssdemordp.oooaab.ru"
+        ],
+        "server": "dns-direct"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
           ".baucenter.ru"
         ],
@@ -92,6 +99,28 @@
         "process_name": [
           "xray",
           "sing-box"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "ssdemordp.oooaab.ru"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "81.29.134.113/32",
+          "127.0.0.0/8",
+          "::1/128",
+          "169.254.0.0/16",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "fe80::/10",
+          "fc00::/7"
         ],
         "outbound": "direct"
       },
