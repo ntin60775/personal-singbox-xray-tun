@@ -7,21 +7,40 @@
     "strategy": "ipv4_only",
     "servers": [
       {
-        "type": "udp",
+        "type": "https",
         "tag": "dns-proxy",
         "server": "8.8.8.8",
-        "server_port": 53,
+        "path": "/dns-query",
         "detour": "proxy"
       },
       {
-        "type": "udp",
+        "type": "https",
         "tag": "dns-direct",
-        "server": "8.8.8.8",
-        "server_port": 53,
+        "server": "77.88.8.8",
+        "path": "/dns-query",
+        "tls": {
+          "server_name": "dns.google"
+        },
         "detour": "direct"
+      },
+      {
+        "type": "hosts",
+        "tag": "dns-hosts",
+        "predefined": {
+          "host-a.example.com": "213.24.64.175",
+          "host-b.example.com": "213.24.64.181"
+        }
       }
     ],
     "rules": [
+      {
+        "action": "route",
+        "domain": [
+          "host-a.example.com",
+          "host-b.example.com"
+        ],
+        "server": "dns-hosts"
+      },
       {
         "action": "route",
         "domain": [
