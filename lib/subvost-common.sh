@@ -107,3 +107,95 @@ subvost_sync_desktop_launcher_icon() {
   chmod --reference="$desktop_file" "$tmp_file"
   mv -- "$tmp_file" "$desktop_file"
 }
+
+subvost_resolve_real_config_home() {
+  local real_home="$1"
+  local explicit_config_home="${SUBVOST_REAL_XDG_CONFIG_HOME:-}"
+
+  if [[ -n "$explicit_config_home" ]]; then
+    subvost_ensure_absolute_path "$explicit_config_home" "SUBVOST_REAL_XDG_CONFIG_HOME"
+    printf '%s\n' "$explicit_config_home"
+    return 0
+  fi
+
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && [[ -n "${XDG_CONFIG_HOME:-}" ]] && [[ "${XDG_CONFIG_HOME}" == /* ]]; then
+    printf '%s\n' "${XDG_CONFIG_HOME}"
+    return 0
+  fi
+
+  printf '%s\n' "${real_home}/.config"
+}
+
+subvost_resolve_store_dir_for_home() {
+  local real_home="$1"
+  local config_home
+
+  config_home="$(subvost_resolve_real_config_home "$real_home")"
+  printf '%s\n' "${config_home}/subvost-xray-tun"
+}
+
+subvost_resolve_store_file_for_home() {
+  local real_home="$1"
+  local store_dir
+
+  store_dir="$(subvost_resolve_store_dir_for_home "$real_home")"
+  printf '%s\n' "${store_dir}/store.json"
+}
+
+subvost_resolve_generated_xray_config_for_home() {
+  local real_home="$1"
+  local store_dir
+
+  store_dir="$(subvost_resolve_store_dir_for_home "$real_home")"
+  printf '%s\n' "${store_dir}/generated-xray-config.json"
+}
+
+subvost_resolve_active_runtime_xray_config_for_home() {
+  local real_home="$1"
+  local store_dir
+
+  store_dir="$(subvost_resolve_store_dir_for_home "$real_home")"
+  printf '%s\n' "${store_dir}/active-runtime-xray-config.json"
+}
+
+subvost_store_has_active_selection() {
+  local store_file="$1"
+
+  if [[ ! -f "$store_file" ]]; then
+    return 1
+  fi
+
+  python3 - "$store_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+
+selection = payload.get("active_selection", {})
+profile_id = selection.get("profile_id")
+node_id = selection.get("node_id")
+raise SystemExit(0 if profile_id and node_id else 1)
+PY
+}
+
+subvost_resolve_active_xray_config_for_home() {
+  local real_home="$1"
+  local fallback_xray_config="$2"
+  local store_file
+  local generated_xray_config
+
+  store_file="$(subvost_resolve_store_file_for_home "$real_home")"
+  generated_xray_config="$(subvost_resolve_generated_xray_config_for_home "$real_home")"
+
+  if [[ -f "$generated_xray_config" ]] && subvost_store_has_active_selection "$store_file"; then
+    printf '%s\n' "$generated_xray_config"
+    return 0
+  fi
+
+  printf '%s\n' "$fallback_xray_config"
+}

@@ -10,11 +10,17 @@ REAL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 REAL_HOME="$(
   getent passwd "$REAL_USER" | cut -d: -f6
 )"
+REAL_UID="$(id -u "$REAL_USER")"
+REAL_GID="$(id -g "$REAL_USER")"
 
 if [[ -z "$REAL_HOME" ]]; then
   echo "Не удалось определить домашний каталог пользователя ${REAL_USER}" >&2
   exit 1
 fi
+
+ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_runtime_xray_config_for_home "$REAL_HOME")"
+STORE_FILE_DEFAULT="$(subvost_resolve_store_file_for_home "$REAL_HOME")"
 
 ensure_absolute_path() {
   local path_value="$1"
@@ -425,7 +431,8 @@ SINGBOX_BIN_DEFAULT="$(
   || true
 )"
 XRAY_BIN="${XRAY_BIN:-${XRAY_BIN_DEFAULT:-${HOME}/.local/bin/xray}}"
-XRAY_CONFIG="${XRAY_CONFIG:-${SUBVOST_XRAY_CONFIG_PATH}}"
+XRAY_CONFIG="${XRAY_CONFIG:-${ACTIVE_XRAY_CONFIG_DEFAULT}}"
+XRAY_RUNTIME_CONFIG="${XRAY_RUNTIME_CONFIG:-${ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT}}"
 SINGBOX_CONFIG="${SINGBOX_CONFIG:-${SUBVOST_SINGBOX_CONFIG_PATH}}"
 SINGBOX_BIN="${SINGBOX_BIN:-${SINGBOX_BIN_DEFAULT:-/usr/bin/sing-box}}"
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
@@ -442,6 +449,8 @@ PRESTART_INTERFACES=""
 PRESTART_INTERFACES_READY="0"
 EXPECTED_TUN_INTERFACE=""
 EXPECTED_TUN_ADDRESSES=""
+ACTIVE_PROFILE_ID=""
+ACTIVE_NODE_ID=""
 
 ensure_python3_available
 load_singbox_tun_expectations
@@ -451,9 +460,59 @@ ensure_absolute_path "$STATE_FILE" "STATE_FILE"
 ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
 ensure_absolute_path "$XRAY_LOG" "XRAY_LOG"
 ensure_absolute_path "$SINGBOX_LOG" "SINGBOX_LOG"
+ensure_absolute_path "$XRAY_RUNTIME_CONFIG" "XRAY_RUNTIME_CONFIG"
 
 backup_resolv_conf() {
   sudo cp -fL /etc/resolv.conf "$RESOLV_BACKUP"
+}
+
+load_active_selection_from_store() {
+  local store_file="$1"
+  local selection_data=""
+
+  if [[ ! -f "$store_file" ]]; then
+    return 0
+  fi
+
+  selection_data="$(
+    python3 - "$store_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+profile_id = ""
+node_id = ""
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    selection = payload.get("active_selection", {})
+    profile_id = selection.get("profile_id") or ""
+    node_id = selection.get("node_id") or ""
+except Exception:
+    pass
+print(profile_id)
+print(node_id)
+PY
+  )"
+
+  ACTIVE_PROFILE_ID="$(printf '%s\n' "$selection_data" | sed -n '1p')"
+  ACTIVE_NODE_ID="$(printf '%s\n' "$selection_data" | sed -n '2p')"
+}
+
+sync_runtime_xray_config_snapshot() {
+  local snapshot_dir
+
+  if [[ "$XRAY_CONFIG" == "$XRAY_RUNTIME_CONFIG" ]]; then
+    return 0
+  fi
+
+  snapshot_dir="$(dirname -- "$XRAY_RUNTIME_CONFIG")"
+  mkdir -p "$snapshot_dir"
+  cp -f -- "$XRAY_CONFIG" "$XRAY_RUNTIME_CONFIG"
+  chmod 600 "$XRAY_RUNTIME_CONFIG" 2>/dev/null || true
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown "${REAL_UID}:${REAL_GID}" "$XRAY_RUNTIME_CONFIG" 2>/dev/null || true
+  fi
 }
 
 write_runtime_resolv_conf() {
@@ -541,7 +600,9 @@ else
   SINGBOX_RUN_TARGET="/dev/null"
 fi
 
-if ! "$XRAY_BIN" run -test -c "$XRAY_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
+sync_runtime_xray_config_snapshot
+
+if ! "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
   echo "Xray config check завершился ошибкой. Смотри лог: $XRAY_CHECK_LOG" >&2
   exit 1
 fi
@@ -553,7 +614,7 @@ fi
 
 echo "[3/8] Запуск Xray core"
 sudo -v
-sudo "$XRAY_BIN" run -c "$XRAY_CONFIG" >>"$XRAY_RUN_TARGET" 2>&1 &
+sudo "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_RUN_TARGET" 2>&1 &
 XRAY_PID=$!
 sleep 2
 
@@ -562,7 +623,7 @@ if ! kill -0 "$XRAY_PID" 2>/dev/null; then
     echo "Xray завершился сразу после старта. Смотри лог: $XRAY_LOG" >&2
   else
     XRAY_FAIL_LOG="$(make_temp_log xray-start-fail)"
-    capture_start_failure "$XRAY_FAIL_LOG" "$XRAY_BIN" run -c "$XRAY_CONFIG"
+    capture_start_failure "$XRAY_FAIL_LOG" "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG"
     fail_start_with_rollback "Xray завершился сразу после старта. Диагностика команды сохранена в: $XRAY_FAIL_LOG"
   fi
   fail_start_with_rollback "Xray завершился сразу после старта. Смотри лог: $XRAY_LOG"
@@ -600,16 +661,21 @@ backup_resolv_conf
 write_runtime_resolv_conf
 
 echo "[7/8] Сохранение состояния"
-printf 'XRAY_PID=%s\nSINGBOX_PID=%s\nRESOLV_BACKUP=%s\n' \
+load_active_selection_from_store "$STORE_FILE_DEFAULT"
+printf 'XRAY_PID=%s\nSINGBOX_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PROFILE_ID=%s\nACTIVE_NODE_ID=%s\n' \
   "$XRAY_PID" \
   "$SINGBOX_PID" \
   "$RESOLV_BACKUP" \
+  "$XRAY_RUNTIME_CONFIG" \
+  "$ACTIVE_PROFILE_ID" \
+  "$ACTIVE_NODE_ID" \
   >"$STATE_FILE"
 
 echo "[8/8] Готово"
 echo "XRAY_PID=$XRAY_PID"
 echo "SINGBOX_PID=$SINGBOX_PID"
 echo "RESOLV_BACKUP=$RESOLV_BACKUP"
+echo "XRAY_CONFIG=$XRAY_RUNTIME_CONFIG"
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
   echo "Лог Xray: $XRAY_LOG"
   echo "Лог sing-box: $SINGBOX_LOG"

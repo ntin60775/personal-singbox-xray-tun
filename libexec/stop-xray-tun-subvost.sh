@@ -15,7 +15,8 @@ if [[ -z "$REAL_HOME" ]]; then
   exit 1
 fi
 
-XRAY_CONFIG="${XRAY_CONFIG:-${SUBVOST_XRAY_CONFIG_PATH}}"
+ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+XRAY_CONFIG="${XRAY_CONFIG:-${ACTIVE_XRAY_CONFIG_DEFAULT}}"
 SINGBOX_CONFIG="${SINGBOX_CONFIG:-${SUBVOST_SINGBOX_CONFIG_PATH}}"
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
@@ -52,6 +53,11 @@ if [[ -f "$STATE_FILE" ]]; then
       RESOLV_BACKUP)
         if [[ "$value" == /* ]]; then
           RESOLV_BACKUP="$value"
+        fi
+        ;;
+      XRAY_CONFIG)
+        if [[ "$value" == /* ]]; then
+          XRAY_CONFIG="$value"
         fi
         ;;
     esac
