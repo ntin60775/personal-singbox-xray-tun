@@ -8,13 +8,19 @@ subvost_load_project_layout_from_env
 HOST="${SUBVOST_GUI_HOST:-127.0.0.1}"
 PORT="${SUBVOST_GUI_PORT:-8421}"
 URL="http://${HOST}:${PORT}"
-CURRENT_GUI_VERSION="2026-03-27-compact-v2"
+CURRENT_GUI_VERSION="2026-03-31-wave1-v1"
 REAL_USER="${USER:-$(id -un)}"
 REAL_HOME="${HOME:-$(getent passwd "$REAL_USER" | cut -d: -f6)}"
+REAL_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${REAL_HOME}/.config}"
 FORCE_RESTART=0
 
 if [[ -z "$REAL_HOME" ]]; then
   echo "Не удалось определить домашний каталог пользователя ${REAL_USER}" >&2
+  exit 1
+fi
+
+if [[ "$REAL_XDG_CONFIG_HOME" != /* ]]; then
+  echo "XDG_CONFIG_HOME должен быть абсолютным путём: ${REAL_XDG_CONFIG_HOME}" >&2
   exit 1
 fi
 
@@ -103,6 +109,7 @@ start_backend() {
     SUBVOST_PROJECT_ROOT="${SUBVOST_PROJECT_ROOT}" \
     SUBVOST_REAL_USER="${REAL_USER}" \
     SUBVOST_REAL_HOME="${REAL_HOME}" \
+    SUBVOST_REAL_XDG_CONFIG_HOME="${REAL_XDG_CONFIG_HOME}" \
     SUBVOST_GUI_HOST="${HOST}" \
     SUBVOST_GUI_PORT="${PORT}" \
     SUBVOST_GUI_RESTART=1 \

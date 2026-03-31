@@ -15,13 +15,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from subvost_parser import preview_links
+from subvost_paths import build_app_paths
+from subvost_runtime import read_json_config
+from subvost_store import (
+    activate_selection,
+    add_subscription,
+    delete_node,
+    delete_profile,
+    delete_subscription,
+    ensure_store_initialized,
+    get_active_node,
+    read_or_migrate_gui_settings,
+    refresh_all_subscriptions,
+    refresh_subscription,
+    save_gui_settings,
+    save_manual_import_results,
+    save_store,
+    store_payload,
+    sync_generated_runtime,
+    update_node,
+    update_profile,
+    update_subscription,
+)
 
 GUI_DIR = Path(__file__).resolve().parent
-SETTINGS_BASENAME = ".xray-tun-subvost-gui.json"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
-GUI_VERSION = "2026-03-27-compact-v2"
+GUI_VERSION = "2026-03-31-wave1-v1"
 
 
 def discover_project_root() -> Path:
@@ -70,15 +92,15 @@ RUN_SCRIPT = PROJECT_ROOT / "run-xray-tun-subvost.sh"
 STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
 DIAG_SCRIPT = PROJECT_ROOT / "capture-xray-tun-state.sh"
 LOG_DIR = PROJECT_ROOT / "logs"
-XRAY_CONFIG_PATH = PROJECT_ROOT / "xray-tun-subvost.json"
+XRAY_TEMPLATE_PATH = PROJECT_ROOT / "xray-tun-subvost.json"
 SINGBOX_CONFIG_PATH = PROJECT_ROOT / "singbox-tun-subvost.json"
 REAL_USER, REAL_HOME = discover_real_user()
 REAL_PW_ENTRY = pwd.getpwnam(REAL_USER)
 REAL_UID = REAL_PW_ENTRY.pw_uid
 REAL_GID = REAL_PW_ENTRY.pw_gid
+APP_PATHS = build_app_paths(REAL_HOME)
 STATE_FILE = REAL_HOME / ".xray-tun-subvost.state"
 RESOLV_BACKUP = REAL_HOME / ".xray-tun-subvost.resolv.conf.backup"
-SETTINGS_FILE = REAL_HOME / SETTINGS_BASENAME
 LAST_ACTION: dict[str, Any] = {
     "name": None,
     "ok": None,
@@ -568,6 +590,168 @@ INDEX_HTML = """<!DOCTYPE html>
       line-height: 1.45;
     }
 
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .section-block {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .text-input,
+    .textarea-input {
+      width: 100%;
+      border: 1px solid rgba(30, 41, 59, 0.12);
+      background: rgba(248, 250, 252, 0.94);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 13px;
+      font: inherit;
+    }
+
+    .textarea-input {
+      min-height: 124px;
+      resize: vertical;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .section-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .button-secondary {
+      color: var(--text);
+      background: linear-gradient(180deg, #ffffff, #eef4fb);
+      border: 1px solid rgba(30, 41, 59, 0.12);
+    }
+
+    .small-action {
+      min-height: 42px;
+      padding: 10px 14px;
+      font-size: 0.88rem;
+      box-shadow: none;
+    }
+
+    .check-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .check-row input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--primary);
+    }
+
+    .list-panel {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      padding: 12px 13px;
+      border-radius: 16px;
+      background: rgba(248, 250, 252, 0.9);
+      border: 1px solid rgba(30, 41, 59, 0.08);
+    }
+
+    .list-row[data-selected="true"] {
+      border-color: rgba(37, 99, 235, 0.28);
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.16);
+    }
+
+    .list-main {
+      min-width: 0;
+    }
+
+    .row-title {
+      display: block;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      word-break: break-word;
+    }
+
+    .row-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .tiny-button {
+      min-height: 34px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(30, 41, 59, 0.12);
+      background: #fff;
+      color: var(--text);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .tiny-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .tiny-button[data-tone="danger"] {
+      color: var(--danger);
+      border-color: rgba(220, 38, 38, 0.18);
+      background: #fff7f7;
+    }
+
+    .tiny-button[data-tone="accent"] {
+      color: var(--warning);
+      border-color: rgba(249, 115, 22, 0.18);
+      background: #fff7ed;
+    }
+
+    .empty-note {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
     @media (max-width: 1360px) {
       .hero {
         grid-template-columns: 1fr;
@@ -580,9 +764,11 @@ INDEX_HTML = """<!DOCTYPE html>
 
     @media (max-width: 1100px) {
       .grid,
+      .data-grid,
       .hero-meta,
       .actions,
-      .info-grid {
+      .info-grid,
+      .field-grid {
         grid-template-columns: 1fr;
       }
 
@@ -609,6 +795,14 @@ INDEX_HTML = """<!DOCTYPE html>
       .status-pill {
         width: 100%;
         justify-content: center;
+      }
+
+      .list-row {
+        grid-template-columns: 1fr;
+      }
+
+      .inline-actions {
+        justify-content: flex-start;
       }
     }
 
@@ -801,12 +995,139 @@ INDEX_HTML = """<!DOCTYPE html>
         </article>
       </div>
     </section>
+
+    <section class="data-grid">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Импорт и подписки</h2>
+            <p class="card-copy">Сначала проверить ссылки, затем сохранить их в локальный store или привязать к subscription URL.</p>
+          </div>
+          <div class="badge-row" id="store-counts"></div>
+        </div>
+
+        <div class="field">
+          <span class="info-label">Ссылки для импорта</span>
+          <textarea class="textarea-input" id="import-input" placeholder="vless://...
+vmess://...
+trojan://...
+ss://..."></textarea>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="info-label">Файл со ссылками</span>
+            <input class="text-input" id="import-file" type="file" accept=".txt,text/plain">
+          </label>
+          <label class="field">
+            <span class="info-label">Поведение после сохранения</span>
+            <span class="check-row">
+              <input type="checkbox" id="activate-single-toggle">
+              Автоматически активировать, если валидна ровно одна ссылка
+            </span>
+          </label>
+        </div>
+
+        <div class="section-actions">
+          <button class="button button-secondary small-action" id="preview-button" type="button">Проверить</button>
+          <button class="button button-primary small-action" id="save-import-button" type="button">Сохранить</button>
+        </div>
+
+        <div class="list-panel" id="import-preview-list">
+          <p class="empty-note">Предпросмотр ещё не строился.</p>
+        </div>
+
+        <div class="section-block">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Подписки</h2>
+              <p class="card-copy">Добавление URL, ручное обновление и просмотр последней ошибки без логов.</p>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="info-label">Имя подписки</span>
+              <input class="text-input" id="subscription-name" type="text" placeholder="Например, Happ">
+            </label>
+            <label class="field">
+              <span class="info-label">Subscription URL</span>
+              <input class="text-input mono" id="subscription-url" type="url" placeholder="https://example.com/subscription">
+            </label>
+          </div>
+
+          <div class="section-actions">
+            <button class="button button-accent small-action" id="add-subscription-button" type="button">Добавить подписку</button>
+            <button class="button button-secondary small-action" id="refresh-all-button" type="button">Обновить все</button>
+          </div>
+
+          <div class="list-panel" id="subscription-list">
+            <p class="empty-note">Подписок пока нет.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Профили и узлы</h2>
+            <p class="card-copy">Активный выбор, переключение узлов и базовое управление локальной моделью.</p>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Активный профиль</span>
+            <div class="info-value" id="active-profile-name">-</div>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Активный узел</span>
+            <div class="info-value" id="active-node-name">-</div>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Runtime-конфиг</span>
+            <div class="info-value mono" id="runtime-source">-</div>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Текущий актив</span>
+            <div class="info-value" id="active-selection-summary">-</div>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Профили</h2>
+              <p class="card-copy">Manual profile и профили, созданные из подписок.</p>
+            </div>
+          </div>
+          <div class="list-panel" id="profile-list">
+            <p class="empty-note">Профили пока не загружены.</p>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">Узлы выбранного профиля</h2>
+              <p class="card-copy">Активация, переименование, отключение и удаление.</p>
+            </div>
+          </div>
+          <div class="list-panel" id="node-list">
+            <p class="empty-note">Выбери профиль, чтобы увидеть узлы.</p>
+          </div>
+        </div>
+      </article>
+    </section>
   </main>
 
   <script>
     const state = {
       polling: null,
       busy: false,
+      selectedProfileId: null,
+      storePayload: null,
+      previewResults: [],
     };
 
     const els = {
@@ -842,14 +1163,41 @@ INDEX_HTML = """<!DOCTYPE html>
       actionBadges: document.getElementById("action-badges"),
       lastActionMessage: document.getElementById("last-action-message"),
       commandOutput: document.getElementById("command-output"),
+      storeCounts: document.getElementById("store-counts"),
+      activeProfileName: document.getElementById("active-profile-name"),
+      activeNodeName: document.getElementById("active-node-name"),
+      runtimeSource: document.getElementById("runtime-source"),
+      activeSelectionSummary: document.getElementById("active-selection-summary"),
+      importInput: document.getElementById("import-input"),
+      importFile: document.getElementById("import-file"),
+      activateSingleToggle: document.getElementById("activate-single-toggle"),
+      previewButton: document.getElementById("preview-button"),
+      saveImportButton: document.getElementById("save-import-button"),
+      importPreviewList: document.getElementById("import-preview-list"),
+      subscriptionName: document.getElementById("subscription-name"),
+      subscriptionUrl: document.getElementById("subscription-url"),
+      addSubscriptionButton: document.getElementById("add-subscription-button"),
+      refreshAllButton: document.getElementById("refresh-all-button"),
+      subscriptionList: document.getElementById("subscription-list"),
+      profileList: document.getElementById("profile-list"),
+      nodeList: document.getElementById("node-list"),
     };
 
     function setBusy(busy) {
       state.busy = busy;
-      for (const button of [els.startButton, els.stopButton, els.diagButton]) {
+      for (const button of [
+        els.startButton,
+        els.stopButton,
+        els.diagButton,
+        els.previewButton,
+        els.saveImportButton,
+        els.addSubscriptionButton,
+        els.refreshAllButton
+      ]) {
         button.disabled = busy;
       }
       els.loggingToggle.disabled = busy;
+      els.importFile.disabled = busy;
     }
 
     function formatTimestamp(value) {
@@ -866,13 +1214,27 @@ INDEX_HTML = """<!DOCTYPE html>
         .replaceAll(">", "&gt;");
     }
 
+    function escapeAttr(value) {
+      return escapeHtml(value).replaceAll('"', "&quot;");
+    }
+
     function badge(label, tone = "") {
       const attr = tone ? ` data-tone="${tone}"` : "";
       return `<span class="badge"${attr}>${escapeHtml(label)}</span>`;
     }
 
+    function tinyButton(label, action, attrs = {}, tone = "") {
+      const attrParts = Object.entries(attrs).map(([key, value]) => ` data-${key}="${escapeAttr(value)}"`);
+      const toneAttr = tone ? ` data-tone="${tone}"` : "";
+      return `<button class="tiny-button"${toneAttr} data-action="${escapeAttr(action)}"${attrParts.join("")} type="button">${escapeHtml(label)}</button>`;
+    }
+
     function renderBadges(container, items) {
       container.innerHTML = items.join("");
+    }
+
+    function renderEmpty(container, message) {
+      container.innerHTML = `<p class="empty-note">${escapeHtml(message)}</p>`;
     }
 
     function compactPathValue(value) {
@@ -909,6 +1271,12 @@ INDEX_HTML = """<!DOCTYPE html>
       els.runtimeMode.textContent = data.runtime.mode_label;
       els.xrayPid.textContent = data.processes.xray_pid || "—";
       els.singboxPid.textContent = data.processes.singbox_pid || "—";
+      els.activeProfileName.textContent = data.active_profile?.name || "—";
+      els.activeNodeName.textContent = data.active_node?.name || "—";
+      assignCompactPath(els.runtimeSource, data.artifacts.active_xray_config || data.runtime.active_xray_config || "—");
+      els.activeSelectionSummary.textContent = data.active_node
+        ? `${data.connection.protocol_label || "—"} · ${data.connection.active_origin || "—"}`
+        : "Активный узел не выбран";
 
       renderBadges(els.stateBadges, [
         badge(summary.badges[0], summary.state === "running" ? "success" : summary.state === "stopped" ? "danger" : "accent"),
@@ -943,50 +1311,225 @@ INDEX_HTML = """<!DOCTYPE html>
 
       els.startButton.disabled = state.busy || summary.state === "running";
       els.stopButton.disabled = state.busy || summary.state === "stopped";
+
+      if (data.store_summary) {
+        renderBadges(els.storeCounts, [
+          badge(`профили ${data.store_summary.profiles_total || 0}`, "accent"),
+          badge(`подписки ${data.store_summary.subscriptions_total || 0}`),
+          badge(`узлы ${data.store_summary.nodes_enabled || 0}/${data.store_summary.nodes_total || 0}`, "success")
+        ]);
+      }
     }
 
-    async function fetchStatus() {
-      const response = await fetch("/api/status", { cache: "no-store" });
+    function applyStore(payload) {
+      state.storePayload = payload;
+      const store = payload.store || { profiles: [], subscriptions: [] };
+      const profiles = store.profiles || [];
+      const activeProfile = payload.active_profile || null;
+      const activeNode = payload.active_node || null;
+
+      if (!state.selectedProfileId || !profiles.some((profile) => profile.id === state.selectedProfileId)) {
+        state.selectedProfileId = activeProfile?.id || profiles[0]?.id || null;
+      }
+
+      renderBadges(els.storeCounts, [
+        badge(`профили ${payload.summary?.profiles_total || 0}`, "accent"),
+        badge(`подписки ${payload.summary?.subscriptions_total || 0}`),
+        badge(`узлы ${payload.summary?.nodes_enabled || 0}/${payload.summary?.nodes_total || 0}`, "success")
+      ]);
+
+      els.activeProfileName.textContent = activeProfile?.name || "—";
+      els.activeNodeName.textContent = activeNode?.name || "—";
+
+      renderSubscriptions(store.subscriptions || []);
+      renderProfiles(profiles, activeProfile, activeNode);
+      renderNodes(profiles.find((profile) => profile.id === state.selectedProfileId) || null, activeNode);
+    }
+
+    function renderPreview(results) {
+      state.previewResults = results;
+      if (!results.length) {
+        renderEmpty(els.importPreviewList, "Ввод пустой или не содержит строк для импорта.");
+        return;
+      }
+
+      els.importPreviewList.innerHTML = results.map((result) => {
+        const title = result.valid
+          ? `${result.normalized.display_name} · ${result.normalized.protocol.toUpperCase()} · ${result.normalized.address}:${result.normalized.port}`
+          : `Строка ${result.line_number}`;
+        const meta = result.valid
+          ? `network=${result.normalized.network}, security=${result.normalized.security}, fingerprint=${result.fingerprint.slice(0, 12)}…`
+          : result.error;
+        return `
+          <div class="list-row">
+            <div class="list-main">
+              <strong class="row-title">${escapeHtml(title)}</strong>
+              <div class="row-meta">${escapeHtml(meta)}</div>
+              <div class="badge-row">
+                ${badge(result.valid ? "валидно" : "ошибка", result.valid ? "success" : "danger")}
+                ${result.valid ? badge(`line ${result.line_number}`) : ""}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderSubscriptions(subscriptions) {
+      if (!subscriptions.length) {
+        renderEmpty(els.subscriptionList, "Подписок пока нет.");
+        return;
+      }
+
+      els.subscriptionList.innerHTML = subscriptions.map((subscription) => {
+        let tone = "";
+        if (subscription.last_status === "ok") tone = "success";
+        if (subscription.last_status === "partial") tone = "accent";
+        if (subscription.last_status === "error") tone = "danger";
+
+        const metaParts = [
+          subscription.url,
+          subscription.last_success_at ? `успех ${formatTimestamp(subscription.last_success_at)}` : "ещё не обновлялась",
+          subscription.last_error ? `ошибка: ${subscription.last_error}` : ""
+        ].filter(Boolean);
+
+        return `
+          <div class="list-row">
+            <div class="list-main">
+              <strong class="row-title">${escapeHtml(subscription.name)}</strong>
+              <div class="row-meta">${escapeHtml(metaParts.join(" · "))}</div>
+              <div class="badge-row">
+                ${badge(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "success" : "danger")}
+                ${badge(subscription.last_status || "never", tone)}
+              </div>
+            </div>
+            <div class="inline-actions">
+              ${tinyButton("Обновить", "refresh-subscription", { subscriptionId: subscription.id })}
+              ${tinyButton(subscription.enabled ? "Отключить" : "Включить", "toggle-subscription", { subscriptionId: subscription.id, enabled: String(subscription.enabled) }, "accent")}
+              ${tinyButton("Переименовать", "rename-subscription", { subscriptionId: subscription.id, name: subscription.name })}
+              ${tinyButton("Удалить", "delete-subscription", { subscriptionId: subscription.id, name: subscription.name }, "danger")}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderProfiles(profiles, activeProfile, activeNode) {
+      if (!profiles.length) {
+        renderEmpty(els.profileList, "Профилей пока нет.");
+        return;
+      }
+
+      els.profileList.innerHTML = profiles.map((profile) => {
+        const selected = profile.id === state.selectedProfileId;
+        const isActive = activeProfile?.id === profile.id;
+        const enabledNodes = (profile.nodes || []).filter((node) => node.enabled).length;
+        const badges = [
+          badge(profile.kind === "manual" ? "manual" : "subscription"),
+          badge(profile.enabled ? "enabled" : "disabled", profile.enabled ? "success" : "danger"),
+          badge(`узлы ${enabledNodes}/${profile.nodes?.length || 0}`)
+        ];
+        if (isActive && activeNode) badges.push(badge("активный профиль", "success"));
+
+        return `
+          <div class="list-row" data-selected="${selected ? "true" : "false"}">
+            <div class="list-main">
+              <strong class="row-title">${escapeHtml(profile.name)}</strong>
+              <div class="row-meta">${escapeHtml(profile.source_subscription_id ? `subscription ${profile.source_subscription_id}` : "ручной профиль")}</div>
+              <div class="badge-row">${badges.join("")}</div>
+            </div>
+            <div class="inline-actions">
+              ${tinyButton("Показать", "select-profile", { profileId: profile.id })}
+              ${tinyButton("Переименовать", "rename-profile", { profileId: profile.id, name: profile.name })}
+              ${profile.id !== "manual" ? tinyButton(profile.enabled ? "Отключить" : "Включить", "toggle-profile", { profileId: profile.id, enabled: String(profile.enabled) }, "accent") : ""}
+              ${profile.id !== "manual" ? tinyButton("Удалить", "delete-profile", { profileId: profile.id, name: profile.name }, "danger") : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderNodes(profile, activeNode) {
+      if (!profile) {
+        renderEmpty(els.nodeList, "Выбери профиль, чтобы увидеть узлы.");
+        return;
+      }
+
+      if (!profile.nodes || !profile.nodes.length) {
+        renderEmpty(els.nodeList, "В этом профиле пока нет узлов.");
+        return;
+      }
+
+      els.nodeList.innerHTML = profile.nodes.map((node) => {
+        const isActive = activeNode?.id === node.id;
+        const meta = [
+          `${node.protocol.toUpperCase()} · ${node.normalized.address}:${node.normalized.port}`,
+          `origin=${node.origin?.kind || "—"}`,
+          node.normalized.network ? `network=${node.normalized.network}` : ""
+        ].filter(Boolean).join(" · ");
+
+        return `
+          <div class="list-row" data-selected="${isActive ? "true" : "false"}">
+            <div class="list-main">
+              <strong class="row-title">${escapeHtml(node.name)}</strong>
+              <div class="row-meta">${escapeHtml(meta)}</div>
+              <div class="badge-row">
+                ${badge(node.enabled ? "enabled" : "disabled", node.enabled ? "success" : "danger")}
+                ${isActive ? badge("активный узел", "success") : ""}
+              </div>
+            </div>
+            <div class="inline-actions">
+              ${tinyButton("Активировать", "activate-node", { profileId: profile.id, nodeId: node.id })}
+              ${tinyButton("Переименовать", "rename-node", { profileId: profile.id, nodeId: node.id, name: node.name })}
+              ${tinyButton(node.enabled ? "Отключить" : "Включить", "toggle-node", { profileId: profile.id, nodeId: node.id, enabled: String(node.enabled) }, "accent")}
+              ${tinyButton("Удалить", "delete-node", { profileId: profile.id, nodeId: node.id, name: node.name }, "danger")}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function loadStore() {
+      const response = await fetch("/api/store", { cache: "no-store" });
       if (!response.ok) {
-        throw new Error(`status ${response.status}`);
+        throw new Error(`store ${response.status}`);
       }
       const data = await response.json();
-      applyStatus(data);
+      if (data.status) applyStatus(data.status);
+      if (data.store) applyStore(data.store);
+      return data;
+    }
+
+    async function apiPost(endpoint, payload = {}) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `${endpoint} ${response.status}`);
+      }
+      return data;
     }
 
     async function runAction(endpoint) {
       setBusy(true);
       try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}"
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.message || `action ${response.status}`);
-        }
+        const data = await apiPost(endpoint, {});
         applyStatus(data.status);
       } catch (error) {
         els.lastActionMessage.textContent = `Ошибка: ${error.message}`;
       } finally {
         setBusy(false);
-        await fetchStatus();
+        await loadStore().catch(() => {});
       }
     }
 
     async function saveLoggingSetting() {
       setBusy(true);
       try {
-        const response = await fetch("/api/settings/logging", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: els.loggingToggle.checked })
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.message || `settings ${response.status}`);
-        }
+        const data = await apiPost("/api/settings/logging", { enabled: els.loggingToggle.checked });
         applyStatus(data.status);
       } catch (error) {
         els.loggingToggle.checked = !els.loggingToggle.checked;
@@ -996,18 +1539,222 @@ INDEX_HTML = """<!DOCTYPE html>
       }
     }
 
+    async function previewImport() {
+      const data = await apiPost("/api/import/preview", { text: els.importInput.value });
+      renderPreview(data.results || []);
+    }
+
+    async function saveImport() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/import/save", {
+          text: els.importInput.value,
+          activate_single: els.activateSingleToggle.checked
+        });
+        renderPreview(data.results || []);
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      } catch (error) {
+        els.lastActionMessage.textContent = `Ошибка импорта: ${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function addSubscription() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/subscriptions/add", {
+          name: els.subscriptionName.value,
+          url: els.subscriptionUrl.value
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        if (data.ok) {
+          els.subscriptionName.value = "";
+          els.subscriptionUrl.value = "";
+        }
+      } catch (error) {
+        els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function refreshAllSubscriptions() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/subscriptions/refresh-all", {});
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      } catch (error) {
+        els.lastActionMessage.textContent = `Ошибка обновления подписок: ${error.message}`;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function handleSubscriptionAction(button) {
+      const { action, subscriptionId, name, enabled } = button.dataset;
+      if (action === "refresh-subscription") {
+        const data = await apiPost("/api/subscriptions/refresh", { subscription_id: subscriptionId });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "toggle-subscription") {
+        const data = await apiPost("/api/subscriptions/update", {
+          subscription_id: subscriptionId,
+          enabled: enabled !== "true"
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "rename-subscription") {
+        const nextName = window.prompt("Новое имя подписки:", name || "");
+        if (!nextName) return;
+        const data = await apiPost("/api/subscriptions/update", {
+          subscription_id: subscriptionId,
+          name: nextName
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "delete-subscription") {
+        if (!window.confirm(`Удалить подписку '${name || "без имени"}' и связанный профиль?`)) return;
+        const data = await apiPost("/api/subscriptions/delete", { subscription_id: subscriptionId });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      }
+    }
+
+    async function handleProfileAction(button) {
+      const { action, profileId, name, enabled } = button.dataset;
+      if (action === "select-profile") {
+        state.selectedProfileId = profileId;
+        if (state.storePayload) {
+          applyStore(state.storePayload);
+        }
+        return;
+      }
+
+      if (action === "rename-profile") {
+        const nextName = window.prompt("Новое имя профиля:", name || "");
+        if (!nextName) return;
+        const data = await apiPost("/api/profiles/update", { profile_id: profileId, name: nextName });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "toggle-profile") {
+        const data = await apiPost("/api/profiles/update", {
+          profile_id: profileId,
+          enabled: enabled !== "true"
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "delete-profile") {
+        if (!window.confirm(`Удалить профиль '${name || "без имени"}'?`)) return;
+        const data = await apiPost("/api/profiles/delete", { profile_id: profileId });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      }
+    }
+
+    async function handleNodeAction(button) {
+      const { action, profileId, nodeId, name, enabled } = button.dataset;
+      if (action === "activate-node") {
+        const data = await apiPost("/api/selection/activate", { profile_id: profileId, node_id: nodeId });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "rename-node") {
+        const nextName = window.prompt("Новое имя узла:", name || "");
+        if (!nextName) return;
+        const data = await apiPost("/api/nodes/update", {
+          profile_id: profileId,
+          node_id: nodeId,
+          name: nextName
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "toggle-node") {
+        const data = await apiPost("/api/nodes/update", {
+          profile_id: profileId,
+          node_id: nodeId,
+          enabled: enabled !== "true"
+        });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+        return;
+      }
+
+      if (action === "delete-node") {
+        if (!window.confirm(`Удалить узел '${name || "без имени"}'?`)) return;
+        const data = await apiPost("/api/nodes/delete", { profile_id: profileId, node_id: nodeId });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      }
+    }
+
     els.startButton.addEventListener("click", () => runAction("/api/start"));
     els.stopButton.addEventListener("click", () => runAction("/api/stop"));
     els.diagButton.addEventListener("click", () => runAction("/api/diagnostics"));
     els.loggingToggle.addEventListener("change", saveLoggingSetting);
+    els.previewButton.addEventListener("click", () => previewImport().catch((error) => {
+      els.lastActionMessage.textContent = `Ошибка предпросмотра: ${error.message}`;
+    }));
+    els.saveImportButton.addEventListener("click", saveImport);
+    els.addSubscriptionButton.addEventListener("click", addSubscription);
+    els.refreshAllButton.addEventListener("click", refreshAllSubscriptions);
+    els.importFile.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      els.importInput.value = await file.text();
+    });
+    els.subscriptionList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      handleSubscriptionAction(button).catch((error) => {
+        els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
+      });
+    });
+    els.profileList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      handleProfileAction(button).catch((error) => {
+        els.lastActionMessage.textContent = `Ошибка профиля: ${error.message}`;
+      });
+    });
+    els.nodeList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      handleNodeAction(button).catch((error) => {
+        els.lastActionMessage.textContent = `Ошибка узла: ${error.message}`;
+      });
+    });
 
-    fetchStatus().catch((error) => {
+    loadStore().catch((error) => {
       els.lastActionMessage.textContent = `Не удалось получить состояние: ${error.message}`;
     });
 
     state.polling = window.setInterval(() => {
       if (!state.busy) {
-        fetchStatus().catch(() => {});
+        loadStore().catch(() => {});
       }
     }, 4000);
   </script>
@@ -1028,34 +1775,12 @@ def iso_now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def read_json_file(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def write_json_file(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
 def load_settings() -> dict[str, Any]:
-    raw = read_json_file(SETTINGS_FILE)
-    return {
-        "file_logs_enabled": bool(raw.get("file_logs_enabled", False)),
-    }
+    return read_or_migrate_gui_settings(APP_PATHS, uid=REAL_UID, gid=REAL_GID)
 
 
 def save_settings(file_logs_enabled: bool) -> None:
-    SETTINGS_FILE.write_text(
-        json.dumps({"file_logs_enabled": bool(file_logs_enabled)}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    SETTINGS_FILE.chmod(0o644)
-    if os.geteuid() == 0:
-        os.chown(SETTINGS_FILE, REAL_UID, REAL_GID)
+    save_gui_settings(APP_PATHS, file_logs_enabled, uid=REAL_UID, gid=REAL_GID)
 
 
 def load_state_file() -> dict[str, str]:
@@ -1090,18 +1815,8 @@ def read_resolv_conf_nameservers() -> list[str]:
     return servers
 
 
-def load_xray_config() -> dict[str, Any]:
-    try:
-        return json.loads(XRAY_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
 def load_singbox_config() -> dict[str, Any]:
-    try:
-        return json.loads(SINGBOX_CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    return read_json_config(SINGBOX_CONFIG_PATH)
 
 
 def find_latest_diagnostic() -> Path | None:
@@ -1140,6 +1855,7 @@ def run_shell_action(name: str, script: Path, extra_env: dict[str, str] | None =
             "USER": REAL_USER,
             "LOGNAME": REAL_USER,
             "HOME": str(REAL_HOME),
+            "SUBVOST_REAL_XDG_CONFIG_HOME": str(APP_PATHS.config_home),
         }
     )
     env.update(extra_env or {})
@@ -1162,24 +1878,68 @@ def run_shell_action(name: str, script: Path, extra_env: dict[str, str] | None =
     return CommandResult(name=name, ok=ok, returncode=completed.returncode, output=output)
 
 
-def parse_connection_info() -> dict[str, str]:
-    xray = load_xray_config()
-    singbox = load_singbox_config()
+def ensure_store_ready() -> dict[str, Any]:
+    return ensure_store_initialized(APP_PATHS, PROJECT_ROOT, uid=REAL_UID, gid=REAL_GID)
+
+
+def persist_store(store: dict[str, Any]) -> None:
+    save_store(APP_PATHS, store, uid=REAL_UID, gid=REAL_GID)
+    sync_generated_runtime(store, APP_PATHS, PROJECT_ROOT, uid=REAL_UID, gid=REAL_GID)
+
+
+def resolve_active_xray_config_path(
+    store: dict[str, Any],
+    state: dict[str, str],
+    *,
+    stack_is_live: bool,
+) -> Path:
+    state_config = state.get("XRAY_CONFIG")
+    if stack_is_live and state_config:
+        candidate = Path(state_config)
+        if candidate.is_absolute() and candidate.exists():
+            return candidate
+
+    selection = store.get("active_selection", {})
+    if selection.get("profile_id") and selection.get("node_id") and APP_PATHS.generated_xray_config_file.exists():
+        return APP_PATHS.generated_xray_config_file
+
+    return XRAY_TEMPLATE_PATH
+
+
+def parse_connection_info(xray: dict[str, Any], singbox: dict[str, Any], active_node: dict[str, Any] | None) -> dict[str, str]:
 
     remote_endpoint = "—"
     remote_sni = "—"
     socks_port = "127.0.0.1:10808"
     mixed_port = "127.0.0.1:7897"
     tun_address = "—"
+    protocol_label = "—"
+    active_name = active_node.get("name", "—") if active_node else "—"
+    active_origin = active_node.get("origin", {}).get("kind", "—") if active_node else "—"
 
     try:
         proxy = next(outbound for outbound in xray.get("outbounds", []) if outbound.get("tag") == "proxy")
-        vnext = proxy.get("settings", {}).get("vnext", [{}])[0]
-        address = vnext.get("address")
-        port = vnext.get("port")
-        if address and port:
-            remote_endpoint = f"{address}:{port}"
-        remote_sni = proxy.get("streamSettings", {}).get("realitySettings", {}).get("serverName", "—")
+        protocol = str(proxy.get("protocol", "")).strip().lower()
+        protocol_label = protocol.upper() if protocol else "—"
+        if protocol in {"vless", "vmess"}:
+            vnext = proxy.get("settings", {}).get("vnext", [{}])[0]
+            address = vnext.get("address")
+            port = vnext.get("port")
+            if address and port:
+                remote_endpoint = f"{address}:{port}"
+        elif protocol in {"trojan", "shadowsocks"}:
+            server = proxy.get("settings", {}).get("servers", [{}])[0]
+            address = server.get("address")
+            port = server.get("port")
+            if address and port:
+                remote_endpoint = f"{address}:{port}"
+
+        stream_settings = proxy.get("streamSettings", {}) or {}
+        remote_sni = (
+            stream_settings.get("realitySettings", {}).get("serverName")
+            or stream_settings.get("tlsSettings", {}).get("serverName")
+            or "—"
+        )
     except StopIteration:
         pass
 
@@ -1216,18 +1976,26 @@ def parse_connection_info() -> dict[str, str]:
         "tun_address": tun_address,
         "tun_interface": "tun0",
         "dns_servers": ", ".join(dns_servers) if dns_servers else "—",
+        "protocol_label": protocol_label,
+        "active_name": active_name,
+        "active_origin": active_origin,
     }
 
 
 def collect_status() -> dict[str, Any]:
     settings = load_settings()
+    store = ensure_store_ready()
     state = load_state_file()
-
+    active_profile, active_node = get_active_node(store)
     xray_pid = state.get("XRAY_PID")
     singbox_pid = state.get("SINGBOX_PID")
     xray_alive = is_pid_alive(xray_pid)
     singbox_alive = is_pid_alive(singbox_pid)
     tun_present = Path("/sys/class/net/tun0").exists()
+    stack_is_live = xray_alive or singbox_alive or tun_present
+    active_xray_config_path = resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
+    xray = read_json_config(active_xray_config_path)
+    singbox = load_singbox_config()
 
     if xray_alive and singbox_alive and tun_present:
         state_key = "running"
@@ -1256,6 +2024,14 @@ def collect_status() -> dict[str, Any]:
         if candidate.exists():
             log_files.append(str(candidate))
 
+    store_data = store_payload(store, APP_PATHS)
+    if active_xray_config_path == APP_PATHS.active_runtime_xray_config_file:
+        config_origin = "snapshot"
+    elif active_xray_config_path == APP_PATHS.generated_xray_config_file:
+        config_origin = "generated"
+    else:
+        config_origin = "template"
+
     return {
         "summary": {
             "state": state_key,
@@ -1282,22 +2058,32 @@ def collect_status() -> dict[str, Any]:
             "tun_present": tun_present,
         },
         "connection": {
-            **parse_connection_info(),
+            **parse_connection_info(xray, singbox, active_node),
             "dns_servers": dns_runtime,
         },
         "runtime": {
             "mode": runtime_mode,
             "mode_label": runtime_label,
             "requires_terminal_sudo_hint": os.geteuid() != 0,
+            "config_origin": config_origin,
+            "active_xray_config": str(active_xray_config_path),
         },
         "artifacts": {
             "latest_diagnostic": str(latest_diag) if latest_diag else None,
             "state_file": str(STATE_FILE),
             "resolv_backup": str(RESOLV_BACKUP),
             "log_files": ", ".join(log_files) if log_files else "Логи ещё не созданы",
+            "store_file": str(APP_PATHS.store_file),
+            "generated_xray_config": str(APP_PATHS.generated_xray_config_file),
+            "active_runtime_xray_config": str(APP_PATHS.active_runtime_xray_config_file),
+            "active_xray_config": str(active_xray_config_path),
         },
+        "store_summary": store_data["summary"],
+        "active_profile": active_profile,
+        "active_node": active_node,
         "bundle_identity": {
             "project_root": str(PROJECT_ROOT),
+            "config_home": str(APP_PATHS.config_home),
         },
         "project_root": str(PROJECT_ROOT),
         "gui_version": GUI_VERSION,
@@ -1307,6 +2093,7 @@ def collect_status() -> dict[str, Any]:
 
 
 def handle_start() -> dict[str, Any]:
+    ensure_store_ready()
     settings = load_settings()
     env = {"ENABLE_FILE_LOGS": "1" if settings["file_logs_enabled"] else "0"}
     result = run_shell_action("Старт", RUN_SCRIPT, env)
@@ -1339,6 +2126,253 @@ def handle_diagnostics() -> dict[str, Any]:
         message = f"Диагностика завершилась ошибкой, код {result.returncode}."
     remember_action(result.name, result.ok, message, result.output)
     return collect_status()
+
+
+def summarize_previews(results: list[dict[str, Any]]) -> dict[str, int]:
+    valid = sum(1 for item in results if item.get("valid"))
+    invalid = sum(1 for item in results if not item.get("valid"))
+    return {"valid": valid, "invalid": invalid}
+
+
+def store_response(
+    store: dict[str, Any],
+    *,
+    name: str,
+    ok: bool,
+    message: str,
+    details: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    persist_store(store)
+    remember_action(name, ok, message, details)
+    payload = {
+        "ok": ok,
+        "message": message,
+        "store": store_payload(store, APP_PATHS),
+        "status": collect_status(),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def handle_store_snapshot() -> dict[str, Any]:
+    store = ensure_store_ready()
+    return {
+        "ok": True,
+        "store": store_payload(store, APP_PATHS),
+        "status": collect_status(),
+    }
+
+
+def handle_import_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("text", ""))
+    results = preview_links(text)
+    return {
+        "ok": True,
+        "results": results,
+        "summary": summarize_previews(results),
+    }
+
+
+def handle_import_save(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    text = str(payload.get("text", ""))
+    activate_single = bool(payload.get("activate_single"))
+    results = preview_links(text)
+    summary = summarize_previews(results)
+    if summary["valid"] == 0:
+        raise ValueError("Нет валидных ссылок для сохранения.")
+
+    save_result = save_manual_import_results(store, results, activate_single=activate_single)
+    return store_response(
+        store,
+        name="Импорт ссылок",
+        ok=True,
+        message="Импортированные ссылки сохранены в локальный store.",
+        details=json.dumps(save_result, ensure_ascii=False),
+        extra={"results": results, "summary": save_result},
+    )
+
+
+def handle_subscription_add(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    subscription = add_subscription(store, str(payload.get("name", "")), str(payload.get("url", "")))
+    ok = True
+    message = f"Подписка '{subscription['name']}' сохранена и обновлена."
+    details_payload: dict[str, Any] = {"subscription_id": subscription["id"]}
+    try:
+        details_payload["refresh"] = refresh_subscription(store, subscription["id"])
+    except ValueError as exc:
+        ok = False
+        message = f"Подписка сохранена, но первое обновление завершилось ошибкой: {exc}"
+        details_payload["refresh_error"] = str(exc)
+
+    return store_response(
+        store,
+        name="Добавление подписки",
+        ok=ok,
+        message=message,
+        details=json.dumps(details_payload, ensure_ascii=False),
+        extra=details_payload,
+    )
+
+
+def handle_subscription_refresh(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    subscription_id = str(payload.get("subscription_id", "")).strip()
+    if not subscription_id:
+        raise ValueError("Не передан subscription_id.")
+    result = refresh_subscription(store, subscription_id)
+    return store_response(
+        store,
+        name="Обновление подписки",
+        ok=result["status"] != "error",
+        message="Подписка обновлена." if result["status"] == "ok" else "Подписка обновлена частично.",
+        details=json.dumps(result, ensure_ascii=False),
+        extra={"refresh": result},
+    )
+
+
+def handle_subscription_refresh_all() -> dict[str, Any]:
+    store = ensure_store_ready()
+    result = refresh_all_subscriptions(store)
+    ok = result["error"] == 0
+    message = (
+        "Все включённые подписки обновлены."
+        if ok and result["partial"] == 0
+        else "Обновление подписок завершено с частичными ошибками."
+    )
+    return store_response(
+        store,
+        name="Обновить все подписки",
+        ok=ok,
+        message=message,
+        details=json.dumps(result, ensure_ascii=False),
+        extra={"refresh_all": result},
+    )
+
+
+def handle_subscription_update(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    subscription = update_subscription(
+        store,
+        str(payload.get("subscription_id", "")).strip(),
+        name=payload.get("name"),
+        enabled=payload.get("enabled"),
+    )
+    return store_response(
+        store,
+        name="Настройки подписки",
+        ok=True,
+        message="Настройки подписки сохранены.",
+        details=json.dumps({"subscription_id": subscription["id"]}, ensure_ascii=False),
+        extra={"subscription": subscription},
+    )
+
+
+def handle_subscription_delete(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    subscription_id = str(payload.get("subscription_id", "")).strip()
+    if not subscription_id:
+        raise ValueError("Не передан subscription_id.")
+    delete_subscription(store, subscription_id)
+    return store_response(
+        store,
+        name="Удаление подписки",
+        ok=True,
+        message="Подписка и связанный профиль удалены.",
+        details=json.dumps({"subscription_id": subscription_id}, ensure_ascii=False),
+    )
+
+
+def handle_selection_activate(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile_id = str(payload.get("profile_id", "")).strip()
+    node_id = str(payload.get("node_id", "")).strip()
+    if not profile_id or not node_id:
+        raise ValueError("Для активации нужны profile_id и node_id.")
+    node = activate_selection(store, profile_id, node_id)
+    return store_response(
+        store,
+        name="Активация узла",
+        ok=True,
+        message=f"Активным сделан узел '{node['name']}'.",
+        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+        extra={"node": node},
+    )
+
+
+def handle_profile_update(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile = update_profile(
+        store,
+        str(payload.get("profile_id", "")).strip(),
+        name=payload.get("name"),
+        enabled=payload.get("enabled"),
+    )
+    return store_response(
+        store,
+        name="Настройки профиля",
+        ok=True,
+        message="Профиль обновлён.",
+        details=json.dumps({"profile_id": profile["id"]}, ensure_ascii=False),
+        extra={"profile": profile},
+    )
+
+
+def handle_profile_delete(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile_id = str(payload.get("profile_id", "")).strip()
+    if not profile_id:
+        raise ValueError("Не передан profile_id.")
+    delete_profile(store, profile_id)
+    return store_response(
+        store,
+        name="Удаление профиля",
+        ok=True,
+        message="Профиль удалён.",
+        details=json.dumps({"profile_id": profile_id}, ensure_ascii=False),
+    )
+
+
+def handle_node_update(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile_id = str(payload.get("profile_id", "")).strip()
+    node_id = str(payload.get("node_id", "")).strip()
+    if not profile_id or not node_id:
+        raise ValueError("Для изменения узла нужны profile_id и node_id.")
+    node = update_node(
+        store,
+        profile_id,
+        node_id,
+        name=payload.get("name"),
+        enabled=payload.get("enabled"),
+    )
+    return store_response(
+        store,
+        name="Настройки узла",
+        ok=True,
+        message="Узел обновлён.",
+        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+        extra={"node": node},
+    )
+
+
+def handle_node_delete(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile_id = str(payload.get("profile_id", "")).strip()
+    node_id = str(payload.get("node_id", "")).strip()
+    if not profile_id or not node_id:
+        raise ValueError("Для удаления узла нужны profile_id и node_id.")
+    delete_node(store, profile_id, node_id)
+    return store_response(
+        store,
+        name="Удаление узла",
+        ok=True,
+        message="Узел удалён.",
+        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1386,6 +2420,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(collect_status())
             return
 
+        if self.path == "/api/store":
+            self.send_json(handle_store_snapshot())
+            return
+
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
@@ -1402,7 +2440,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "status": collect_status()})
             return
 
-        if self.path not in ["/api/start", "/api/stop", "/api/diagnostics"]:
+        if self.path == "/api/import/preview":
+            self.send_json(handle_import_preview(self.read_json_body()))
+            return
+
+        if self.path not in [
+            "/api/start",
+            "/api/stop",
+            "/api/diagnostics",
+            "/api/import/save",
+            "/api/subscriptions/add",
+            "/api/subscriptions/refresh",
+            "/api/subscriptions/refresh-all",
+            "/api/subscriptions/update",
+            "/api/subscriptions/delete",
+            "/api/selection/activate",
+            "/api/profiles/update",
+            "/api/profiles/delete",
+            "/api/nodes/update",
+            "/api/nodes/delete",
+        ]:
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
 
@@ -1417,17 +2474,51 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        payload = self.read_json_body()
         try:
             if self.path == "/api/start":
-                status = handle_start()
+                response = {"ok": True, "status": handle_start()}
             elif self.path == "/api/stop":
-                status = handle_stop()
+                response = {"ok": True, "status": handle_stop()}
+            elif self.path == "/api/diagnostics":
+                response = {"ok": True, "status": handle_diagnostics()}
+            elif self.path == "/api/import/save":
+                response = handle_import_save(payload)
+            elif self.path == "/api/subscriptions/add":
+                response = handle_subscription_add(payload)
+            elif self.path == "/api/subscriptions/refresh":
+                response = handle_subscription_refresh(payload)
+            elif self.path == "/api/subscriptions/refresh-all":
+                response = handle_subscription_refresh_all()
+            elif self.path == "/api/subscriptions/update":
+                response = handle_subscription_update(payload)
+            elif self.path == "/api/subscriptions/delete":
+                response = handle_subscription_delete(payload)
+            elif self.path == "/api/selection/activate":
+                response = handle_selection_activate(payload)
+            elif self.path == "/api/profiles/update":
+                response = handle_profile_update(payload)
+            elif self.path == "/api/profiles/delete":
+                response = handle_profile_delete(payload)
+            elif self.path == "/api/nodes/update":
+                response = handle_node_update(payload)
             else:
-                status = handle_diagnostics()
+                response = handle_node_delete(payload)
+        except ValueError as exc:
+            remember_action("Ошибка операции", False, str(exc), str(exc))
+            self.send_json(
+                {
+                    "ok": False,
+                    "message": str(exc),
+                    "status": collect_status(),
+                },
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
         finally:
             ACTION_LOCK.release()
 
-        self.send_json({"ok": True, "status": status})
+        self.send_json(response)
 
 
 def main() -> None:
@@ -1447,7 +2538,7 @@ def main() -> None:
         print(f"Subvost GUI доступен: http://{args.host}:{args.port}")
         print(f"Корень bundle: {PROJECT_ROOT}")
         print(f"Реальный пользователь: {REAL_USER}")
-        print(f"Файл настроек GUI: {SETTINGS_FILE}")
+        print(f"Файл настроек GUI: {APP_PATHS.gui_settings_file}")
         print("Для остановки нажмите Ctrl+C")
         httpd.serve_forever()
 
