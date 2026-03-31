@@ -18,6 +18,24 @@ fi
 
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
+ACTIVE_XRAY_CONFIG="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+
+if [[ -f "$STATE_FILE" ]]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      XRAY_CONFIG)
+        if [[ "$value" == /* ]]; then
+          ACTIVE_XRAY_CONFIG="$value"
+        fi
+        ;;
+      RESOLV_BACKUP)
+        if [[ "$value" == /* ]]; then
+          RESOLV_BACKUP="$value"
+        fi
+        ;;
+    esac
+  done <"$STATE_FILE"
+fi
 
 TS="$(date +%Y%m%d-%H%M%S)"
 OUT="${LOG_DIR}/xray-tun-state-${TS}.log"
@@ -70,6 +88,7 @@ print_shell_block_as_real_user() {
   echo "public_wrapper=${SUBVOST_CAPTURE_WRAPPER}"
   echo "state_file=${STATE_FILE}"
   echo "resolv_backup=${RESOLV_BACKUP}"
+  echo "active_xray_config=${ACTIVE_XRAY_CONFIG}"
   echo
 
   print_section "versions" bash -lc '
@@ -214,7 +233,7 @@ print_shell_block_as_real_user() {
     fi
   '
 
-  print_section "xray config snippet" sed -n '1,220p' "${SUBVOST_XRAY_CONFIG_PATH}"
+  print_section "xray config snippet" sed -n '1,220p' "${ACTIVE_XRAY_CONFIG}"
   print_section "sing-box config snippet" sed -n '1,220p' "${SUBVOST_SINGBOX_CONFIG_PATH}"
 
   print_section "xray log tail" tail -n 200 "${LOG_DIR}/xray-subvost.log"
