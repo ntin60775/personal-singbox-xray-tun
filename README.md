@@ -1,4 +1,4 @@
-# Subvost Xray TUN Bundle
+# Переносимый bundle Subvost Xray TUN
 
 Этот каталог содержит переносимый bundle для запуска `Xray + sing-box` в `TUN`-режиме.
 
@@ -12,8 +12,8 @@
 - `open-subvost-gui.sh` — пользовательский launcher GUI
 - `install-subvost-gui-menu-entry.sh` — установка ярлыка GUI в меню приложений текущего пользователя
 - `install-on-new-pc.sh` — установка зависимостей на Debian/Ubuntu
-- `subvost-xray-tun.desktop` — portable desktop launcher
-- `xray-tun-subvost.json` — санитизированный шаблон `Xray`, который перед реальным запуском нужно локально дозаполнить
+- `subvost-xray-tun.desktop` — переносимый desktop-ярлык
+- `xray-tun-subvost.json` — санитизированный tracked-шаблон `Xray`, который больше не считается primary runtime source of truth
 - `singbox-tun-subvost.json` — repo-managed runtime-конфиг `sing-box`
 - `logs/` — runtime-логи и диагностические дампы
 - `plans/` — инженерные планы задач
@@ -54,6 +54,24 @@ export ENABLE_FILE_LOGS=1
 
 Эти значения остаются operator-managed. В Git, планах и документации должны оставаться только placeholders, а live-значения используются только локально для runtime и ручных smoke-проверок.
 
+## Локальный store и generated runtime
+
+Начиная с Волны 1 bundle поддерживает локальную модель ссылок, подписок, профилей и активного узла вне Git. Для этого используется каталог:
+
+```text
+~/.config/subvost-xray-tun/
+```
+
+В нём живут:
+
+- `store.json` — локальный store профилей, подписок, узлов и active selection
+- `generated-xray-config.json` — materialized runtime-конфиг `Xray` для текущего активного узла
+- `gui-settings.json` — локальные настройки GUI, включая файловое логирование
+
+Если активный узел выбран через GUI, `run-xray-tun-subvost.sh`, `stop-xray-tun-subvost.sh` и `capture-xray-tun-state.sh` автоматически используют `generated-xray-config.json`. Tracked-файл `xray-tun-subvost.json` при этом остаётся шаблоном/fallback и не переписывается при обычной работе.
+
+Legacy single-config сценарий не удалён полностью: если оператор по-прежнему вручную заполняет `xray-tun-subvost.json` и store ещё не создан, bundle может мигрировать этот конфиг в первый локальный профиль при первом запуске GUI backend.
+
 ## Запуск
 
 ```bash
@@ -72,7 +90,7 @@ ENABLE_FILE_LOGS=1 sudo /путь/к/run-xray-tun-subvost.sh
 
 - `open-subvost-gui.sh` — пользовательский launcher: при клике/запуске сам поднимает backend через `pkexec`, ждёт порт и автоматически открывает страницу в браузере; desktop-ярлыки вызывают его в режиме принудительного restart backend
 - `install-subvost-gui-menu-entry.sh` — ставит пункт меню в `~/.local/share/applications`, привязанный к текущему каталогу bundle
-- `subvost-xray-tun.desktop` — portable desktop launcher
+- `subvost-xray-tun.desktop` — переносимый desktop-ярлык
 - `gui/gui_server.py` — internal backend и веб-интерфейс
 - `libexec/start-gui-backend-root.sh` — internal root-bootstrap для `pkexec`
 
@@ -87,6 +105,11 @@ ENABLE_FILE_LOGS=1 sudo /путь/к/run-xray-tun-subvost.sh
 - `Старт` — запускает `run-xray-tun-subvost.sh`
 - `Стоп` — запускает `stop-xray-tun-subvost.sh`
 - `Снять диагностику` — запускает `capture-xray-tun-state.sh`
+- импортирует `vless://`, `vmess://`, `trojan://` и `ss://` ссылки с предварительной валидацией
+- хранит ручные ссылки в профиле `Локальные ссылки`
+- добавляет subscription URL, обновляет одну подписку или все подписки и показывает последнюю ошибку обновления
+- позволяет выбирать активный профиль и узел, переименовывать, отключать и удалять узлы
+- генерирует локальный runtime-конфиг `Xray` без ручной правки tracked JSON
 - показывает текущее состояние стека, PID'ы, `tun0`, DNS и базовую информацию о соединении
 - даёт переключатель файлового логирования; настройка применяется при следующем запуске
 
@@ -142,7 +165,9 @@ sudo /путь/к/capture-xray-tun-state.sh
 
 Скрытый файл состояния хранится в `${HOME}/.xray-tun-subvost.state`.
 
-## Troubleshooting
+Локальный store и generated runtime хранятся в `${HOME}/.config/subvost-xray-tun/`.
+
+## Диагностика и типовые проблемы
 
 Если старт не дошёл до `Готово` или трафик не пошёл через туннель, проверяй систему в одном и том же порядке:
 
