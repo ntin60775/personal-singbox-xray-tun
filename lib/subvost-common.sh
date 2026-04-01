@@ -183,6 +183,37 @@ raise SystemExit(0 if profile_id and node_id else 1)
 PY
 }
 
+subvost_store_prefers_generated_xray_config() {
+  local store_file="$1"
+
+  if [[ ! -f "$store_file" ]]; then
+    return 1
+  fi
+
+  python3 - "$store_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        payload = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+
+selection = payload.get("active_selection", {}) or {}
+has_selection = bool(selection.get("profile_id") and selection.get("node_id"))
+runtime_preference = str(payload.get("runtime_preference") or "").strip().lower()
+
+if runtime_preference == "builtin":
+    raise SystemExit(1)
+if runtime_preference == "store":
+    raise SystemExit(0 if has_selection else 1)
+
+raise SystemExit(0 if has_selection else 1)
+PY
+}
+
 subvost_resolve_active_xray_config_for_home() {
   local real_home="$1"
   local fallback_xray_config="$2"
@@ -192,10 +223,24 @@ subvost_resolve_active_xray_config_for_home() {
   store_file="$(subvost_resolve_store_file_for_home "$real_home")"
   generated_xray_config="$(subvost_resolve_generated_xray_config_for_home "$real_home")"
 
-  if [[ -f "$generated_xray_config" ]] && subvost_store_has_active_selection "$store_file"; then
+  if [[ -f "$generated_xray_config" ]] && subvost_store_prefers_generated_xray_config "$store_file"; then
     printf '%s\n' "$generated_xray_config"
     return 0
   fi
 
   printf '%s\n' "$fallback_xray_config"
+}
+
+subvost_resolve_active_xray_source_for_home() {
+  local real_home="$1"
+  local fallback_xray_config="$2"
+  local resolved_config
+
+  resolved_config="$(subvost_resolve_active_xray_config_for_home "$real_home" "$fallback_xray_config")"
+  if [[ "$resolved_config" == "$fallback_xray_config" ]]; then
+    printf '%s\n' "builtin"
+    return 0
+  fi
+
+  printf '%s\n' "store"
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import sys
 import tempfile
@@ -16,9 +17,11 @@ from subvost_store import (  # noqa: E402
     MANUAL_PROFILE_ID,
     add_subscription,
     ensure_store_initialized,
+    get_runtime_preference,
     refresh_subscription,
     save_manual_import_results,
     save_store,
+    set_runtime_preference,
     sync_generated_runtime,
     update_profile,
 )
@@ -172,7 +175,9 @@ class SubvostStoreTests(unittest.TestCase):
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
             with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
-                refresh_subscription(store, subscription["id"])
+                result = refresh_subscription(store, subscription["id"])
+            self.assertEqual(result["unique_nodes"], 1)
+            self.assertEqual(result["duplicate_lines"], 0)
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
             profile["nodes"][0]["name"] = "Custom name"
@@ -199,10 +204,13 @@ class SubvostStoreTests(unittest.TestCase):
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
             with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
-                refresh_subscription(store, subscription["id"])
+                result = refresh_subscription(store, subscription["id"])
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
             self.assertEqual(len(profile["nodes"]), 1)
+            self.assertEqual(result["valid"], 2)
+            self.assertEqual(result["unique_nodes"], 1)
+            self.assertEqual(result["duplicate_lines"], 1)
 
     def test_refresh_subscription_preserves_profile_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -232,6 +240,56 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(profile["name"], "Custom profile")
             self.assertFalse(profile["enabled"])
             self.assertEqual(store["subscriptions"][0]["etag"], "etag-2")
+
+    def test_refresh_subscription_is_atomic_when_payload_contains_invalid_line(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Atomic", "https://example.com/sub")
+
+            valid_payload = (
+                b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Stable\n"
+            )
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(valid_payload, {"ETag": "etag-1"})):
+                refresh_subscription(store, subscription["id"])
+
+            profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
+            original_node = json.loads(json.dumps(profile["nodes"][0], ensure_ascii=False))
+
+            invalid_payload = base64.urlsafe_b64encode(
+                (
+                    "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Updated\n"
+                    "vless://broken\n"
+                ).encode("utf-8")
+            )
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(invalid_payload, {"ETag": "etag-2"})):
+                with self.assertRaisesRegex(ValueError, "Обновление подписки не применено"):
+                    refresh_subscription(store, subscription["id"])
+
+            self.assertEqual(profile["nodes"][0]["name"], original_node["name"])
+            self.assertEqual(profile["nodes"][0]["raw_uri"], original_node["raw_uri"])
+            self.assertEqual(store["subscriptions"][0]["etag"], "etag-1")
+            self.assertEqual(store["subscriptions"][0]["last_status"], "error")
+            self.assertIn("невалидных строк 1", store["subscriptions"][0]["last_error"])
+
+    def test_runtime_preference_can_switch_to_builtin_and_back(self) -> None:
+        store = {
+            "runtime_preference": "store",
+            "profiles": [],
+            "subscriptions": [],
+            "active_selection": {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
+            "meta": {},
+        }
+
+        self.assertEqual(get_runtime_preference(store), "store")
+        self.assertEqual(set_runtime_preference(store, "builtin"), "builtin")
+        self.assertEqual(get_runtime_preference(store), "builtin")
+        self.assertEqual(set_runtime_preference(store, "store"), "store")
+        self.assertEqual(get_runtime_preference(store), "store")
 
 
 if __name__ == "__main__":

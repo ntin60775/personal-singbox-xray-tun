@@ -20,6 +20,7 @@ fi
 
 ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
 ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_runtime_xray_config_for_home "$REAL_HOME")"
+GENERATED_XRAY_CONFIG_DEFAULT="$(subvost_resolve_generated_xray_config_for_home "$REAL_HOME")"
 STORE_FILE_DEFAULT="$(subvost_resolve_store_file_for_home "$REAL_HOME")"
 
 ensure_absolute_path() {
@@ -452,6 +453,16 @@ EXPECTED_TUN_ADDRESSES=""
 ACTIVE_PROFILE_ID=""
 ACTIVE_NODE_ID=""
 
+if [[ -z "${XRAY_CONFIG_SOURCE:-}" ]]; then
+  if [[ "$XRAY_CONFIG" == "$SUBVOST_XRAY_CONFIG_PATH" ]]; then
+    XRAY_CONFIG_SOURCE="builtin"
+  elif [[ "$XRAY_CONFIG" == "$GENERATED_XRAY_CONFIG_DEFAULT" ]]; then
+    XRAY_CONFIG_SOURCE="store"
+  else
+    XRAY_CONFIG_SOURCE="custom"
+  fi
+fi
+
 ensure_python3_available
 load_singbox_tun_expectations
 
@@ -670,12 +681,14 @@ printf 'XRAY_PID=%s\nSINGBOX_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PR
   "$ACTIVE_PROFILE_ID" \
   "$ACTIVE_NODE_ID" \
   >"$STATE_FILE"
+printf 'XRAY_CONFIG_SOURCE=%s\n' "$XRAY_CONFIG_SOURCE" >>"$STATE_FILE"
 
 echo "[8/8] Готово"
 echo "XRAY_PID=$XRAY_PID"
 echo "SINGBOX_PID=$SINGBOX_PID"
 echo "RESOLV_BACKUP=$RESOLV_BACKUP"
 echo "XRAY_CONFIG=$XRAY_RUNTIME_CONFIG"
+echo "XRAY_CONFIG_SOURCE=$XRAY_CONFIG_SOURCE"
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
   echo "Лог Xray: $XRAY_LOG"
   echo "Лог sing-box: $SINGBOX_LOG"

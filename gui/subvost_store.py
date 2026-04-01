@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -19,6 +20,9 @@ from subvost_runtime import config_has_placeholders, extract_node_from_existing_
 STORE_VERSION = 1
 MANUAL_PROFILE_ID = "manual"
 MANUAL_PROFILE_NAME = "Локальные ссылки"
+RUNTIME_PREFERENCE_STORE = "store"
+RUNTIME_PREFERENCE_BUILTIN = "builtin"
+VALID_RUNTIME_PREFERENCES = {RUNTIME_PREFERENCE_STORE, RUNTIME_PREFERENCE_BUILTIN}
 
 
 def iso_now() -> str:
@@ -28,6 +32,7 @@ def iso_now() -> str:
 def default_store() -> dict[str, Any]:
     return {
         "version": STORE_VERSION,
+        "runtime_preference": RUNTIME_PREFERENCE_STORE,
         "profiles": [
             {
                 "id": MANUAL_PROFILE_ID,
@@ -56,6 +61,7 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
     if not store:
         store = default_store()
     store.setdefault("version", STORE_VERSION)
+    store.setdefault("runtime_preference", RUNTIME_PREFERENCE_STORE)
     store.setdefault("profiles", [])
     store.setdefault("subscriptions", [])
     store.setdefault(
@@ -65,6 +71,8 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
     store.setdefault("meta", {})
     store["meta"].setdefault("initialized_at", iso_now())
     store["meta"].setdefault("migrated_from_single_config_at", None)
+    if store.get("runtime_preference") not in VALID_RUNTIME_PREFERENCES:
+        store["runtime_preference"] = RUNTIME_PREFERENCE_STORE
     if not any(profile.get("id") == MANUAL_PROFILE_ID for profile in store["profiles"]):
         store["profiles"].insert(
             0,
@@ -335,6 +343,21 @@ def store_payload(store: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
     }
 
 
+def get_runtime_preference(store: dict[str, Any]) -> str:
+    preference = str(store.get("runtime_preference", "")).strip().lower()
+    if preference in VALID_RUNTIME_PREFERENCES:
+        return preference
+    return RUNTIME_PREFERENCE_STORE
+
+
+def set_runtime_preference(store: dict[str, Any], preference: str) -> str:
+    normalized = str(preference or "").strip().lower()
+    if normalized not in VALID_RUNTIME_PREFERENCES:
+        raise ValueError("Источник runtime должен быть 'store' или 'builtin'.")
+    store["runtime_preference"] = normalized
+    return normalized
+
+
 def save_manual_import_results(
     store: dict[str, Any],
     previews: list[dict[str, Any]],
@@ -534,10 +557,14 @@ def _apply_subscription_refresh(
     seen_fingerprints: set[str] = set()
     valid_count = 0
     invalid_count = 0
+    duplicate_count = 0
+    invalid_messages: list[str] = []
 
     for result in parsed_links:
         if not result.get("valid"):
             invalid_count += 1
+            if result.get("error"):
+                invalid_messages.append(str(result["error"]))
             continue
 
         valid_count += 1
@@ -545,19 +572,23 @@ def _apply_subscription_refresh(
         fingerprint = result["fingerprint"]
         existing = existing_nodes.get(fingerprint)
         if existing:
-            existing["raw_uri"] = result["raw_uri"]
-            existing["normalized"] = normalized
-            existing["protocol"] = normalized["protocol"]
-            existing["origin"] = {
+            if fingerprint in seen_fingerprints:
+                duplicate_count += 1
+                continue
+
+            updated_node = copy.deepcopy(existing)
+            updated_node["raw_uri"] = result["raw_uri"]
+            updated_node["normalized"] = normalized
+            updated_node["protocol"] = normalized["protocol"]
+            updated_node["origin"] = {
                 "kind": "subscription",
                 "subscription_id": subscription["id"],
             }
-            if not existing.get("user_renamed"):
-                existing["name"] = normalized["display_name"]
-            existing["updated_at"] = iso_now()
-            if fingerprint not in seen_fingerprints:
-                new_nodes.append(existing)
-                seen_fingerprints.add(fingerprint)
+            if not updated_node.get("user_renamed"):
+                updated_node["name"] = normalized["display_name"]
+            updated_node["updated_at"] = iso_now()
+            new_nodes.append(updated_node)
+            seen_fingerprints.add(fingerprint)
             continue
 
         new_node = _make_node_record(
@@ -566,19 +597,28 @@ def _apply_subscription_refresh(
             subscription_id=subscription["id"],
             raw_uri=result["raw_uri"],
         )
+        if fingerprint in seen_fingerprints:
+            duplicate_count += 1
+            continue
         new_nodes.append(new_node)
-        existing_nodes[fingerprint] = new_node
         seen_fingerprints.add(fingerprint)
 
     if valid_count == 0:
         raise ParseError("В подписке не найдено ни одной валидной ссылки.")
+    if invalid_count > 0:
+        error_suffix = f" Первая ошибка: {invalid_messages[0]}" if invalid_messages else ""
+        raise ParseError(
+            f"Обновление подписки не применено: невалидных строк {invalid_count}.{error_suffix}"
+        )
 
     profile["nodes"] = new_nodes
     ensure_active_selection(store)
     return {
         "valid": valid_count,
         "invalid": invalid_count,
-        "status": "ok" if invalid_count == 0 else "partial",
+        "unique_nodes": len(new_nodes),
+        "duplicate_lines": duplicate_count,
+        "status": "ok",
     }
 
 
@@ -600,7 +640,14 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
                 subscription["last_status"] = "ok"
                 subscription["last_error"] = ""
                 subscription["last_success_at"] = iso_now()
-                return {"status": "ok", "valid": 0, "invalid": 0, "format": "not_modified"}
+                return {
+                    "status": "ok",
+                    "valid": 0,
+                    "invalid": 0,
+                    "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
+                    "duplicate_lines": 0,
+                    "format": "not_modified",
+                }
 
             payload = response.read()
             links, response_format = parse_subscription_payload(payload)
@@ -640,7 +687,14 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
             subscription["last_status"] = "ok"
             subscription["last_error"] = ""
             subscription["last_success_at"] = iso_now()
-            return {"status": "ok", "valid": 0, "invalid": 0, "format": "not_modified"}
+            return {
+                "status": "ok",
+                "valid": 0,
+                "invalid": 0,
+                "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
+                "duplicate_lines": 0,
+                "format": "not_modified",
+            }
         subscription["last_status"] = "error"
         subscription["last_error"] = f"HTTP {exc.code}"
         raise ValueError(f"Подписка вернула HTTP {exc.code}.") from exc
@@ -657,7 +711,6 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
 def refresh_all_subscriptions(store: dict[str, Any]) -> dict[str, Any]:
     items = []
     ok_count = 0
-    partial_count = 0
     error_count = 0
     for subscription in store["subscriptions"]:
         if not subscription.get("enabled", True):
@@ -665,17 +718,13 @@ def refresh_all_subscriptions(store: dict[str, Any]) -> dict[str, Any]:
         try:
             result = refresh_subscription(store, subscription["id"])
             items.append({"id": subscription["id"], "name": subscription["name"], **result})
-            if result["status"] == "ok":
-                ok_count += 1
-            else:
-                partial_count += 1
+            ok_count += 1
         except ValueError as exc:
             items.append({"id": subscription["id"], "name": subscription["name"], "status": "error", "message": str(exc)})
             error_count += 1
     return {
         "items": items,
         "ok": ok_count,
-        "partial": partial_count,
         "error": error_count,
     }
 
