@@ -17,7 +17,7 @@ from typing import Any
 
 from subvost_parser import preview_links
 from subvost_paths import build_app_paths
-from subvost_runtime import read_json_config
+from subvost_runtime import config_has_placeholders, node_can_render_runtime, read_json_config
 from subvost_store import (
     activate_selection,
     add_subscription,
@@ -26,12 +26,14 @@ from subvost_store import (
     delete_subscription,
     ensure_store_initialized,
     get_active_node,
+    get_runtime_preference,
     read_or_migrate_gui_settings,
     refresh_all_subscriptions,
     refresh_subscription,
     save_gui_settings,
     save_manual_import_results,
     save_store,
+    set_runtime_preference,
     store_payload,
     sync_generated_runtime,
     update_node,
@@ -110,6 +112,16 @@ LAST_ACTION: dict[str, Any] = {
 }
 
 
+def runtime_source_label(source: str | None) -> str:
+    if source == "store":
+        return "Выбранный узел"
+    if source == "builtin":
+        return "Встроенный config"
+    if source == "custom":
+        return "Пользовательский config"
+    return "Не определён"
+
+
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -135,7 +147,7 @@ INDEX_HTML = """<!DOCTYPE html>
       --danger: #dc2626;
       --danger-soft: rgba(220, 38, 38, 0.12);
       --warning: #b45309;
-      --shadow: 0 18px 60px rgba(18, 36, 61, 0.10);
+      --shadow: 0 14px 44px rgba(18, 36, 61, 0.10);
       --radius-xl: 28px;
       --radius-lg: 20px;
       --radius-md: 16px;
@@ -173,7 +185,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
     main {
       position: relative;
-      width: min(1880px, calc(100vw - 24px));
+      width: min(1540px, calc(100vw - 24px));
       margin: 0 auto;
       padding: 14px 0 18px;
     }
@@ -412,6 +424,62 @@ INDEX_HTML = """<!DOCTYPE html>
       min-height: 0;
     }
 
+    .runtime-stage {
+      margin-bottom: 14px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(30, 41, 59, 0.08);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(237, 244, 252, 0.96));
+    }
+
+    .runtime-stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .runtime-segment {
+      display: inline-grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 6px;
+      border-radius: 16px;
+      background: rgba(19, 34, 56, 0.06);
+      border: 1px solid rgba(30, 41, 59, 0.08);
+    }
+
+    .runtime-segment-button {
+      min-height: 42px;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .runtime-segment-button[data-selected="true"] {
+      background: #fff;
+      color: var(--text);
+      box-shadow: 0 10px 20px rgba(18, 36, 61, 0.08);
+    }
+
+    .runtime-segment-button[disabled] {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .runtime-note {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
     .card-header {
       display: flex;
       justify-content: space-between;
@@ -564,6 +632,42 @@ INDEX_HTML = """<!DOCTYPE html>
     .badge[data-tone="danger"] {
       background: var(--danger-soft);
       color: var(--danger);
+    }
+
+    .feedback-panel {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(30, 41, 59, 0.08);
+      background: rgba(248, 250, 252, 0.92);
+    }
+
+    .feedback-panel[data-tone="success"] {
+      border-color: rgba(15, 159, 110, 0.22);
+      background: linear-gradient(180deg, rgba(15, 159, 110, 0.08), rgba(255, 255, 255, 0.92));
+    }
+
+    .feedback-panel[data-tone="accent"] {
+      border-color: rgba(249, 115, 22, 0.22);
+      background: linear-gradient(180deg, rgba(249, 115, 22, 0.08), rgba(255, 255, 255, 0.92));
+    }
+
+    .feedback-panel[data-tone="danger"] {
+      border-color: rgba(220, 38, 38, 0.2);
+      background: linear-gradient(180deg, rgba(220, 38, 38, 0.06), rgba(255, 255, 255, 0.92));
+    }
+
+    .feedback-title {
+      font-size: 0.92rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .feedback-copy {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.5;
     }
 
     .output-panel {
@@ -804,6 +908,10 @@ INDEX_HTML = """<!DOCTYPE html>
       .inline-actions {
         justify-content: flex-start;
       }
+
+      .runtime-segment {
+        width: 100%;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1000,8 +1108,8 @@ INDEX_HTML = """<!DOCTYPE html>
       <article class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Импорт и подписки</h2>
-            <p class="card-copy">Сначала проверить ссылки, затем сохранить их в локальный store или привязать к subscription URL.</p>
+            <h2 class="card-title">1. Источники узлов</h2>
+            <p class="card-copy">Добавь ссылки вручную или через subscription URL и сразу увидь, сколько узлов реально загрузилось.</p>
           </div>
           <div class="badge-row" id="store-counts"></div>
         </div>
@@ -1041,7 +1149,7 @@ ss://..."></textarea>
           <div class="card-header">
             <div>
               <h2 class="card-title">Подписки</h2>
-              <p class="card-copy">Добавление URL, ручное обновление и просмотр последней ошибки без логов.</p>
+              <p class="card-copy">Добавление URL, явный результат первого обновления и быстрый переход к загруженному профилю.</p>
             </div>
           </div>
 
@@ -1061,6 +1169,12 @@ ss://..."></textarea>
             <button class="button button-secondary small-action" id="refresh-all-button" type="button">Обновить все</button>
           </div>
 
+          <div class="feedback-panel" id="subscription-feedback" hidden>
+            <div class="feedback-title" id="subscription-feedback-title">Статус подписки</div>
+            <div class="feedback-copy" id="subscription-feedback-copy">Действия по подписке будут видны здесь.</div>
+            <div class="badge-row" id="subscription-feedback-badges"></div>
+          </div>
+
           <div class="list-panel" id="subscription-list">
             <p class="empty-note">Подписок пока нет.</p>
           </div>
@@ -1070,9 +1184,23 @@ ss://..."></textarea>
       <article class="card">
         <div class="card-header">
           <div>
-            <h2 class="card-title">Профили и узлы</h2>
-            <p class="card-copy">Активный выбор, переключение узлов и базовое управление локальной моделью.</p>
+            <h2 class="card-title">2. Runtime, профили и узлы</h2>
+            <p class="card-copy">Сначала выбери, откуда bundle берёт runtime-конфиг, потом переключай профиль и узел.</p>
           </div>
+        </div>
+
+        <div class="runtime-stage">
+          <div class="runtime-stage-header">
+            <div>
+              <span class="info-label">Источник runtime</span>
+              <div class="runtime-segment" role="tablist" aria-label="Источник runtime-конфига">
+                <button class="runtime-segment-button" id="runtime-mode-store" data-runtime-mode="store" type="button">Выбранный узел</button>
+                <button class="runtime-segment-button" id="runtime-mode-builtin" data-runtime-mode="builtin" type="button">Встроенный config</button>
+              </div>
+            </div>
+          </div>
+          <p class="runtime-note" id="runtime-mode-note">Источник runtime уточняется.</p>
+          <div class="badge-row" id="runtime-mode-badges"></div>
         </div>
 
         <div class="info-grid">
@@ -1089,7 +1217,7 @@ ss://..."></textarea>
             <div class="info-value mono" id="runtime-source">-</div>
           </div>
           <div class="info-item">
-            <span class="info-label">Текущий актив</span>
+            <span class="info-label">Что используется</span>
             <div class="info-value" id="active-selection-summary">-</div>
           </div>
         </div>
@@ -1128,6 +1256,7 @@ ss://..."></textarea>
       selectedProfileId: null,
       storePayload: null,
       previewResults: [],
+      statusPayload: null,
     };
 
     const els = {
@@ -1164,10 +1293,18 @@ ss://..."></textarea>
       lastActionMessage: document.getElementById("last-action-message"),
       commandOutput: document.getElementById("command-output"),
       storeCounts: document.getElementById("store-counts"),
+      subscriptionFeedback: document.getElementById("subscription-feedback"),
+      subscriptionFeedbackTitle: document.getElementById("subscription-feedback-title"),
+      subscriptionFeedbackCopy: document.getElementById("subscription-feedback-copy"),
+      subscriptionFeedbackBadges: document.getElementById("subscription-feedback-badges"),
       activeProfileName: document.getElementById("active-profile-name"),
       activeNodeName: document.getElementById("active-node-name"),
       runtimeSource: document.getElementById("runtime-source"),
       activeSelectionSummary: document.getElementById("active-selection-summary"),
+      runtimeModeStore: document.getElementById("runtime-mode-store"),
+      runtimeModeBuiltin: document.getElementById("runtime-mode-builtin"),
+      runtimeModeNote: document.getElementById("runtime-mode-note"),
+      runtimeModeBadges: document.getElementById("runtime-mode-badges"),
       importInput: document.getElementById("import-input"),
       importFile: document.getElementById("import-file"),
       activateSingleToggle: document.getElementById("activate-single-toggle"),
@@ -1183,6 +1320,8 @@ ss://..."></textarea>
       nodeList: document.getElementById("node-list"),
     };
 
+    const runtimeModeButtons = [els.runtimeModeStore, els.runtimeModeBuiltin];
+
     function setBusy(busy) {
       state.busy = busy;
       for (const button of [
@@ -1194,6 +1333,9 @@ ss://..."></textarea>
         els.addSubscriptionButton,
         els.refreshAllButton
       ]) {
+        button.disabled = busy;
+      }
+      for (const button of runtimeModeButtons) {
         button.disabled = busy;
       }
       els.loggingToggle.disabled = busy;
@@ -1237,6 +1379,31 @@ ss://..."></textarea>
       container.innerHTML = `<p class="empty-note">${escapeHtml(message)}</p>`;
     }
 
+    function pluralizeNodes(value) {
+      const abs = Math.abs(Number(value) || 0);
+      const mod10 = abs % 10;
+      const mod100 = abs % 100;
+      if (mod10 === 1 && mod100 !== 11) return "узел";
+      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "узла";
+      return "узлов";
+    }
+
+    function clearFeedback() {
+      els.subscriptionFeedback.hidden = true;
+      els.subscriptionFeedback.dataset.tone = "";
+      els.subscriptionFeedbackTitle.textContent = "";
+      els.subscriptionFeedbackCopy.textContent = "";
+      renderBadges(els.subscriptionFeedbackBadges, []);
+    }
+
+    function setFeedback({ tone = "", title = "", copy = "", badges = [] }) {
+      els.subscriptionFeedback.hidden = false;
+      els.subscriptionFeedback.dataset.tone = tone;
+      els.subscriptionFeedbackTitle.textContent = title;
+      els.subscriptionFeedbackCopy.textContent = copy;
+      renderBadges(els.subscriptionFeedbackBadges, badges);
+    }
+
     function compactPathValue(value) {
       if (!value || value === "—") return "—";
       return value
@@ -1254,7 +1421,41 @@ ss://..."></textarea>
       element.title = value || "";
     }
 
+    function applyRuntimeState(runtime, activeNode) {
+      const preference = runtime?.preference || "store";
+      for (const button of runtimeModeButtons) {
+        button.dataset.selected = button.dataset.runtimeMode === preference ? "true" : "false";
+      }
+
+      const liveSource = runtime?.live_source_label ? `Сейчас запущено: ${runtime.live_source_label}.` : "Стек сейчас не запущен.";
+      const nextStart = runtime?.next_start_source_label ? `Следующий старт: ${runtime.next_start_source_label}.` : "";
+      const activeNodeLine = activeNode
+        ? `Подготовленный узел: ${activeNode.name}.`
+        : "Подготовленного узла для режима store пока нет.";
+
+      els.runtimeModeNote.textContent = [liveSource, nextStart, runtime?.next_start_reason || activeNodeLine]
+        .filter(Boolean)
+        .join(" ");
+
+      const runtimeBadges = [
+        badge(`режим ${runtime?.preference_label || "—"}`, "accent"),
+        badge(
+          runtime?.store_candidate_ready ? "store готов" : "store не готов",
+          runtime?.store_candidate_ready ? "success" : "danger"
+        ),
+        badge(
+          runtime?.builtin_has_placeholders ? "builtin требует live-данных" : "builtin готов",
+          runtime?.builtin_has_placeholders ? "accent" : "success"
+        ),
+      ];
+      if (runtime?.live_source_label) {
+        runtimeBadges.unshift(badge(`live ${runtime.live_source_label}`, "success"));
+      }
+      renderBadges(els.runtimeModeBadges, runtimeBadges);
+    }
+
     function applyStatus(data) {
+      state.statusPayload = data;
       const summary = data.summary;
       const action = data.last_action || {};
 
@@ -1274,9 +1475,20 @@ ss://..."></textarea>
       els.activeProfileName.textContent = data.active_profile?.name || "—";
       els.activeNodeName.textContent = data.active_node?.name || "—";
       assignCompactPath(els.runtimeSource, data.artifacts.active_xray_config || data.runtime.active_xray_config || "—");
-      els.activeSelectionSummary.textContent = data.active_node
-        ? `${data.connection.protocol_label || "—"} · ${data.connection.active_origin || "—"}`
-        : "Активный узел не выбран";
+      applyRuntimeState(data.runtime, data.active_node);
+
+      const summaryRuntimeSource = summary.state === "stopped"
+        ? data.runtime.next_start_source
+        : (data.runtime.live_source || data.runtime.next_start_source);
+      if (summaryRuntimeSource === "builtin") {
+        els.activeSelectionSummary.textContent = data.runtime.builtin_has_placeholders
+          ? "Встроенный config выбран, но требует локальных live-значений."
+          : "Сейчас используется встроенный operator-managed config."
+      } else if (data.active_node) {
+        els.activeSelectionSummary.textContent = `${data.connection.protocol_label || "—"} · ${data.active_node.name}`;
+      } else {
+        els.activeSelectionSummary.textContent = "Для режима выбранного узла пока нет готового активного узла.";
+      }
 
       renderBadges(els.stateBadges, [
         badge(summary.badges[0], summary.state === "running" ? "success" : summary.state === "stopped" ? "danger" : "accent"),
@@ -1384,8 +1596,8 @@ ss://..."></textarea>
       els.subscriptionList.innerHTML = subscriptions.map((subscription) => {
         let tone = "";
         if (subscription.last_status === "ok") tone = "success";
-        if (subscription.last_status === "partial") tone = "accent";
         if (subscription.last_status === "error") tone = "danger";
+        const selected = subscription.profile_id === state.selectedProfileId;
 
         const metaParts = [
           subscription.url,
@@ -1394,16 +1606,18 @@ ss://..."></textarea>
         ].filter(Boolean);
 
         return `
-          <div class="list-row">
+          <div class="list-row" data-selected="${selected ? "true" : "false"}">
             <div class="list-main">
               <strong class="row-title">${escapeHtml(subscription.name)}</strong>
               <div class="row-meta">${escapeHtml(metaParts.join(" · "))}</div>
               <div class="badge-row">
                 ${badge(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "success" : "danger")}
                 ${badge(subscription.last_status || "never", tone)}
+                ${selected ? badge("профиль открыт", "accent") : ""}
               </div>
             </div>
             <div class="inline-actions">
+              ${tinyButton("Показать узлы", "open-subscription-profile", { profileId: subscription.profile_id }, "accent")}
               ${tinyButton("Обновить", "refresh-subscription", { subscriptionId: subscription.id })}
               ${tinyButton(subscription.enabled ? "Отключить" : "Включить", "toggle-subscription", { subscriptionId: subscription.id, enabled: String(subscription.enabled) }, "accent")}
               ${tinyButton("Переименовать", "rename-subscription", { subscriptionId: subscription.id, name: subscription.name })}
@@ -1561,6 +1775,20 @@ ss://..."></textarea>
       }
     }
 
+    async function setRuntimePreference(mode) {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/runtime/preference", { mode });
+        if (data.status) applyStatus(data.status);
+        if (data.store) applyStore(data.store);
+      } catch (error) {
+        els.lastActionMessage.textContent = `Ошибка переключения runtime: ${error.message}`;
+        throw error;
+      } finally {
+        setBusy(false);
+      }
+    }
+
     async function addSubscription() {
       setBusy(true);
       try {
@@ -1570,11 +1798,50 @@ ss://..."></textarea>
         });
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        if (data.focus_profile_id) {
+          state.selectedProfileId = data.focus_profile_id;
+          if (data.store) applyStore(data.store);
+        }
+
+        const refresh = data.refresh || null;
+        if (refresh) {
+          const imported = refresh.valid || 0;
+          const uniqueNodes = refresh.unique_nodes || 0;
+          const invalid = refresh.invalid || 0;
+          const duplicates = refresh.duplicate_lines || 0;
+          setFeedback({
+            tone: "success",
+            title: "Подписка добавлена",
+            copy: `Источник сохранён. Получено валидных строк: ${imported}. Сохранено уникальных узлов: ${uniqueNodes}.${duplicates ? ` Дублей схлопнуто: ${duplicates}.` : ""}${invalid ? ` Невалидных строк: ${invalid}.` : ""}`,
+            badges: [
+              badge(`профиль ${data.subscription?.name || "создан"}`, "accent"),
+              refresh ? badge(`строк ${imported}`, "success") : "",
+              refresh ? badge(`узлов ${uniqueNodes}`, "accent") : "",
+              duplicates ? badge(`дублей ${duplicates}`, "accent") : "",
+              invalid ? badge(`невалидных ${invalid}`, "danger") : "",
+              data.status?.runtime?.preference === "builtin"
+                ? badge("runtime остаётся на builtin до ручного переключения", "accent")
+                : "",
+            ].filter(Boolean),
+          });
+        } else {
+          setFeedback({
+            tone: data.ok ? "success" : "danger",
+            title: data.ok ? "Подписка добавлена" : "Ошибка подписки",
+            copy: data.message || "Результат операции получен.",
+          });
+        }
+
         if (data.ok) {
           els.subscriptionName.value = "";
           els.subscriptionUrl.value = "";
         }
       } catch (error) {
+        setFeedback({
+          tone: "danger",
+          title: "Не удалось добавить подписку",
+          copy: error.message,
+        });
         els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
       } finally {
         setBusy(false);
@@ -1587,7 +1854,17 @@ ss://..."></textarea>
         const data = await apiPost("/api/subscriptions/refresh-all", {});
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        setFeedback({
+          tone: data.refresh_all?.error ? "danger" : "success",
+          title: "Обновление подписок завершено",
+          copy: `Успешно: ${data.refresh_all?.ok || 0}. Ошибок: ${data.refresh_all?.error || 0}.`,
+        });
       } catch (error) {
+        setFeedback({
+          tone: "danger",
+          title: "Не удалось обновить подписки",
+          copy: error.message,
+        });
         els.lastActionMessage.textContent = `Ошибка обновления подписок: ${error.message}`;
       } finally {
         setBusy(false);
@@ -1595,11 +1872,31 @@ ss://..."></textarea>
     }
 
     async function handleSubscriptionAction(button) {
-      const { action, subscriptionId, name, enabled } = button.dataset;
+      const { action, subscriptionId, profileId, name, enabled } = button.dataset;
+      if (action === "open-subscription-profile") {
+        state.selectedProfileId = profileId;
+        if (state.storePayload) applyStore(state.storePayload);
+        return;
+      }
+
       if (action === "refresh-subscription") {
         const data = await apiPost("/api/subscriptions/refresh", { subscription_id: subscriptionId });
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        const uniqueNodes = data.refresh?.unique_nodes || 0;
+        const duplicateLines = data.refresh?.duplicate_lines || 0;
+        setFeedback({
+          tone: "success",
+          title: "Подписка обновлена",
+          copy: `Валидных строк: ${data.refresh?.valid || 0}. Сохранено уникальных узлов: ${uniqueNodes}.${duplicateLines ? ` Дублей схлопнуто: ${duplicateLines}.` : ""} Невалидных строк: ${data.refresh?.invalid || 0}.`,
+          badges: [
+            badge(`формат ${data.refresh?.format || "—"}`, "accent"),
+            badge(`строк ${data.refresh?.valid || 0}`, "success"),
+            badge(`узлов ${uniqueNodes}`, "accent"),
+            duplicateLines ? badge(`дублей ${duplicateLines}`, "accent") : "",
+            (data.refresh?.invalid || 0) ? badge(`невалидных ${data.refresh?.invalid || 0}`, "danger") : "",
+          ].filter(Boolean),
+        });
         return;
       }
 
@@ -1610,6 +1907,11 @@ ss://..."></textarea>
         });
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        setFeedback({
+          tone: "accent",
+          title: "Состояние подписки изменено",
+          copy: data.message || "Настройки подписки сохранены.",
+        });
         return;
       }
 
@@ -1622,6 +1924,11 @@ ss://..."></textarea>
         });
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        setFeedback({
+          tone: "accent",
+          title: "Имя подписки обновлено",
+          copy: `Новое имя: ${nextName}.`,
+        });
         return;
       }
 
@@ -1630,6 +1937,11 @@ ss://..."></textarea>
         const data = await apiPost("/api/subscriptions/delete", { subscription_id: subscriptionId });
         if (data.status) applyStatus(data.status);
         if (data.store) applyStore(data.store);
+        setFeedback({
+          tone: "danger",
+          title: "Подписка удалена",
+          copy: `Источник '${name || "без имени"}' и связанный профиль удалены.`,
+        });
       }
     }
 
@@ -1721,6 +2033,11 @@ ss://..."></textarea>
     els.saveImportButton.addEventListener("click", saveImport);
     els.addSubscriptionButton.addEventListener("click", addSubscription);
     els.refreshAllButton.addEventListener("click", refreshAllSubscriptions);
+    for (const button of runtimeModeButtons) {
+      button.addEventListener("click", () => {
+        setRuntimePreference(button.dataset.runtimeMode).catch(() => {});
+      });
+    }
     els.importFile.addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -1730,6 +2047,11 @@ ss://..."></textarea>
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       handleSubscriptionAction(button).catch((error) => {
+        setFeedback({
+          tone: "danger",
+          title: "Ошибка операции по подписке",
+          copy: error.message,
+        });
         els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
       });
     });
@@ -1748,6 +2070,7 @@ ss://..."></textarea>
       });
     });
 
+    clearFeedback();
     loadStore().catch((error) => {
       els.lastActionMessage.textContent = `Не удалось получить состояние: ${error.message}`;
     });
@@ -1899,11 +2222,66 @@ def resolve_active_xray_config_path(
         if candidate.is_absolute() and candidate.exists():
             return candidate
 
+    runtime_preference = get_runtime_preference(store)
     selection = store.get("active_selection", {})
-    if selection.get("profile_id") and selection.get("node_id") and APP_PATHS.generated_xray_config_file.exists():
+    has_generated_candidate = (
+        runtime_preference == "store"
+        and selection.get("profile_id")
+        and selection.get("node_id")
+        and APP_PATHS.generated_xray_config_file.exists()
+    )
+    if has_generated_candidate:
         return APP_PATHS.generated_xray_config_file
 
     return XRAY_TEMPLATE_PATH
+
+
+def describe_runtime_state(
+    store: dict[str, Any],
+    state: dict[str, str],
+    *,
+    stack_is_live: bool,
+    active_profile: dict[str, Any] | None,
+    active_node: dict[str, Any] | None,
+) -> dict[str, Any]:
+    runtime_preference = get_runtime_preference(store)
+    builtin_config = read_json_config(XRAY_TEMPLATE_PATH)
+    builtin_has_placeholders = bool(builtin_config) and config_has_placeholders(builtin_config)
+    store_candidate_ready = bool(
+        active_profile
+        and active_profile.get("enabled", True)
+        and node_can_render_runtime(active_node)
+        and APP_PATHS.generated_xray_config_file.exists()
+    )
+
+    next_start_source = "store" if runtime_preference == "store" and store_candidate_ready else "builtin"
+    if runtime_preference == "builtin":
+        next_start_reason = "Выбран явный ручной режим: при следующем старте будет использован operator-managed xray-tun-subvost.json."
+    elif store_candidate_ready:
+        next_start_reason = "При следующем старте bundle возьмёт сгенерированный config из выбранного узла."
+    else:
+        next_start_reason = "Режим выбранного узла включён, но готового узла нет: до появления валидного узла bundle использует встроенный config."
+
+    live_source = None
+    if stack_is_live:
+        live_source = str(state.get("XRAY_CONFIG_SOURCE") or "").strip().lower() or None
+        if live_source not in {"store", "builtin", "custom"}:
+            live_source = None
+
+    return {
+        "preference": runtime_preference,
+        "preference_label": runtime_source_label(runtime_preference),
+        "live_source": live_source,
+        "live_source_label": runtime_source_label(live_source) if live_source else None,
+        "next_start_source": next_start_source,
+        "next_start_source_label": runtime_source_label(next_start_source),
+        "next_start_reason": next_start_reason,
+        "store_candidate_ready": store_candidate_ready,
+        "builtin_has_placeholders": builtin_has_placeholders,
+        "builtin_ready": bool(builtin_config) and not builtin_has_placeholders,
+        "builtin_path": str(XRAY_TEMPLATE_PATH),
+        "generated_path": str(APP_PATHS.generated_xray_config_file),
+    }
 
 
 def parse_connection_info(xray: dict[str, Any], singbox: dict[str, Any], active_node: dict[str, Any] | None) -> dict[str, str]:
@@ -2025,12 +2403,19 @@ def collect_status() -> dict[str, Any]:
             log_files.append(str(candidate))
 
     store_data = store_payload(store, APP_PATHS)
+    runtime_state = describe_runtime_state(
+        store,
+        state,
+        stack_is_live=stack_is_live,
+        active_profile=active_profile,
+        active_node=active_node,
+    )
     if active_xray_config_path == APP_PATHS.active_runtime_xray_config_file:
         config_origin = "snapshot"
     elif active_xray_config_path == APP_PATHS.generated_xray_config_file:
         config_origin = "generated"
     else:
-        config_origin = "template"
+        config_origin = "builtin"
 
     return {
         "summary": {
@@ -2067,6 +2452,7 @@ def collect_status() -> dict[str, Any]:
             "requires_terminal_sudo_hint": os.geteuid() != 0,
             "config_origin": config_origin,
             "active_xray_config": str(active_xray_config_path),
+            **runtime_state,
         },
         "artifacts": {
             "latest_diagnostic": str(latest_diag) if latest_diag else None,
@@ -2156,6 +2542,20 @@ def store_response(
     return payload
 
 
+def rollback_subscription_failure(
+    store: dict[str, Any],
+    *,
+    delete_subscription_id: str | None = None,
+) -> None:
+    if delete_subscription_id:
+        try:
+            delete_subscription(store, delete_subscription_id)
+        except ValueError:
+            pass
+    set_runtime_preference(store, "builtin")
+    persist_store(store)
+
+
 def handle_store_snapshot() -> dict[str, Any]:
     store = ensure_store_ready()
     return {
@@ -2198,22 +2598,40 @@ def handle_import_save(payload: dict[str, Any]) -> dict[str, Any]:
 def handle_subscription_add(payload: dict[str, Any]) -> dict[str, Any]:
     store = ensure_store_ready()
     subscription = add_subscription(store, str(payload.get("name", "")), str(payload.get("url", "")))
-    ok = True
-    message = f"Подписка '{subscription['name']}' сохранена и обновлена."
-    details_payload: dict[str, Any] = {"subscription_id": subscription["id"]}
+    details_payload: dict[str, Any] = {
+        "subscription_id": subscription["id"],
+        "subscription": subscription,
+        "focus_profile_id": subscription["profile_id"],
+    }
     try:
-        details_payload["refresh"] = refresh_subscription(store, subscription["id"])
+        refresh_result = refresh_subscription(store, subscription["id"])
+        details_payload["refresh"] = refresh_result
+        message = (
+            f"Подписка '{subscription['name']}' добавлена. "
+            f"Сохранено уникальных узлов: {refresh_result['unique_nodes']}."
+        )
     except ValueError as exc:
-        ok = False
-        message = f"Подписка сохранена, но первое обновление завершилось ошибкой: {exc}"
-        details_payload["refresh_error"] = str(exc)
+        rollback_subscription_failure(store, delete_subscription_id=subscription["id"])
+        raise ValueError(
+            f"Подписка не добавлена: {exc}. Bundle переведён в режим встроенного config."
+        ) from exc
 
     return store_response(
         store,
         name="Добавление подписки",
-        ok=ok,
+        ok=True,
         message=message,
-        details=json.dumps(details_payload, ensure_ascii=False),
+        details="\n".join(
+            [
+                f"subscription_id={subscription['id']}",
+                f"profile_id={subscription['profile_id']}",
+                f"refresh_status={details_payload.get('refresh', {}).get('status', 'error')}",
+                f"valid={details_payload.get('refresh', {}).get('valid', 0)}",
+                f"invalid={details_payload.get('refresh', {}).get('invalid', 0)}",
+                f"unique_nodes={details_payload.get('refresh', {}).get('unique_nodes', 0)}",
+                f"duplicate_lines={details_payload.get('refresh', {}).get('duplicate_lines', 0)}",
+            ]
+        ),
         extra=details_payload,
     )
 
@@ -2223,12 +2641,18 @@ def handle_subscription_refresh(payload: dict[str, Any]) -> dict[str, Any]:
     subscription_id = str(payload.get("subscription_id", "")).strip()
     if not subscription_id:
         raise ValueError("Не передан subscription_id.")
-    result = refresh_subscription(store, subscription_id)
+    try:
+        result = refresh_subscription(store, subscription_id)
+    except ValueError as exc:
+        rollback_subscription_failure(store)
+        raise ValueError(
+            f"Подписка не обновлена: {exc}. Сохранена предыдущая версия, bundle переведён в режим встроенного config."
+        ) from exc
     return store_response(
         store,
         name="Обновление подписки",
-        ok=result["status"] != "error",
-        message="Подписка обновлена." if result["status"] == "ok" else "Подписка обновлена частично.",
+        ok=True,
+        message=f"Подписка обновлена: сохранено {result['unique_nodes']} уникальных узлов.",
         details=json.dumps(result, ensure_ascii=False),
         extra={"refresh": result},
     )
@@ -2238,11 +2662,9 @@ def handle_subscription_refresh_all() -> dict[str, Any]:
     store = ensure_store_ready()
     result = refresh_all_subscriptions(store)
     ok = result["error"] == 0
-    message = (
-        "Все включённые подписки обновлены."
-        if ok and result["partial"] == 0
-        else "Обновление подписок завершено с частичными ошибками."
-    )
+    if not ok:
+        set_runtime_preference(store, "builtin")
+    message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась. Bundle переведён в режим встроенного config."
     return store_response(
         store,
         name="Обновить все подписки",
@@ -2283,6 +2705,24 @@ def handle_subscription_delete(payload: dict[str, Any]) -> dict[str, Any]:
         ok=True,
         message="Подписка и связанный профиль удалены.",
         details=json.dumps({"subscription_id": subscription_id}, ensure_ascii=False),
+    )
+
+
+def handle_runtime_preference_update(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    preference = set_runtime_preference(store, str(payload.get("mode", "")))
+    message = (
+        "Следующий старт будет использовать встроенный config."
+        if preference == "builtin"
+        else "Следующий старт будет использовать выбранный узел, если он готов."
+    )
+    return store_response(
+        store,
+        name="Источник runtime",
+        ok=True,
+        message=message,
+        details=f"runtime_preference={preference}",
+        extra={"runtime_preference": preference},
     )
 
 
@@ -2449,6 +2889,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/stop",
             "/api/diagnostics",
             "/api/import/save",
+            "/api/runtime/preference",
             "/api/subscriptions/add",
             "/api/subscriptions/refresh",
             "/api/subscriptions/refresh-all",
@@ -2484,6 +2925,8 @@ class Handler(BaseHTTPRequestHandler):
                 response = {"ok": True, "status": handle_diagnostics()}
             elif self.path == "/api/import/save":
                 response = handle_import_save(payload)
+            elif self.path == "/api/runtime/preference":
+                response = handle_runtime_preference_update(payload)
             elif self.path == "/api/subscriptions/add":
                 response = handle_subscription_add(payload)
             elif self.path == "/api/subscriptions/refresh":
