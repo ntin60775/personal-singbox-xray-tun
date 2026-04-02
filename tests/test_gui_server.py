@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "gui"))
 
 import gui_server  # noqa: E402
+import gui_contract  # noqa: E402
 from subvost_paths import build_app_paths  # noqa: E402
 from subvost_store import add_subscription, ensure_store_initialized, refresh_subscription, save_store  # noqa: E402
 
@@ -35,6 +36,10 @@ class FakeResponse:
 
 
 class GuiServerRuntimeSelectionTests(unittest.TestCase):
+    def test_gui_server_uses_shared_contract_version(self) -> None:
+        self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-02-root-review-routing-v2")
+
     def test_index_html_normalizes_data_attribute_names_for_dataset_actions(self) -> None:
         self.assertIn("function normalizeDataAttrName(name)", gui_server.INDEX_HTML)
         self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
@@ -66,6 +71,12 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('if request_path in {"/favicon.ico", FAVICON_ROUTE}:', do_get_source)
         self.assertIn("if request_path in ROOT_GUI_PATHS:", do_get_source)
         self.assertIn("if request_path in REVIEW_GUI_PATHS:", do_get_source)
+
+    def test_launcher_reads_gui_version_from_shared_contract_module(self) -> None:
+        launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
+        self.assertIn('CURRENT_GUI_VERSION="$(load_current_gui_version)"', launcher)
+        self.assertIn("from gui_contract import GUI_VERSION", launcher)
+        self.assertNotIn('CURRENT_GUI_VERSION="2026-', launcher)
 
     def test_legacy_routes_are_defined_for_old_embedded_ui(self) -> None:
         self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)

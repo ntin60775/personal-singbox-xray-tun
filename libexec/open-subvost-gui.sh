@@ -8,7 +8,6 @@ subvost_load_project_layout_from_env
 HOST="${SUBVOST_GUI_HOST:-127.0.0.1}"
 PORT="${SUBVOST_GUI_PORT:-8421}"
 URL="http://${HOST}:${PORT}"
-CURRENT_GUI_VERSION="2026-03-31-wave1-v1"
 REAL_USER="${USER:-$(id -un)}"
 REAL_HOME="${HOME:-$(getent passwd "$REAL_USER" | cut -d: -f6)}"
 REAL_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${REAL_HOME}/.config}"
@@ -45,6 +44,17 @@ EOF
     esac
     shift
   done
+}
+
+load_current_gui_version() {
+  python3 - "$SUBVOST_GUI_DIR" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from gui_contract import GUI_VERSION
+
+print(GUI_VERSION)
+PY
 }
 
 is_server_ready() {
@@ -117,6 +127,12 @@ start_backend() {
 }
 
 parse_args "$@"
+CURRENT_GUI_VERSION="$(load_current_gui_version)"
+
+if [[ -z "${CURRENT_GUI_VERSION}" ]]; then
+  echo "Не удалось определить ожидаемую версию GUI-контракта." >&2
+  exit 1
+fi
 
 if [[ "${FORCE_RESTART}" == "1" ]] || ! is_server_ready || ! server_contract_matches; then
   start_backend

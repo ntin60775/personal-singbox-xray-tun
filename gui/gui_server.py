@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from gui_contract import GUI_VERSION
 from subvost_parser import preview_links
 from subvost_paths import build_app_paths
 from subvost_runtime import config_has_placeholders, node_can_render_runtime, read_json_config
@@ -45,7 +46,6 @@ GUI_DIR = Path(__file__).resolve().parent
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
-GUI_VERSION = "2026-03-31-wave1-v1"
 ROOT_GUI_PATHS = ["/", "/index.html"]
 REVIEW_GUI_ASSET = "design_review.html"
 REVIEW_GUI_PATHS = ["/design-review", "/design-review.html"]
