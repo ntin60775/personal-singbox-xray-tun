@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 import sys
 import tempfile
@@ -39,12 +40,32 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
         self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
 
-    def test_design_review_asset_contains_clash_fullscreen_candidate(self) -> None:
-        self.assertEqual(gui_server.MAIN_GUI_ASSET, "design_review.html")
-        html = gui_server.load_gui_asset(gui_server.MAIN_GUI_ASSET)
+    def test_review_asset_contains_clash_fullscreen_candidate(self) -> None:
+        self.assertEqual(gui_server.REVIEW_GUI_ASSET, "design_review.html")
+        html = gui_server.load_gui_asset(gui_server.REVIEW_GUI_ASSET)
         self.assertIn('id="clash-candidate"', html)
         self.assertIn("Главная панель", html)
         self.assertIn('fetch("/api/store"', html)
+        self.assertIn('rel="icon"', html)
+        self.assertIn('/assets/subvost-xray-tun-icon.svg', html)
+
+    def test_root_ui_is_operational_screen_with_real_controls(self) -> None:
+        self.assertIn('id="start-button"', gui_server.INDEX_HTML)
+        self.assertIn('id="save-import-button"', gui_server.INDEX_HTML)
+        self.assertIn('id="runtime-mode-store"', gui_server.INDEX_HTML)
+        self.assertNotIn('id="clash-candidate"', gui_server.INDEX_HTML)
+        self.assertIn('rel="icon"', gui_server.INDEX_HTML)
+        self.assertIn('/assets/subvost-xray-tun-icon.svg', gui_server.INDEX_HTML)
+
+    def test_root_and_review_routes_are_defined_separately(self) -> None:
+        self.assertEqual(gui_server.ROOT_GUI_PATHS, ["/", "/index.html"])
+        self.assertEqual(gui_server.REVIEW_GUI_PATHS, ["/design-review", "/design-review.html"])
+        self.assertEqual(gui_server.FAVICON_ROUTE, "/assets/subvost-xray-tun-icon.svg")
+
+        do_get_source = inspect.getsource(gui_server.Handler.do_GET)
+        self.assertIn('if request_path in {"/favicon.ico", FAVICON_ROUTE}:', do_get_source)
+        self.assertIn("if request_path in ROOT_GUI_PATHS:", do_get_source)
+        self.assertIn("if request_path in REVIEW_GUI_PATHS:", do_get_source)
 
     def test_legacy_routes_are_defined_for_old_embedded_ui(self) -> None:
         self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)
