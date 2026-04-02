@@ -39,6 +39,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
         self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
 
+    def test_design_review_asset_contains_clash_fullscreen_candidate(self) -> None:
+        self.assertEqual(gui_server.MAIN_GUI_ASSET, "design_review.html")
+        html = gui_server.load_gui_asset(gui_server.MAIN_GUI_ASSET)
+        self.assertIn('id="clash-candidate"', html)
+        self.assertIn("Главная панель", html)
+        self.assertIn('fetch("/api/store"', html)
+
+    def test_legacy_routes_are_defined_for_old_embedded_ui(self) -> None:
+        self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)
+        self.assertIn("/classic-ui", gui_server.LEGACY_GUI_PATHS)
+
     def test_resolve_active_xray_config_prefers_snapshot_only_for_live_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
