@@ -46,6 +46,8 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
 GUI_VERSION = "2026-03-31-wave1-v1"
+MAIN_GUI_ASSET = "design_review.html"
+LEGACY_GUI_PATHS = ["/legacy-ui", "/legacy-ui.html", "/classic-ui", "/classic-ui.html"]
 
 
 def discover_project_root() -> Path:
@@ -120,6 +122,14 @@ def runtime_source_label(source: str | None) -> str:
     if source == "custom":
         return "Пользовательский config"
     return "Не определён"
+
+
+def load_gui_asset(filename: str) -> str:
+    asset_path = GUI_DIR / filename
+    if not asset_path.is_file():
+        raise FileNotFoundError(f"Не найден GUI asset: {asset_path}")
+    return asset_path.read_text(encoding="utf-8")
+
 
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="ru">
@@ -2855,15 +2865,25 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self) -> None:
-        if self.path in ["/", "/index.html"]:
+        request_path = self.path.split("?", 1)[0]
+
+        if request_path in ["/", "/index.html"]:
+            self.send_html(load_gui_asset(MAIN_GUI_ASSET))
+            return
+
+        if request_path in ["/design-review", "/design-review.html"]:
+            self.send_html(load_gui_asset(MAIN_GUI_ASSET))
+            return
+
+        if request_path in LEGACY_GUI_PATHS:
             self.send_html(INDEX_HTML)
             return
 
-        if self.path == "/api/status":
+        if request_path == "/api/status":
             self.send_json(collect_status())
             return
 
-        if self.path == "/api/store":
+        if request_path == "/api/store":
             self.send_json(handle_store_snapshot())
             return
 
