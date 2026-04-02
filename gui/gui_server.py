@@ -46,8 +46,14 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
 GUI_VERSION = "2026-03-31-wave1-v1"
-MAIN_GUI_ASSET = "design_review.html"
+ROOT_GUI_PATHS = ["/", "/index.html"]
+REVIEW_GUI_ASSET = "design_review.html"
+REVIEW_GUI_PATHS = ["/design-review", "/design-review.html"]
 LEGACY_GUI_PATHS = ["/legacy-ui", "/legacy-ui.html", "/classic-ui", "/classic-ui.html"]
+ASSETS_DIR = GUI_DIR.parent / "assets"
+FAVICON_ASSET_NAME = "subvost-xray-tun-icon.svg"
+FAVICON_PATH = ASSETS_DIR / FAVICON_ASSET_NAME
+FAVICON_ROUTE = f"/assets/{FAVICON_ASSET_NAME}"
 
 
 def discover_project_root() -> Path:
@@ -131,6 +137,12 @@ def load_gui_asset(filename: str) -> str:
     return asset_path.read_text(encoding="utf-8")
 
 
+def load_binary_asset(path: Path) -> bytes:
+    if not path.is_file():
+        raise FileNotFoundError(f"Не найден asset: {path}")
+    return path.read_bytes()
+
+
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -138,6 +150,7 @@ INDEX_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="subvost-gui-version" content=\"""" + GUI_VERSION + """\">
   <title>Subvost Xray TUN Control</title>
+  <link rel="icon" type="image/svg+xml" href=\"""" + FAVICON_ROUTE + """\">
   <style>
     :root {
       --bg: #f3f7fb;
@@ -2852,6 +2865,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_bytes(self, payload: bytes, content_type: str, status: int = HTTPStatus.OK) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(payload)
+
     def read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or "0")
         if length <= 0:
@@ -2867,12 +2888,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         request_path = self.path.split("?", 1)[0]
 
-        if request_path in ["/", "/index.html"]:
-            self.send_html(load_gui_asset(MAIN_GUI_ASSET))
+        if request_path in {"/favicon.ico", FAVICON_ROUTE}:
+            self.send_bytes(load_binary_asset(FAVICON_PATH), "image/svg+xml; charset=utf-8")
             return
 
-        if request_path in ["/design-review", "/design-review.html"]:
-            self.send_html(load_gui_asset(MAIN_GUI_ASSET))
+        if request_path in ROOT_GUI_PATHS:
+            self.send_html(INDEX_HTML)
+            return
+
+        if request_path in REVIEW_GUI_PATHS:
+            self.send_html(load_gui_asset(REVIEW_GUI_ASSET))
             return
 
         if request_path in LEGACY_GUI_PATHS:
