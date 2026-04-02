@@ -121,7 +121,6 @@ def runtime_source_label(source: str | None) -> str:
         return "Пользовательский config"
     return "Не определён"
 
-
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -1365,8 +1364,12 @@ ss://..."></textarea>
       return `<span class="badge"${attr}>${escapeHtml(label)}</span>`;
     }
 
+    function normalizeDataAttrName(name) {
+      return String(name).replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+    }
+
     function tinyButton(label, action, attrs = {}, tone = "") {
-      const attrParts = Object.entries(attrs).map(([key, value]) => ` data-${key}="${escapeAttr(value)}"`);
+      const attrParts = Object.entries(attrs).map(([key, value]) => ` data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"`);
       const toneAttr = tone ? ` data-tone="${tone}"` : "";
       return `<button class="tiny-button"${toneAttr} data-action="${escapeAttr(action)}"${attrParts.join("")} type="button">${escapeHtml(label)}</button>`;
     }
