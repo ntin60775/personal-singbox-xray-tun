@@ -16,7 +16,7 @@
 - `xray-tun-subvost.json` — санитизированный tracked-шаблон `Xray`, который больше не считается primary runtime source of truth
 - `singbox-tun-subvost.json` — repo-managed runtime-конфиг `sing-box`
 - `logs/` — runtime-логи и диагностические дампы
-- `plans/` — инженерные планы задач
+- `knowledge/` — task-centric knowledge-система с текущими и мигрированными историческими задачами, планами и операциями
 
 Внутренние компоненты:
 
@@ -52,7 +52,7 @@ export ENABLE_FILE_LOGS=1
 - `outbounds[0].streamSettings.realitySettings.publicKey` → `REPLACE_WITH_REALITY_PUBLIC_KEY`
 - `outbounds[0].streamSettings.realitySettings.shortId` → `REPLACE_WITH_REALITY_SHORT_ID`
 
-Эти значения остаются operator-managed. В Git, планах и документации должны оставаться только placeholders, а live-значения используются только локально для runtime и ручных smoke-проверок.
+Эти значения остаются operator-managed. В Git, task-артефактах knowledge-системы и документации должны оставаться только placeholders, а live-значения используются только локально для runtime и ручных smoke-проверок.
 
 ## Локальный store и generated runtime
 
