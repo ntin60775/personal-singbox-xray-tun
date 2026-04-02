@@ -34,6 +34,11 @@ class FakeResponse:
 
 
 class GuiServerRuntimeSelectionTests(unittest.TestCase):
+    def test_index_html_normalizes_data_attribute_names_for_dataset_actions(self) -> None:
+        self.assertIn("function normalizeDataAttrName(name)", gui_server.INDEX_HTML)
+        self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
+        self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
+
     def test_resolve_active_xray_config_prefers_snapshot_only_for_live_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
