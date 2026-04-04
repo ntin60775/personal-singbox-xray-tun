@@ -37,7 +37,7 @@ class FakeResponse:
 
 class GuiServerRuntimeSelectionTests(unittest.TestCase):
     def main_html(self) -> str:
-        return gui_server.load_gui_asset(gui_server.REVIEW_GUI_ASSET)
+        return gui_server.load_gui_asset(gui_server.MAIN_GUI_ASSET)
 
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
@@ -50,54 +50,57 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
 
     def test_main_gui_asset_contains_operational_controls(self) -> None:
-        self.assertEqual(gui_server.REVIEW_GUI_ASSET, "design_review.html")
+        self.assertEqual(gui_server.MAIN_GUI_ASSET, "main_gui.html")
         html = self.main_html()
         self.assertIn('id="main-gui-shell"', html)
-        self.assertIn('id="sidebar-nav"', html)
-        self.assertIn("Главная панель", html)
+        self.assertIn("Subvost Xray TUN", html)
         self.assertIn('id="start-button"', html)
-        self.assertIn('id="save-import-button"', html)
-        self.assertIn('id="subscription-name"', html)
-        self.assertIn('id="profile-list"', html)
+        self.assertIn('id="diag-button"', html)
+        self.assertIn('id="subscription-url"', html)
+        self.assertIn('id="subscription-list"', html)
         self.assertIn('id="node-list"', html)
-        self.assertIn('id="logging-toggle"', html)
-        self.assertIn('id="command-output"', html)
-        self.assertIn("Bundle стартует только из активного узла.", html)
+        self.assertIn('id="log-list"', html)
+        self.assertIn('id="refresh-all-button"', html)
+        self.assertIn('id="panel-log"', html)
+        self.assertIn('id="panel-subscriptions"', html)
+        self.assertIn('id="panel-nodes"', html)
+        self.assertIn("Клик по строке делает узел активным сразу.", html)
+        self.assertIn("Ошибки всегда видны явно.", html)
         self.assertIn('fetch("/api/store"', html)
+        self.assertIn('"/api/nodes/ping"', html)
         self.assertIn('rel="icon"', html)
         self.assertIn('/assets/subvost-xray-tun-icon.svg', html)
-        self.assertIn('data-nav-target="workspace-overview"', html)
-        self.assertIn('data-nav-target="node-list-anchor"', html)
-        self.assertIn('data-nav-target="panel-diagnostics"', html)
-        self.assertIn('id="panel-subscriptions"', html)
-        self.assertIn('id="panel-diagnostics"', html)
-        self.assertIn("activateNavTarget(initialNavTarget()", html)
-        self.assertIn('target.scrollIntoView({', html)
-        self.assertNotIn('class="sidebar-brand"', html)
-        self.assertNotIn('id="sidebar-state"', html)
-        self.assertNotIn('id="sidebar-next-start"', html)
-        self.assertNotIn('id="sidebar-readiness"', html)
+        self.assertNotIn('id="sidebar-nav"', html)
+        self.assertNotIn('id="profile-list"', html)
+        self.assertNotIn('id="logging-toggle"', html)
+        self.assertNotIn('id="command-output"', html)
+        self.assertNotIn("Активный маршрут", html)
+        self.assertNotIn("Состояние стека", html)
+        self.assertNotIn("Ручной импорт ссылок", html)
 
     def test_main_gui_has_single_runtime_language(self) -> None:
         html = self.main_html()
         self.assertNotIn('id="runtime-mode-store"', html)
         self.assertNotIn('id="clash-candidate"', html)
         self.assertNotIn("Резерва нет", html)
-        self.assertIn("единственный режим: выбранный TUN-узел", html)
+        self.assertNotIn("Bundle стартует только из активного узла.", html)
+        self.assertIn("Подписка:", html)
+        self.assertIn("Узел:", html)
 
-    def test_root_review_and_legacy_routes_serve_one_gui(self) -> None:
+    def test_root_route_is_only_gui_entrypoint(self) -> None:
         self.assertEqual(gui_server.ROOT_GUI_PATHS, ["/", "/index.html"])
-        self.assertEqual(gui_server.REVIEW_GUI_PATHS, ["/design-review", "/design-review.html"])
-        self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)
-        self.assertIn("/classic-ui", gui_server.LEGACY_GUI_PATHS)
         self.assertEqual(gui_server.FAVICON_ROUTE, "/assets/subvost-xray-tun-icon.svg")
+        self.assertFalse(hasattr(gui_server, "REVIEW_GUI_PATHS"))
+        self.assertFalse(hasattr(gui_server, "LEGACY_GUI_PATHS"))
 
         do_get_source = inspect.getsource(gui_server.Handler.do_GET)
         self.assertIn('if request_path in {"/favicon.ico", FAVICON_ROUTE}:', do_get_source)
-        self.assertIn(
-            "if request_path in ROOT_GUI_PATHS or request_path in REVIEW_GUI_PATHS or request_path in LEGACY_GUI_PATHS:",
-            do_get_source,
-        )
+        self.assertIn("if request_path in ROOT_GUI_PATHS:", do_get_source)
+        self.assertNotIn("REVIEW_GUI_PATHS", do_get_source)
+        self.assertNotIn("LEGACY_GUI_PATHS", do_get_source)
+
+        do_post_source = inspect.getsource(gui_server.Handler.do_POST)
+        self.assertIn('"/api/nodes/ping"', do_post_source)
 
     def test_launcher_reads_gui_version_from_shared_contract_module(self) -> None:
         launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
@@ -182,6 +185,73 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertEqual(status["state"], "degraded")
         self.assertEqual(status["stack_line"], "Xray core")
         self.assertIn("Часть runtime активна", status["description"])
+
+    def test_collect_traffic_metrics_computes_rates_from_interface_counters(self) -> None:
+        previous_sample = gui_server.LAST_TRAFFIC_SAMPLE.copy()
+        gui_server.LAST_TRAFFIC_SAMPLE.update({"interface": None, "timestamp": None, "rx_bytes": None, "tx_bytes": None})
+        try:
+            with (
+                patch.object(gui_server, "read_interface_byte_counter", side_effect=[1000, 2000, 1600, 2600]),
+                patch("gui_server.time.monotonic", side_effect=[10.0, 12.0]),
+            ):
+                first = gui_server.collect_traffic_metrics("tun0")
+                second = gui_server.collect_traffic_metrics("tun0")
+        finally:
+            gui_server.LAST_TRAFFIC_SAMPLE.update(previous_sample)
+
+        self.assertTrue(first["available"])
+        self.assertEqual(first["rx_bytes"], 1000)
+        self.assertEqual(first["tx_bytes"], 2000)
+        self.assertEqual(first["rx_rate_bytes_per_sec"], 0.0)
+        self.assertEqual(first["tx_rate_bytes_per_sec"], 0.0)
+        self.assertEqual(second["rx_rate_bytes_per_sec"], 300.0)
+        self.assertEqual(second["tx_rate_bytes_per_sec"], 300.0)
+        self.assertEqual(second["rx_rate_label"], "300 B/s")
+
+    def test_handle_node_ping_returns_latency_and_updates_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            template = root / "xray-tun-subvost.json"
+            template.write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+
+            store = ensure_store_initialized(paths, root)
+            manual_profile = next(profile for profile in store["profiles"] if profile["id"] == "manual")
+            manual_profile["nodes"].append(
+                {
+                    "id": "node-1",
+                    "fingerprint": "fingerprint-1",
+                    "name": "Node-1",
+                    "protocol": "vless",
+                    "raw_uri": "vless://...",
+                    "origin": {"kind": "manual", "subscription_id": None},
+                    "enabled": True,
+                    "user_renamed": False,
+                    "parse_error": "",
+                    "normalized": {"address": "example.com", "port": 443, "protocol": "vless"},
+                    "created_at": "2026-04-04T00:00:00",
+                    "updated_at": "2026-04-04T00:00:00",
+                }
+            )
+            save_store(paths, store)
+
+            with (
+                patch.object(gui_server, "APP_PATHS", paths),
+                patch.object(gui_server, "PROJECT_ROOT", root),
+                patch.object(gui_server, "XRAY_TEMPLATE_PATH", template),
+                patch.object(gui_server, "ping_node", return_value={"host": "example.com", "port": 443, "latency_ms": 42.5, "label": "42.5 мс", "timestamp": "2026-04-04T10:00:00", "ok": True}),
+            ):
+                gui_server.PING_CACHE.clear()
+                response = gui_server.handle_node_ping({"profile_id": "manual", "node_id": "node-1"})
+
+            self.assertTrue(response["ok"])
+            self.assertEqual(response["ping"]["latency_ms"], 42.5)
+            self.assertEqual(response["ping"]["label"], "42.5 мс")
+            cache = response["status"]["ping"]["cache"]
+            self.assertIn("manual:node-1", cache)
+            self.assertEqual(cache["manual:node-1"]["latency_ms"], 42.5)
 
 
 class GuiServerSubscriptionRollbackTests(unittest.TestCase):
