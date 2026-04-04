@@ -46,6 +46,9 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
     def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
         self.assertEqual(gui_server.INDEX_HTML, self.main_html())
         self.assertIn("function normalizeDataAttrName(name)", gui_server.INDEX_HTML)
+        self.assertIn("function setHtmlIfChanged(element, markup, cacheKey = \"\")", gui_server.INDEX_HTML)
+        self.assertIn("renderCache", gui_server.INDEX_HTML)
+        self.assertIn("setHtmlIfChanged(els.nodeList, markup, \"nodes\")", gui_server.INDEX_HTML)
         self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
         self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
 
@@ -64,7 +67,9 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('id="panel-log"', html)
         self.assertIn('id="panel-subscriptions"', html)
         self.assertIn('id="panel-nodes"', html)
-        self.assertIn("Клик по строке делает узел активным сразу.", html)
+        self.assertIn('id="node-help-toggle"', html)
+        self.assertIn('id="log-help-toggle"', html)
+        self.assertIn("Клик по плитке сразу активирует узел.", html)
         self.assertIn("Ошибки всегда видны явно.", html)
         self.assertIn('fetch("/api/store"', html)
         self.assertIn('"/api/nodes/ping"', html)
@@ -106,6 +111,9 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
         self.assertIn('CURRENT_GUI_VERSION="$(load_current_gui_version)"', launcher)
         self.assertIn("from gui_contract import GUI_VERSION", launcher)
+        self.assertIn("SUBVOST_GUI_LAUNCH_MODE", launcher)
+        self.assertIn("embedded_webview.py", launcher)
+        self.assertIn("open_embedded_webview", launcher)
         self.assertNotIn('CURRENT_GUI_VERSION="2026-', launcher)
 
     def test_resolve_active_xray_config_prefers_snapshot_only_for_live_stack(self) -> None:

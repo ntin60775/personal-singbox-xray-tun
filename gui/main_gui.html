@@ -7,15 +7,18 @@
   <link rel="icon" type="image/svg+xml" href="/assets/subvost-xray-tun-icon.svg">
   <style>
     :root {
-      --bg: #0d1219;
-      --surface: #121923;
-      --surface-soft: #182130;
-      --surface-mute: #0f151d;
+      --bg: #091019;
+      --surface: #121b27;
+      --surface-soft: #182434;
+      --surface-mute: #0d141d;
+      --surface-elevated: #1b2636;
       --line: rgba(164, 184, 207, 0.12);
       --line-strong: rgba(164, 184, 207, 0.22);
+      --line-soft: rgba(255, 255, 255, 0.05);
       --text: #eef4fb;
       --muted: #95a6bc;
       --accent: #67a6ff;
+      --accent-strong: #8cc2ff;
       --accent-soft: rgba(103, 166, 255, 0.16);
       --success: #37c680;
       --warning: #f0b24a;
@@ -23,7 +26,9 @@
       --radius-lg: 20px;
       --radius-md: 14px;
       --radius-sm: 10px;
-      --shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+      --shadow: 0 36px 96px rgba(0, 0, 0, 0.34);
+      --panel-shadow: 0 18px 42px rgba(0, 0, 0, 0.16);
+      --focus-ring: 0 0 0 3px rgba(103, 166, 255, 0.18);
       --sans-display: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
       --sans: "IBM Plex Sans", "Noto Sans", "Segoe UI", sans-serif;
       --mono: "IBM Plex Mono", "JetBrains Mono", "DejaVu Sans Mono", monospace;
@@ -41,7 +46,8 @@
       color: var(--text);
       font-family: var(--sans);
       background:
-        radial-gradient(circle at top left, rgba(103, 166, 255, 0.12), transparent 26%),
+        radial-gradient(circle at top left, rgba(103, 166, 255, 0.17), transparent 24%),
+        radial-gradient(circle at 85% 10%, rgba(55, 198, 128, 0.07), transparent 18%),
         linear-gradient(180deg, #101720 0%, var(--bg) 100%);
     }
 
@@ -74,7 +80,7 @@
 
     .page {
       height: 100dvh;
-      padding: 12px;
+      padding: 16px;
       display: flex;
       justify-content: center;
     }
@@ -84,16 +90,26 @@
       width: min(100%, 1360px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) minmax(180px, 24dvh);
-      gap: 12px;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 28px;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid rgba(164, 184, 207, 0.14);
+      border-radius: 30px;
       background:
-        linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(12, 18, 26, 0.98)),
-        radial-gradient(circle at top right, rgba(103, 166, 255, 0.08), transparent 24%);
+        linear-gradient(180deg, rgba(18, 25, 35, 0.98), rgba(10, 16, 24, 0.98)),
+        radial-gradient(circle at top right, rgba(103, 166, 255, 0.12), transparent 26%);
       box-shadow: var(--shadow);
       overflow: hidden;
       margin: 0 auto;
+      position: relative;
+    }
+
+    .app-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
     .topbar,
@@ -101,39 +117,60 @@
       min-height: 0;
       border: 1px solid var(--line);
       border-radius: var(--radius-lg);
-      background: rgba(255, 255, 255, 0.03);
+      background:
+        linear-gradient(180deg, rgba(24, 33, 48, 0.88), rgba(16, 23, 33, 0.92)),
+        rgba(255, 255, 255, 0.03);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        var(--panel-shadow);
     }
 
     .topbar {
       display: grid;
-      grid-template-columns: minmax(260px, 1.2fr) minmax(320px, 1fr) auto;
-      gap: 12px;
-      padding: 12px 14px;
-      align-items: center;
+      grid-template-columns: minmax(300px, 1.04fr) minmax(560px, 1fr);
+      grid-template-rows: auto auto;
+      gap: 14px 16px;
+      padding: 16px 18px;
+      align-items: start;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .topbar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at top left, rgba(103, 166, 255, 0.14), transparent 38%),
+        linear-gradient(120deg, rgba(255, 255, 255, 0.02), transparent 32%);
     }
 
     .topbar-primary {
       display: grid;
-      gap: 8px;
+      gap: 12px;
       min-width: 0;
+      grid-row: 1 / span 2;
+      position: relative;
+      z-index: 1;
     }
 
     .eyebrow {
       margin: 0;
-      color: #7fb3ff;
+      color: #8fbcff;
       font-size: 0.72rem;
       font-weight: 700;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
+      text-shadow: 0 0 24px rgba(103, 166, 255, 0.18);
     }
 
     .headline-row {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
       gap: 8px;
-      align-items: center;
+      justify-items: start;
     }
 
     .status-pill,
@@ -148,14 +185,16 @@
       padding: 0 12px;
       border-radius: 999px;
       border: 1px solid rgba(164, 184, 207, 0.14);
-      background: rgba(255, 255, 255, 0.04);
+      background: linear-gradient(180deg, rgba(30, 41, 58, 0.76), rgba(17, 24, 34, 0.8));
       font-size: 0.8rem;
       font-weight: 700;
       white-space: nowrap;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
     .status-pill {
       color: var(--text);
+      padding-right: 14px;
     }
 
     .status-dot {
@@ -177,27 +216,34 @@
     }
 
     .context-pill {
-      color: var(--muted);
-      max-width: min(34vw, 420px);
+      color: #bfd0e6;
+      max-width: min(34vw, 440px);
       overflow: hidden;
       text-overflow: ellipsis;
+      background: linear-gradient(180deg, rgba(14, 20, 29, 0.84), rgba(18, 27, 38, 0.82));
     }
 
     .metric-strip {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(3, minmax(214px, 1fr));
+      gap: 10px;
       min-width: 0;
+      position: relative;
+      z-index: 1;
     }
 
     .metric-chip {
-      min-height: 48px;
-      padding: 8px 12px;
+      min-height: 58px;
+      min-width: 0;
+      padding: 11px 14px;
       border-radius: var(--radius-md);
       flex-direction: column;
       align-items: flex-start;
       justify-content: center;
       gap: 4px;
+      white-space: normal;
+      background: linear-gradient(180deg, rgba(26, 36, 51, 0.86), rgba(17, 24, 34, 0.92));
+      border-color: rgba(164, 184, 207, 0.16);
     }
 
     .metric-chip span {
@@ -209,9 +255,58 @@
     }
 
     .metric-chip strong {
-      font-size: 0.9rem;
-      line-height: 1.3;
+      display: block;
+      width: 100%;
+      font-size: 0.82rem;
+      line-height: 1.24;
       word-break: break-word;
+      overflow-wrap: anywhere;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      gap: 10px;
+      width: 100%;
+      align-items: stretch;
+    }
+
+    .metric-segment {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+
+    .metric-divider {
+      width: 1px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(164, 184, 207, 0.34), rgba(255, 255, 255, 0.04));
+    }
+
+    .metric-label {
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .metric-label-in {
+      color: #8fbcff;
+    }
+
+    .metric-label-out {
+      color: #8fe4d1;
+    }
+
+    .metric-value {
+      color: var(--text);
+      font-size: 0.82rem;
+      line-height: 1.26;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     .action-row,
@@ -224,6 +319,9 @@
 
     .action-row {
       justify-content: flex-end;
+      align-self: end;
+      position: relative;
+      z-index: 1;
     }
 
     .action-button,
@@ -234,32 +332,40 @@
       padding: 0 14px;
       border-radius: 999px;
       border: 1px solid rgba(164, 184, 207, 0.14);
-      background: rgba(255, 255, 255, 0.05);
+      background: linear-gradient(180deg, rgba(28, 39, 56, 0.9), rgba(18, 25, 35, 0.94));
       color: var(--text);
       font-size: 0.82rem;
       font-weight: 700;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
       transition:
         transform 160ms ease,
         opacity 160ms ease,
         background-color 160ms ease,
-        border-color 160ms ease;
+        border-color 160ms ease,
+        box-shadow 160ms ease;
     }
 
     .action-button.primary {
-      background: linear-gradient(135deg, rgba(103, 166, 255, 0.26), rgba(103, 166, 255, 0.12));
-      border-color: rgba(103, 166, 255, 0.26);
+      background: linear-gradient(135deg, rgba(115, 172, 255, 0.92), rgba(65, 114, 204, 0.92));
+      border-color: rgba(142, 191, 255, 0.32);
+      color: #f6fbff;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        0 14px 28px rgba(46, 92, 178, 0.28);
     }
 
     .ghost-button {
-      min-height: 34px;
+      min-height: 36px;
       padding: 0 12px;
-      color: var(--muted);
+      color: #c5d6ea;
+      background: linear-gradient(180deg, rgba(20, 28, 40, 0.86), rgba(13, 18, 26, 0.94));
     }
 
     .tiny-button {
-      min-height: 30px;
+      min-height: 31px;
       padding: 0 11px;
       font-size: 0.76rem;
+      background: linear-gradient(180deg, rgba(30, 41, 58, 0.86), rgba(18, 25, 35, 0.96));
     }
 
     .tiny-button[data-tone="danger"] {
@@ -276,6 +382,7 @@
       background: rgba(103, 166, 255, 0.16);
       border-color: rgba(103, 166, 255, 0.22);
       color: #d9e7ff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
 
     .action-button:hover,
@@ -283,6 +390,21 @@
     .tiny-button:hover,
     .filter-chip:hover {
       transform: translateY(-1px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 10px 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .action-button:focus-visible,
+    .ghost-button:focus-visible,
+    .tiny-button:focus-visible,
+    .filter-chip:focus-visible,
+    .icon-button:focus-visible {
+      outline: none;
+      border-color: rgba(103, 166, 255, 0.34);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        var(--focus-ring);
     }
 
     .action-button:disabled,
@@ -298,15 +420,15 @@
     .workspace {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-      gap: 12px;
+      grid-template-columns: minmax(410px, 500px) minmax(0, 1fr);
+      gap: 14px;
     }
 
     .panel {
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr);
-      gap: 12px;
-      padding: 14px;
+      gap: 14px;
+      padding: 16px;
       overflow: hidden;
     }
 
@@ -328,8 +450,8 @@
 
     .panel-head h2 {
       margin: 0;
-      font-size: 1rem;
-      letter-spacing: -0.03em;
+      font-size: 1.04rem;
+      letter-spacing: -0.04em;
     }
 
     .panel-head p {
@@ -339,24 +461,71 @@
       line-height: 1.4;
     }
 
+    .panel-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .icon-button {
+      min-width: 36px;
+      width: 36px;
+      padding: 0;
+      font-size: 0.9rem;
+      flex: 0 0 auto;
+    }
+
+    .help-card {
+      display: grid;
+      gap: 6px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.1);
+      background: linear-gradient(180deg, rgba(15, 22, 32, 0.82), rgba(20, 28, 39, 0.9));
+    }
+
+    .help-card[hidden] {
+      display: none;
+    }
+
+    .help-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.79rem;
+      line-height: 1.45;
+    }
+
     .subscription-form {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
+      padding: 10px;
+      border-radius: 18px;
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(12, 18, 26, 0.7), rgba(18, 26, 38, 0.54));
     }
 
     .url-input {
       width: 100%;
-      min-height: 40px;
+      min-height: 42px;
       padding: 0 14px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(164, 184, 207, 0.16);
-      background: rgba(8, 12, 18, 0.42);
+      background: rgba(8, 12, 18, 0.52);
       color: var(--text);
+      transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
     }
 
     .url-input::placeholder {
       color: rgba(149, 166, 188, 0.72);
+    }
+
+    .url-input:focus {
+      outline: none;
+      border-color: rgba(103, 166, 255, 0.42);
+      box-shadow: var(--focus-ring);
+      background: rgba(9, 14, 22, 0.76);
     }
 
     .list-scroll,
@@ -380,29 +549,62 @@
     .list-grid,
     .log-list {
       display: grid;
-      gap: 8px;
+      gap: 10px;
+    }
+
+    .nodes-panel .list-grid {
+      grid-template-columns: repeat(auto-fit, minmax(252px, 1fr));
+      gap: 12px;
+      align-content: start;
     }
 
     .list-row {
+      position: relative;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 10px;
       align-items: center;
-      padding: 12px;
-      border: 1px solid rgba(164, 184, 207, 0.1);
+      padding: 14px 14px 14px 16px;
+      border: 1px solid rgba(164, 184, 207, 0.11);
       border-radius: var(--radius-md);
-      background: rgba(255, 255, 255, 0.03);
+      background: linear-gradient(180deg, rgba(29, 39, 54, 0.72), rgba(19, 26, 36, 0.9));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      overflow: hidden;
+      transition:
+        transform 160ms ease,
+        border-color 160ms ease,
+        background-color 160ms ease,
+        box-shadow 160ms ease;
+    }
+
+    .list-row::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 12px;
+      bottom: 12px;
+      width: 4px;
+      border-radius: 999px;
+      background: transparent;
+      transition: background 160ms ease, box-shadow 160ms ease;
     }
 
     .list-row[data-selected="true"] {
-      border-color: rgba(103, 166, 255, 0.28);
-      box-shadow: inset 0 0 0 1px rgba(103, 166, 255, 0.16);
-      background: rgba(103, 166, 255, 0.08);
+      border-color: rgba(120, 170, 240, 0.34);
+      box-shadow:
+        inset 0 0 0 1px rgba(103, 166, 255, 0.12),
+        0 16px 34px rgba(9, 14, 22, 0.18);
+      background: linear-gradient(180deg, rgba(34, 49, 71, 0.96), rgba(25, 37, 54, 0.98));
+    }
+
+    .list-row[data-selected="true"]::before {
+      background: linear-gradient(180deg, rgba(137, 189, 255, 0.95), rgba(90, 208, 192, 0.78));
+      box-shadow: 0 0 16px rgba(103, 166, 255, 0.18);
     }
 
     .list-row[data-tone="error"] {
       border-color: rgba(255, 121, 121, 0.22);
-      background: rgba(255, 121, 121, 0.06);
+      background: linear-gradient(180deg, rgba(74, 35, 40, 0.5), rgba(42, 22, 28, 0.7));
     }
 
     .list-row[data-disabled="true"] {
@@ -414,16 +616,105 @@
       cursor: pointer;
     }
 
+    .subscription-row {
+      align-items: start;
+    }
+
+    .subscription-row .row-side {
+      min-width: 136px;
+      align-content: start;
+    }
+
+    .subscription-badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .subscription-actions {
+      justify-content: flex-end;
+    }
+
+    .node-row {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+      align-content: space-between;
+      min-height: 172px;
+      padding: 14px 16px 16px;
+      gap: 14px;
+    }
+
+    .node-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      min-height: 34px;
+    }
+
+    .node-card-badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .node-card-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: flex-start;
+      min-height: 31px;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }
+
+    .subscription-row:hover,
+    .node-row:hover {
+      transform: translateY(-1px);
+      border-color: rgba(103, 166, 255, 0.18);
+      background: linear-gradient(180deg, rgba(33, 45, 63, 0.82), rgba(22, 30, 42, 0.94));
+    }
+
+    .node-row[data-selected="true"] .row-main strong {
+      color: #f6fbff;
+    }
+
+    .node-row[data-selected="true"] .row-meta {
+      color: #aebfd5;
+    }
+
+    .node-row[data-selected="true"] .row-badge[data-tone="accent"] {
+      background: linear-gradient(180deg, rgba(38, 56, 81, 0.92), rgba(28, 41, 59, 0.98));
+      border-color: rgba(120, 170, 240, 0.26);
+      color: #dceaff;
+    }
+
+    .node-row .row-main {
+      align-content: center;
+      min-height: 0;
+    }
+
+    .node-row .row-main strong {
+      font-size: 0.95rem;
+    }
+
+    .node-row .row-meta {
+      max-width: 42ch;
+    }
+
     .row-main {
       min-width: 0;
       display: grid;
-      gap: 5px;
+      gap: 6px;
     }
 
     .row-main strong {
-      font-size: 0.9rem;
+      font-size: 0.92rem;
       line-height: 1.35;
       word-break: break-word;
+      letter-spacing: -0.02em;
     }
 
     .row-meta {
@@ -435,9 +726,10 @@
 
     .row-side {
       display: grid;
-      gap: 6px;
+      gap: 8px;
       justify-items: end;
       text-align: right;
+      min-width: 110px;
     }
 
     .row-badge[data-tone="success"] {
@@ -459,10 +751,10 @@
     .error-banner {
       display: grid;
       gap: 4px;
-      padding: 10px 12px;
+      padding: 12px 13px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(255, 121, 121, 0.22);
-      background: rgba(255, 121, 121, 0.08);
+      background: linear-gradient(180deg, rgba(79, 36, 42, 0.56), rgba(52, 27, 32, 0.72));
     }
 
     .error-banner[hidden] {
@@ -482,10 +774,10 @@
     .log-entry {
       display: grid;
       gap: 6px;
-      padding: 10px 12px;
+      padding: 12px 13px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(164, 184, 207, 0.08);
-      background: rgba(255, 255, 255, 0.025);
+      background: linear-gradient(180deg, rgba(28, 38, 52, 0.7), rgba(17, 23, 33, 0.88));
     }
 
     .log-entry[data-level="error"] {
@@ -522,9 +814,9 @@
 
     .log-details {
       margin: 0;
-      padding: 8px 10px;
+      padding: 9px 11px;
       border-radius: var(--radius-sm);
-      background: rgba(8, 12, 18, 0.5);
+      background: rgba(8, 12, 18, 0.56);
       color: #d6e2f4;
       font-family: var(--mono);
       font-size: 0.76rem;
@@ -540,34 +832,114 @@
       place-items: center;
       min-height: 100%;
       padding: 18px;
-      border: 1px dashed rgba(164, 184, 207, 0.16);
+      border: 1px dashed rgba(164, 184, 207, 0.18);
       border-radius: var(--radius-md);
       color: var(--muted);
       text-align: center;
       line-height: 1.5;
+      background: linear-gradient(180deg, rgba(12, 18, 26, 0.42), rgba(18, 25, 35, 0.24));
+    }
+
+    #stop-button:not(:disabled) {
+      color: #ffd3d3;
+      border-color: rgba(255, 121, 121, 0.18);
+    }
+
+    #diag-button:not(:disabled) {
+      color: #dbe7f9;
+      border-color: rgba(164, 184, 207, 0.2);
+    }
+
+    @keyframes statusPulse {
+      0%,
+      100% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.06);
+      }
+    }
+
+    .status-dot {
+      animation: statusPulse 3.6s ease-in-out infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+      }
     }
 
     @media (max-width: 1120px) {
       .topbar {
         grid-template-columns: 1fr;
+        grid-template-rows: auto;
       }
 
+      .topbar-primary {
+        grid-row: auto;
+      }
+
+      .metric-strip,
       .action-row {
         justify-content: flex-start;
       }
 
       .metric-strip {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(200px, 1fr));
       }
     }
 
     @media (max-width: 920px) {
       .workspace {
-        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+        grid-template-columns: minmax(330px, 400px) minmax(0, 1fr);
       }
 
       .metric-strip {
         grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        padding: 10px;
+      }
+
+      .app-shell {
+        padding: 12px;
+      }
+
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .subscription-form {
+        grid-template-columns: 1fr;
+      }
+
+      .list-row {
+        grid-template-columns: 1fr;
+      }
+
+      .nodes-panel .list-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .row-side {
+        justify-items: start;
+        text-align: left;
+      }
+
+      .node-card-head,
+      .node-card-badges,
+      .node-card-actions,
+      .subscription-actions,
+      .subscription-badges {
+        justify-content: flex-start;
       }
     }
   </style>
@@ -595,11 +967,35 @@
           </div>
           <div class="metric-chip">
             <span>Скорость</span>
-            <strong id="speed-indicator">↓ — ↑ —</strong>
+            <strong id="speed-indicator">
+              <span class="metric-split">
+                <span class="metric-segment">
+                  <span class="metric-label metric-label-in">вход</span>
+                  <span class="metric-value">—</span>
+                </span>
+                <span class="metric-divider" aria-hidden="true"></span>
+                <span class="metric-segment">
+                  <span class="metric-label metric-label-out">выход</span>
+                  <span class="metric-value">—</span>
+                </span>
+              </span>
+            </strong>
           </div>
           <div class="metric-chip">
             <span>Трафик</span>
-            <strong id="traffic-indicator">RX — / TX —</strong>
+            <strong id="traffic-indicator">
+              <span class="metric-split">
+                <span class="metric-segment">
+                  <span class="metric-label metric-label-in">вход</span>
+                  <span class="metric-value">—</span>
+                </span>
+                <span class="metric-divider" aria-hidden="true"></span>
+                <span class="metric-segment">
+                  <span class="metric-label metric-label-out">выход</span>
+                  <span class="metric-value">—</span>
+                </span>
+              </span>
+            </strong>
           </div>
         </div>
 
@@ -639,13 +1035,26 @@
         <section class="panel nodes-panel" id="panel-nodes">
           <div class="panel-head">
             <div>
-              <h2 id="node-panel-title">Узлы</h2>
-              <p id="node-panel-copy">Выбор строки сразу активирует узел. Для проверки доступен отдельный ping.</p>
+              <div class="panel-title-row">
+                <h2 id="node-panel-title">Узлы</h2>
+                <button
+                  class="ghost-button icon-button"
+                  id="node-help-toggle"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="node-help-panel"
+                  aria-label="Показать подсказки по узлам"
+                  title="Подсказка"
+                >?</button>
+              </div>
             </div>
             <span class="panel-badge" id="node-panel-badge">Ожидание</span>
           </div>
 
-          <div class="row-meta" id="node-selection-copy">Ожидание списка подписок.</div>
+          <div class="help-card" id="node-help-panel" hidden>
+            <p id="node-panel-copy">Клик по плитке сразу активирует узел.</p>
+            <p id="node-selection-copy">Для проверки доступен отдельный ping без смены активного узла.</p>
+          </div>
 
           <div class="list-scroll">
             <div class="list-grid" id="node-list"></div>
@@ -656,13 +1065,28 @@
       <section class="panel log-panel" id="panel-log">
         <div class="panel-head">
           <div>
-            <h2>Лог</h2>
-            <p>Последние действия backend и хвост `xray`-лога. Ошибки всегда видны явно.</p>
+            <div class="panel-title-row">
+              <h2>Лог</h2>
+              <button
+                class="ghost-button icon-button"
+                id="log-help-toggle"
+                type="button"
+                aria-expanded="false"
+                aria-controls="log-help-panel"
+                aria-label="Показать подсказки по логу"
+                title="Подсказка"
+              >?</button>
+            </div>
           </div>
           <div class="filter-row" id="log-filter-row">
             <button class="filter-chip" data-log-filter="all" data-active="true" type="button">Все</button>
             <button class="filter-chip" data-log-filter="error" data-active="false" type="button">Ошибки</button>
           </div>
+        </div>
+
+        <div class="help-card" id="log-help-panel" hidden>
+          <p>Последние действия backend и хвост `xray`-лога.</p>
+          <p>Ошибки всегда видны явно.</p>
         </div>
 
         <div class="error-banner" id="error-banner" hidden>
@@ -685,6 +1109,11 @@
       statusPayload: null,
       storePayload: null,
       logFilter: "all",
+      renderCache: {
+        subscriptions: "",
+        nodes: "",
+        logs: "",
+      },
     };
 
     const els = {
@@ -705,10 +1134,14 @@
       subscriptionCopy: document.getElementById("subscription-copy"),
       subscriptionList: document.getElementById("subscription-list"),
       nodePanelTitle: document.getElementById("node-panel-title"),
+      nodeHelpToggle: document.getElementById("node-help-toggle"),
+      nodeHelpPanel: document.getElementById("node-help-panel"),
       nodePanelCopy: document.getElementById("node-panel-copy"),
       nodePanelBadge: document.getElementById("node-panel-badge"),
       nodeSelectionCopy: document.getElementById("node-selection-copy"),
       nodeList: document.getElementById("node-list"),
+      logHelpToggle: document.getElementById("log-help-toggle"),
+      logHelpPanel: document.getElementById("log-help-panel"),
       logFilterRow: document.getElementById("log-filter-row"),
       errorBanner: document.getElementById("error-banner"),
       errorBannerText: document.getElementById("error-banner-text"),
@@ -748,6 +1181,48 @@
 
     function emptyState(message) {
       return `<div class="empty-state">${escapeHtml(message)}</div>`;
+    }
+
+    function metricSplitMarkup(inValue, outValue) {
+      return `
+        <span class="metric-split">
+          <span class="metric-segment">
+            <span class="metric-label metric-label-in">вход</span>
+            <span class="metric-value">${escapeHtml(inValue)}</span>
+          </span>
+          <span class="metric-divider" aria-hidden="true"></span>
+          <span class="metric-segment">
+            <span class="metric-label metric-label-out">выход</span>
+            <span class="metric-value">${escapeHtml(outValue)}</span>
+          </span>
+        </span>
+      `;
+    }
+
+    function setTextIfChanged(element, value) {
+      const nextValue = String(value ?? "");
+      if (element.textContent !== nextValue) {
+        element.textContent = nextValue;
+      }
+    }
+
+    function setHtmlIfChanged(element, markup, cacheKey = "") {
+      if (cacheKey) {
+        if (state.renderCache[cacheKey] === markup) {
+          return;
+        }
+        state.renderCache[cacheKey] = markup;
+      }
+      if (element.innerHTML !== markup) {
+        element.innerHTML = markup;
+      }
+    }
+
+    function setDataAttrIfChanged(element, key, value) {
+      const nextValue = String(value ?? "");
+      if (element.dataset[key] !== nextValue) {
+        element.dataset[key] = nextValue;
+      }
     }
 
     function apiState() {
@@ -819,15 +1294,15 @@
         : "—";
       const activeNodeName = activeNode()?.name || "—";
 
-      els.statusPill.dataset.state = statusSummary.state || "unknown";
-      els.statusText.textContent = statusSummary.label || "Нет данных";
-      els.activeSubscription.textContent = `Подписка: ${activeSubscriptionName}`;
-      els.activeNode.textContent = `Узел: ${activeNodeName}`;
-      els.subscriptionIndicator.textContent = subscriptions.length
+      setDataAttrIfChanged(els.statusPill, "state", statusSummary.state || "unknown");
+      setTextIfChanged(els.statusText, statusSummary.label || "Нет данных");
+      setTextIfChanged(els.activeSubscription, `Подписка: ${activeSubscriptionName}`);
+      setTextIfChanged(els.activeNode, `Узел: ${activeNodeName}`);
+      setTextIfChanged(els.subscriptionIndicator, subscriptions.length
         ? `${freshSubscriptions}/${subscriptions.length} актуальны`
-        : "нет подписок";
-      els.speedIndicator.textContent = `↓ ${traffic.rx_rate_label || "—"} ↑ ${traffic.tx_rate_label || "—"}`;
-      els.trafficIndicator.textContent = `RX ${traffic.rx_total_label || "—"} / TX ${traffic.tx_total_label || "—"}`;
+        : "нет подписок");
+      setHtmlIfChanged(els.speedIndicator, metricSplitMarkup(traffic.rx_rate_label || "—", traffic.tx_rate_label || "—"));
+      setHtmlIfChanged(els.trafficIndicator, metricSplitMarkup(traffic.rx_total_label || "—", traffic.tx_total_label || "—"));
     }
 
     function renderSubscriptions() {
@@ -836,16 +1311,16 @@
       const profiles = profilesFromStore();
       const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
 
-      els.subscriptionCopy.textContent = subscriptions.length
+      setTextIfChanged(els.subscriptionCopy, subscriptions.length
         ? `${freshSubscriptions} из ${subscriptions.length} подписок актуальны.`
-        : "Добавьте первую подписку по URL.";
+        : "Добавьте первую подписку по URL.");
 
       if (!subscriptions.length) {
-        els.subscriptionList.innerHTML = emptyState("Подписок пока нет.");
+        setHtmlIfChanged(els.subscriptionList, emptyState("Подписок пока нет."), "subscriptions");
         return;
       }
 
-      els.subscriptionList.innerHTML = subscriptions.map((subscription) => {
+      const markup = subscriptions.map((subscription) => {
         const profile = profiles.find((item) => item.id === subscription.profile_id);
         const nodeCount = Array.isArray(profile?.nodes) ? profile.nodes.length : 0;
         const tone = subscription.last_status === "ok"
@@ -866,9 +1341,11 @@
               <div class="row-meta">${escapeHtml(message)}</div>
             </div>
             <div class="row-side">
-              <span class="row-badge" data-tone="${tone}">${escapeHtml(subscription.last_status === "ok" ? "актуальна" : subscription.last_status === "error" ? "ошибка" : "ожидает обновления")}</span>
-              <span class="row-badge" data-tone="accent">узлов ${nodeCount}</span>
-              <div class="inline-actions">
+              <div class="subscription-badges">
+                <span class="row-badge" data-tone="${tone}">${escapeHtml(subscription.last_status === "ok" ? "актуальна" : subscription.last_status === "error" ? "ошибка" : "ожидает обновления")}</span>
+                <span class="row-badge" data-tone="accent">узлов ${nodeCount}</span>
+              </div>
+              <div class="inline-actions subscription-actions">
                 ${tinyButton("Обновить", "refresh-subscription", { subscriptionId: subscription.id })}
                 ${tinyButton("Удалить", "delete-subscription", { subscriptionId: subscription.id, name: subscription.name }, "danger")}
               </div>
@@ -876,6 +1353,7 @@
           </div>
         `;
       }).join("");
+      setHtmlIfChanged(els.subscriptionList, markup, "subscriptions");
     }
 
     function renderNodes() {
@@ -884,25 +1362,27 @@
       const currentActiveNode = activeNode();
 
       if (!subscription || !profile) {
-        els.nodePanelTitle.textContent = "Узлы";
-        els.nodePanelBadge.textContent = "Нет подписки";
-        els.nodeSelectionCopy.textContent = "Выберите подписку слева, чтобы увидеть узлы.";
-        els.nodeList.innerHTML = emptyState("Для работы с узлами нужна хотя бы одна подписка.");
+        setTextIfChanged(els.nodePanelTitle, "Узлы");
+        setTextIfChanged(els.nodePanelBadge, "Нет подписки");
+        setTextIfChanged(els.nodePanelCopy, "Выберите подписку слева, чтобы загрузить доступные узлы.");
+        setTextIfChanged(els.nodeSelectionCopy, "После выбора можно активировать узел одним кликом и отдельно проверить ping.");
+        setHtmlIfChanged(els.nodeList, emptyState("Для работы с узлами нужна хотя бы одна подписка."), "nodes");
         return;
       }
 
       const nodes = Array.isArray(profile.nodes) ? profile.nodes : [];
       const readyNodes = nodes.filter((node) => node.enabled !== false && !node.parse_error).length;
-      els.nodePanelTitle.textContent = subscription.name;
-      els.nodePanelBadge.textContent = `${readyNodes}/${nodes.length} готовы`;
-      els.nodeSelectionCopy.textContent = "Клик по строке делает узел активным сразу.";
+      setTextIfChanged(els.nodePanelTitle, subscription.name);
+      setTextIfChanged(els.nodePanelBadge, `${readyNodes}/${nodes.length} готовы`);
+      setTextIfChanged(els.nodePanelCopy, "Клик по плитке сразу активирует узел.");
+      setTextIfChanged(els.nodeSelectionCopy, "Для проверки доступен отдельный ping без смены активного узла.");
 
       if (!nodes.length) {
-        els.nodeList.innerHTML = emptyState("В этой подписке пока нет узлов.");
+        setHtmlIfChanged(els.nodeList, emptyState("В этой подписке пока нет узлов."), "nodes");
         return;
       }
 
-      els.nodeList.innerHTML = nodes.map((node) => {
+      const markup = nodes.map((node) => {
         const active = currentActiveNode?.id === node.id;
         const disabled = node.enabled === false || Boolean(node.parse_error);
         const ping = pingSnapshot(profile.id, node.id);
@@ -919,23 +1399,28 @@
           ? (ping.ok ? "success" : "danger")
           : "warning";
         const errorMeta = node.parse_error ? `Ошибка разбора: ${node.parse_error}` : meta;
+        const stateLabel = active ? "активен" : disabled ? "недоступен" : "готов";
+        const stateTone = active ? "accent" : disabled ? "danger" : "success";
 
         return `
           <div class="list-row node-row" data-profile-id="${escapeAttr(profile.id)}" data-node-id="${escapeAttr(node.id)}" data-selected="${active ? "true" : "false"}" data-disabled="${disabled ? "true" : "false"}">
+            <div class="node-card-head">
+              <div class="node-card-badges">
+                <span class="row-badge" data-tone="${stateTone}">${escapeHtml(stateLabel)}</span>
+                <span class="row-badge" data-tone="${tone}">${escapeHtml(pingLabel)}</span>
+              </div>
+              <div class="inline-actions node-card-actions">
+                ${tinyButton("Ping", "ping-node", { profileId: profile.id, nodeId: node.id }, "accent")}
+              </div>
+            </div>
             <div class="row-main">
               <strong>${escapeHtml(node.name || "Без имени")}</strong>
               <div class="row-meta">${escapeHtml(errorMeta)}</div>
             </div>
-            <div class="row-side">
-              <span class="row-badge" data-tone="${tone}">${escapeHtml(pingLabel)}</span>
-              <span class="row-badge" data-tone="${active ? "accent" : disabled ? "danger" : "success"}">${escapeHtml(active ? "активен" : disabled ? "недоступен" : "готов")}</span>
-              <div class="inline-actions">
-                ${tinyButton("Ping", "ping-node", { profileId: profile.id, nodeId: node.id }, "accent")}
-              </div>
-            </div>
           </div>
         `;
       }).join("");
+      setHtmlIfChanged(els.nodeList, markup, "nodes");
     }
 
     function renderLogs() {
@@ -948,18 +1433,18 @@
 
       if (latestError) {
         els.errorBanner.hidden = false;
-        els.errorBannerText.textContent = latestError.message || "Ошибка без текста.";
+        setTextIfChanged(els.errorBannerText, latestError.message || "Ошибка без текста.");
       } else {
         els.errorBanner.hidden = true;
-        els.errorBannerText.textContent = "Ошибок пока нет.";
+        setTextIfChanged(els.errorBannerText, "Ошибок пока нет.");
       }
 
       if (!filtered.length) {
-        els.logList.innerHTML = emptyState(state.logFilter === "error" ? "Ошибок пока нет." : "Лог пока пуст.");
+        setHtmlIfChanged(els.logList, emptyState(state.logFilter === "error" ? "Ошибок пока нет." : "Лог пока пуст."), "logs");
         return;
       }
 
-      els.logList.innerHTML = filtered.map((entry) => {
+      const markup = filtered.map((entry) => {
         const levelLabel = entry.level === "error"
           ? "Ошибка"
           : entry.level === "warning"
@@ -980,6 +1465,7 @@
           </div>
         `;
       }).join("");
+      setHtmlIfChanged(els.logList, markup, "logs");
     }
 
     function renderAll() {
@@ -993,7 +1479,7 @@
 
     function updateFilterButtons() {
       for (const button of els.logFilterRow.querySelectorAll("[data-log-filter]")) {
-        button.dataset.active = button.dataset.logFilter === state.logFilter ? "true" : "false";
+        setDataAttrIfChanged(button, "active", button.dataset.logFilter === state.logFilter ? "true" : "false");
       }
     }
 
@@ -1017,16 +1503,16 @@
     }
 
     function reportLoadError(error) {
-      els.statusPill.dataset.state = "unknown";
-      els.statusText.textContent = "Нет связи с backend";
-      els.subscriptionIndicator.textContent = "ошибка backend";
-      els.speedIndicator.textContent = "↓ — ↑ —";
-      els.trafficIndicator.textContent = "RX — / TX —";
-      els.activeSubscription.textContent = "Подписка: —";
-      els.activeNode.textContent = "Узел: —";
+      setDataAttrIfChanged(els.statusPill, "state", "unknown");
+      setTextIfChanged(els.statusText, "Нет связи с backend");
+      setTextIfChanged(els.subscriptionIndicator, "ошибка backend");
+      setHtmlIfChanged(els.speedIndicator, metricSplitMarkup("—", "—"));
+      setHtmlIfChanged(els.trafficIndicator, metricSplitMarkup("—", "—"));
+      setTextIfChanged(els.activeSubscription, "Подписка: —");
+      setTextIfChanged(els.activeNode, "Узел: —");
       els.errorBanner.hidden = false;
-      els.errorBannerText.textContent = `Не удалось получить состояние: ${error.message}`;
-      els.logList.innerHTML = `
+      setTextIfChanged(els.errorBannerText, `Не удалось получить состояние: ${error.message}`);
+      const markup = `
         <div class="log-entry" data-level="error">
           <div class="log-meta">
             <span class="log-level">Ошибка</span>
@@ -1036,6 +1522,7 @@
           <div class="log-message">${escapeHtml(`Не удалось получить состояние: ${error.message}`)}</div>
         </div>
       `;
+      setHtmlIfChanged(els.logList, markup, "logs");
     }
 
     async function loadStore() {
@@ -1185,6 +1672,16 @@
     });
     els.subscriptionForm.addEventListener("submit", (event) => {
       addSubscription(event).catch(reportLoadError);
+    });
+    els.nodeHelpToggle.addEventListener("click", () => {
+      const nextExpanded = els.nodeHelpToggle.getAttribute("aria-expanded") !== "true";
+      els.nodeHelpToggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+      els.nodeHelpPanel.hidden = !nextExpanded;
+    });
+    els.logHelpToggle.addEventListener("click", () => {
+      const nextExpanded = els.logHelpToggle.getAttribute("aria-expanded") !== "true";
+      els.logHelpToggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+      els.logHelpPanel.hidden = !nextExpanded;
     });
 
     els.subscriptionList.addEventListener("click", (event) => {
