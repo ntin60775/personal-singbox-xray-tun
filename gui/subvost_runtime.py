@@ -6,13 +6,6 @@ from pathlib import Path
 from typing import Any
 
 
-PLACEHOLDER_MARKERS = {
-    "REPLACE_WITH_REALITY_UUID",
-    "REPLACE_WITH_REALITY_PUBLIC_KEY",
-    "REPLACE_WITH_REALITY_SHORT_ID",
-}
-
-
 def read_json_config(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -27,9 +20,11 @@ def find_proxy_outbound(config: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def config_has_placeholders(config: dict[str, Any]) -> bool:
-    payload = json.dumps(config, ensure_ascii=False)
-    return any(marker in payload for marker in PLACEHOLDER_MARKERS)
+def find_tagged_entry(config: dict[str, Any], collection_name: str, tag: str) -> dict[str, Any] | None:
+    for item in config.get(collection_name, []):
+        if item.get("tag") == tag:
+            return item
+    return None
 
 
 def node_can_render_runtime(node: dict[str, Any] | None) -> bool:
@@ -41,146 +36,6 @@ def node_can_render_runtime(node: dict[str, Any] | None) -> bool:
     if node.get("parse_error"):
         return False
     return bool(node.get("enabled", True))
-
-
-def extract_node_from_existing_config(config: dict[str, Any]) -> dict[str, Any] | None:
-    proxy = find_proxy_outbound(config)
-    if not proxy:
-        return None
-
-    protocol = str(proxy.get("protocol", "")).strip().lower()
-    stream = proxy.get("streamSettings", {}) or {}
-    network = str(stream.get("network") or "tcp").strip().lower()
-    security = str(stream.get("security") or "none").strip().lower()
-
-    if protocol == "shadowsocks":
-        servers = proxy.get("settings", {}).get("servers", [])
-        if not servers:
-            return None
-        server = servers[0]
-        normalized = {
-            "protocol": "ss",
-            "address": server.get("address", ""),
-            "port": int(server.get("port", 0) or 0),
-            "method": server.get("method", ""),
-            "password": server.get("password", ""),
-            "network": "tcp",
-            "security": "none",
-            "host": "",
-            "path": "",
-            "server_name": "",
-            "service_name": "",
-            "grpc_authority": "",
-            "fingerprint": "",
-            "public_key": "",
-            "short_id": "",
-            "spider_x": "/",
-            "mode": "auto",
-            "alpn": [],
-            "allow_insecure": False,
-            "display_name": "Migrated from current config",
-            "raw_uri": "",
-        }
-    elif protocol in {"vless", "vmess"}:
-        vnext = proxy.get("settings", {}).get("vnext", [])
-        if not vnext:
-            return None
-        endpoint = vnext[0]
-        users = endpoint.get("users", [])
-        if not users:
-            return None
-        user = users[0]
-        normalized = {
-            "protocol": protocol,
-            "address": endpoint.get("address", ""),
-            "port": int(endpoint.get("port", 0) or 0),
-            "uuid": user.get("id", ""),
-            "network": network,
-            "security": security,
-            "host": "",
-            "path": "",
-            "server_name": "",
-            "service_name": "",
-            "grpc_authority": "",
-            "fingerprint": "",
-            "public_key": "",
-            "short_id": "",
-            "spider_x": "/",
-            "mode": "auto",
-            "alpn": [],
-            "allow_insecure": False,
-            "display_name": "Migrated from current config",
-            "raw_uri": "",
-        }
-        if protocol == "vless":
-            normalized["encryption"] = user.get("encryption", "none")
-            normalized["flow"] = user.get("flow", "")
-        else:
-            normalized["alter_id"] = int(user.get("alterId", 0) or 0)
-            normalized["cipher"] = user.get("security", "auto")
-    elif protocol == "trojan":
-        servers = proxy.get("settings", {}).get("servers", [])
-        if not servers:
-            return None
-        server = servers[0]
-        normalized = {
-            "protocol": "trojan",
-            "address": server.get("address", ""),
-            "port": int(server.get("port", 0) or 0),
-            "password": server.get("password", ""),
-            "network": network,
-            "security": security,
-            "host": "",
-            "path": "",
-            "server_name": "",
-            "service_name": "",
-            "grpc_authority": "",
-            "fingerprint": "",
-            "public_key": "",
-            "short_id": "",
-            "spider_x": "/",
-            "mode": "auto",
-            "alpn": [],
-            "allow_insecure": False,
-            "display_name": "Migrated from current config",
-            "raw_uri": "",
-        }
-    else:
-        return None
-
-    if normalized["port"] <= 0 or not normalized["address"]:
-        return None
-
-    if security == "tls":
-        tls = stream.get("tlsSettings", {}) or {}
-        normalized["server_name"] = tls.get("serverName", "")
-        normalized["alpn"] = tls.get("alpn", []) or []
-        normalized["allow_insecure"] = bool(tls.get("allowInsecure", False))
-        normalized["fingerprint"] = tls.get("fingerprint", "")
-    elif security == "reality":
-        reality = stream.get("realitySettings", {}) or {}
-        normalized["server_name"] = reality.get("serverName", "")
-        normalized["fingerprint"] = reality.get("fingerprint", "")
-        normalized["public_key"] = reality.get("publicKey", "")
-        normalized["short_id"] = reality.get("shortId", "")
-        normalized["spider_x"] = reality.get("spiderX", "/")
-
-    if network == "ws":
-        ws_settings = stream.get("wsSettings", {}) or {}
-        normalized["path"] = ws_settings.get("path", "/")
-        headers = ws_settings.get("headers", {}) or {}
-        normalized["host"] = headers.get("Host", "")
-    elif network == "grpc":
-        grpc_settings = stream.get("grpcSettings", {}) or {}
-        normalized["service_name"] = grpc_settings.get("serviceName", "")
-        normalized["grpc_authority"] = grpc_settings.get("authority", "")
-    elif network == "xhttp":
-        xhttp_settings = stream.get("xhttpSettings", {}) or {}
-        normalized["path"] = xhttp_settings.get("path", "/")
-        normalized["host"] = xhttp_settings.get("host", "")
-        normalized["mode"] = xhttp_settings.get("mode", "auto")
-
-    return normalized
 
 
 def _build_stream_settings(normalized: dict[str, Any], template_stream: dict[str, Any]) -> dict[str, Any]:
@@ -210,8 +65,11 @@ def _build_stream_settings(normalized: dict[str, Any], template_stream: dict[str
             "path": normalized.get("path") or "/",
             "mode": normalized.get("mode", "auto") or "auto",
         }
+        xhttp_extra = normalized.get("xhttp_extra") or {}
         template_xhttp = template_stream.get("xhttpSettings", {}) or {}
-        if template_xhttp.get("extra"):
+        if xhttp_extra:
+            xhttp_settings["extra"] = copy.deepcopy(xhttp_extra)
+        elif template_xhttp.get("extra"):
             xhttp_settings["extra"] = copy.deepcopy(template_xhttp["extra"])
         stream_settings["xhttpSettings"] = xhttp_settings
 
@@ -322,4 +180,57 @@ def render_runtime_config(template_config: dict[str, Any], node: dict[str, Any])
             break
     if not replaced:
         raise ValueError("В шаблоне xray не найден outbound с tag=proxy.")
+    return config
+
+
+def _apply_outbound_transport_hints(
+    outbound: dict[str, Any],
+    *,
+    default_interface: str,
+    outbound_mark: int,
+) -> dict[str, Any]:
+    updated = copy.deepcopy(outbound)
+    stream_settings = copy.deepcopy(updated.get("streamSettings") or {})
+    sockopt = copy.deepcopy(stream_settings.get("sockopt") or {})
+    sockopt["interface"] = default_interface
+    sockopt["mark"] = outbound_mark
+    stream_settings["sockopt"] = sockopt
+    updated["streamSettings"] = stream_settings
+    return updated
+
+
+def apply_transport_hints_to_runtime_config(
+    active_config: dict[str, Any],
+    *,
+    default_interface: str,
+    outbound_mark: int,
+) -> dict[str, Any]:
+    if not default_interface:
+        raise ValueError("Не передан интерфейс для TUN-runtime.")
+
+    if outbound_mark <= 0:
+        raise ValueError("Маркер исходящего трафика должен быть положительным числом.")
+
+    config = copy.deepcopy(active_config)
+    outbounds = []
+    seen_tags: set[str] = set()
+    for outbound in config.get("outbounds", []):
+        tag = outbound.get("tag")
+        if tag in {"proxy", "direct"}:
+            outbounds.append(
+                _apply_outbound_transport_hints(
+                    outbound,
+                    default_interface=default_interface,
+                    outbound_mark=outbound_mark,
+                )
+            )
+            seen_tags.add(str(tag))
+        else:
+            outbounds.append(copy.deepcopy(outbound))
+    config["outbounds"] = outbounds
+
+    missing_tags = [tag for tag in ("proxy", "direct") if tag not in seen_tags]
+    if missing_tags:
+        raise ValueError(f"В активном Xray-конфиге не найдены outbound'ы: {', '.join(missing_tags)}.")
+
     return config

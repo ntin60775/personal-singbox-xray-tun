@@ -2,6 +2,27 @@
   "log": {
     "loglevel": "info"
   },
+  "dns": {
+    "hosts": {
+      "host-a.example.com": "213.24.64.175",
+      "host-b.example.com": "213.24.64.181"
+    },
+    "servers": [
+      {
+        "address": "https://dns.google/dns-query",
+        "domains": [
+          "full:public-service.example.com",
+          "domain:public-service.example.com",
+          "full:corp-rdp.example.com"
+        ],
+        "skipFallback": true
+      },
+      "https://8.8.8.8/dns-query"
+    ],
+    "queryStrategy": "UseIPv4",
+    "disableFallbackIfMatch": true,
+    "tag": "dns-internal"
+  },
   "inbounds": [
     {
       "tag": "socks-in",
@@ -11,6 +32,23 @@
       "settings": {
         "auth": "noauth",
         "udp": true
+      }
+    },
+    {
+      "tag": "tun-in",
+      "protocol": "tun",
+      "settings": {
+        "name": "tun0",
+        "mtu": 1500,
+        "userLevel": 0
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
       }
     }
   ],
@@ -36,7 +74,8 @@
         "network": "xhttp",
         "security": "reality",
         "sockopt": {
-          "interface": "eth0"
+          "interface": "eth0",
+          "mark": 8421
         },
         "realitySettings": {
           "serverName": "edge.example.com",
@@ -73,9 +112,14 @@
       "protocol": "freedom",
       "streamSettings": {
         "sockopt": {
-          "interface": "eth0"
+          "interface": "eth0",
+          "mark": 8421
         }
       }
+    },
+    {
+      "tag": "dns-out",
+      "protocol": "dns"
     },
     {
       "tag": "block",
@@ -88,20 +132,47 @@
       {
         "type": "field",
         "inboundTag": [
-          "socks-in"
+          "tun-in"
         ],
-        "ip": [
-          "10.3.40.33"
+        "port": "53",
+        "outboundTag": "dns-out"
+      },
+      {
+        "type": "field",
+        "process": [
+          "self/"
         ],
-        "port": "60017",
         "outboundTag": "direct"
       },
       {
         "type": "field",
         "inboundTag": [
-          "socks-in"
+          "dns-internal"
+        ],
+        "domain": [
+          "full:dns.google"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "tun-in"
+        ],
+        "domain": [
+          "full:corp-rdp.example.com",
+          "full:public-service.example.com",
+          "domain:public-service.example.com"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "tun-in"
         ],
         "ip": [
+          "203.0.113.20/32",
           "127.0.0.0/8",
           "::1/128",
           "10.0.0.0/8",
@@ -119,7 +190,7 @@
       {
         "type": "field",
         "inboundTag": [
-          "socks-in"
+          "tun-in"
         ],
         "network": "tcp,udp",
         "outboundTag": "proxy"

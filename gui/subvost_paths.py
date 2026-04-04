@@ -13,7 +13,6 @@ STORE_FILENAME = "store.json"
 GENERATED_XRAY_CONFIG_FILENAME = "generated-xray-config.json"
 ACTIVE_RUNTIME_XRAY_CONFIG_FILENAME = "active-runtime-xray-config.json"
 GUI_SETTINGS_FILENAME = "gui-settings.json"
-LEGACY_GUI_SETTINGS_BASENAME = ".xray-tun-subvost-gui.json"
 
 
 @dataclass(frozen=True)
@@ -25,7 +24,6 @@ class AppPaths:
     generated_xray_config_file: Path
     active_runtime_xray_config_file: Path
     gui_settings_file: Path
-    legacy_gui_settings_file: Path
 
 
 def resolve_config_home(real_home: Path, explicit_config_home: str | None = None) -> Path:
@@ -56,7 +54,6 @@ def build_app_paths(real_home: Path, explicit_config_home: str | None = None) ->
         generated_xray_config_file=store_dir / GENERATED_XRAY_CONFIG_FILENAME,
         active_runtime_xray_config_file=store_dir / ACTIVE_RUNTIME_XRAY_CONFIG_FILENAME,
         gui_settings_file=store_dir / GUI_SETTINGS_FILENAME,
-        legacy_gui_settings_file=real_home / LEGACY_GUI_SETTINGS_BASENAME,
     )
 
 

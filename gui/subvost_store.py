@@ -4,25 +4,45 @@ import copy
 import hashlib
 import json
 import os
+import platform
+import socket
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import NAMESPACE_DNS, uuid4, uuid5
 
 from subvost_parser import ParseError, parse_proxy_uri, parse_subscription_payload
 from subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
-from subvost_runtime import config_has_placeholders, extract_node_from_existing_config, node_can_render_runtime, read_json_config, render_runtime_config
+from subvost_runtime import node_can_render_runtime, read_json_config, render_runtime_config
 
 
 STORE_VERSION = 1
 MANUAL_PROFILE_ID = "manual"
 MANUAL_PROFILE_NAME = "Локальные ссылки"
-RUNTIME_PREFERENCE_STORE = "store"
-RUNTIME_PREFERENCE_BUILTIN = "builtin"
-VALID_RUNTIME_PREFERENCES = {RUNTIME_PREFERENCE_STORE, RUNTIME_PREFERENCE_BUILTIN}
+DEFAULT_SUBSCRIPTION_USER_AGENT = os.environ.get("SUBVOST_SUBSCRIPTION_USER_AGENT", "Xray-core")
+
+
+def default_subscription_hwid() -> str:
+    explicit = os.environ.get("SUBVOST_SUBSCRIPTION_HWID", "").strip()
+    if explicit:
+        return explicit
+
+    real_home = os.environ.get("SUBVOST_REAL_HOME", "").strip()
+    home_part = real_home or str(Path.home())
+    seed = "|".join(
+        part
+        for part in [
+            socket.gethostname().strip(),
+            home_part,
+            platform.system().strip(),
+            platform.machine().strip(),
+        ]
+        if part
+    )
+    return str(uuid5(NAMESPACE_DNS, seed or "subvost-xray-tun"))
 
 
 def iso_now() -> str:
@@ -32,7 +52,6 @@ def iso_now() -> str:
 def default_store() -> dict[str, Any]:
     return {
         "version": STORE_VERSION,
-        "runtime_preference": RUNTIME_PREFERENCE_STORE,
         "profiles": [
             {
                 "id": MANUAL_PROFILE_ID,
@@ -52,7 +71,6 @@ def default_store() -> dict[str, Any]:
         },
         "meta": {
             "initialized_at": iso_now(),
-            "migrated_from_single_config_at": None,
         },
     }
 
@@ -60,19 +78,15 @@ def default_store() -> dict[str, Any]:
 def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
     if not store:
         store = default_store()
-    store.setdefault("version", STORE_VERSION)
-    store.setdefault("runtime_preference", RUNTIME_PREFERENCE_STORE)
-    store.setdefault("profiles", [])
-    store.setdefault("subscriptions", [])
-    store.setdefault(
-        "active_selection",
-        {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
-    )
-    store.setdefault("meta", {})
+    store = {
+        "version": store.get("version", STORE_VERSION),
+        "profiles": store.get("profiles", []),
+        "subscriptions": store.get("subscriptions", []),
+        "active_selection": store.get("active_selection")
+        or {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
+        "meta": store.get("meta") or {},
+    }
     store["meta"].setdefault("initialized_at", iso_now())
-    store["meta"].setdefault("migrated_from_single_config_at", None)
-    if store.get("runtime_preference") not in VALID_RUNTIME_PREFERENCES:
-        store["runtime_preference"] = RUNTIME_PREFERENCE_STORE
     if not any(profile.get("id") == MANUAL_PROFILE_ID for profile in store["profiles"]):
         store["profiles"].insert(
             0,
@@ -187,48 +201,27 @@ def get_active_node(store: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[
     return _find_node(store, profile_id, node_id)
 
 
-def _first_available_node(store: dict[str, Any], preferred_profile_id: str | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    profiles = store["profiles"]
-    if preferred_profile_id:
-        preferred_profile = _find_profile(store, preferred_profile_id)
-        if preferred_profile:
-            profiles = [preferred_profile] + [profile for profile in profiles if profile.get("id") != preferred_profile_id]
-
-    for profile in profiles:
-        if not profile.get("enabled", True):
-            continue
-        for node in profile["nodes"]:
-            if node.get("enabled", True) and not node.get("parse_error"):
-                return profile, node
-    return None, None
-
-
 def ensure_active_selection(store: dict[str, Any]) -> bool:
-    changed = False
     selection = store["active_selection"]
     active_profile, active_node = get_active_node(store)
-    if active_profile and active_node and active_profile.get("enabled", True) and active_node.get("enabled", True):
+    if (
+        active_profile
+        and active_node
+        and active_profile.get("enabled", True)
+        and node_can_render_runtime(active_node)
+    ):
         return False
 
-    preferred_profile_id = selection.get("profile_id")
-    fallback_profile, fallback_node = _first_available_node(store, preferred_profile_id)
-    if fallback_profile and fallback_node:
-        store["active_selection"] = {
-            "profile_id": fallback_profile["id"],
-            "node_id": fallback_node["id"],
-            "activated_at": iso_now(),
-            "source": "fallback",
-        }
-        changed = True
-    elif any(selection.get(key) for key in ("profile_id", "node_id", "activated_at", "source")):
+    if any(selection.get(key) for key in ("profile_id", "node_id", "activated_at", "source")):
         store["active_selection"] = {
             "profile_id": None,
             "node_id": None,
             "activated_at": None,
             "source": None,
         }
-        changed = True
-    return changed
+        return True
+
+    return False
 
 
 def sync_generated_runtime(
@@ -249,52 +242,6 @@ def sync_generated_runtime(
     return paths.generated_xray_config_file
 
 
-def _should_migrate_single_config(store: dict[str, Any]) -> bool:
-    manual_profile = _find_profile(store, MANUAL_PROFILE_ID)
-    if manual_profile and manual_profile["nodes"]:
-        return False
-    if store.get("subscriptions"):
-        return False
-    selection = store.get("active_selection", {})
-    return not selection.get("profile_id") and not selection.get("node_id")
-
-
-def maybe_migrate_single_config(
-    store: dict[str, Any],
-    project_root: Path,
-) -> bool:
-    if not _should_migrate_single_config(store):
-        return False
-
-    config = read_json_config(project_root / "xray-tun-subvost.json")
-    if not config or config_has_placeholders(config):
-        return False
-
-    normalized = extract_node_from_existing_config(config)
-    if not normalized:
-        return False
-
-    manual_profile = _find_profile(store, MANUAL_PROFILE_ID)
-    if not manual_profile:
-        return False
-
-    node = _make_node_record(
-        normalized,
-        origin_kind="migration",
-        name="Migrated from current config",
-        raw_uri="",
-    )
-    manual_profile["nodes"].append(node)
-    store["active_selection"] = {
-        "profile_id": MANUAL_PROFILE_ID,
-        "node_id": node["id"],
-        "activated_at": iso_now(),
-        "source": "migration",
-    }
-    store["meta"]["migrated_from_single_config_at"] = iso_now()
-    return True
-
-
 def ensure_store_initialized(
     paths: AppPaths,
     project_root: Path,
@@ -304,8 +251,6 @@ def ensure_store_initialized(
     ensure_store_dir(paths, uid=uid, gid=gid)
     store = load_store(paths)
     changed = False
-    if maybe_migrate_single_config(store, project_root):
-        changed = True
     if ensure_active_selection(store):
         changed = True
     if changed or not paths.store_file.exists():
@@ -341,21 +286,6 @@ def store_payload(store: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
             "gui_settings_file": str(paths.gui_settings_file),
         },
     }
-
-
-def get_runtime_preference(store: dict[str, Any]) -> str:
-    preference = str(store.get("runtime_preference", "")).strip().lower()
-    if preference in VALID_RUNTIME_PREFERENCES:
-        return preference
-    return RUNTIME_PREFERENCE_STORE
-
-
-def set_runtime_preference(store: dict[str, Any], preference: str) -> str:
-    normalized = str(preference or "").strip().lower()
-    if normalized not in VALID_RUNTIME_PREFERENCES:
-        raise ValueError("Источник runtime должен быть 'store' или 'builtin'.")
-    store["runtime_preference"] = normalized
-    return normalized
 
 
 def save_manual_import_results(
@@ -604,6 +534,8 @@ def _apply_subscription_refresh(
         seen_fingerprints.add(fingerprint)
 
     if valid_count == 0:
+        if invalid_messages:
+            raise ParseError(invalid_messages[0])
         raise ParseError("В подписке не найдено ни одной валидной ссылки.")
     if invalid_count > 0:
         error_suffix = f" Первая ошибка: {invalid_messages[0]}" if invalid_messages else ""
@@ -628,6 +560,12 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
         raise ValueError("Подписка не найдена.")
 
     request = urllib.request.Request(subscription["url"])
+    request.add_header("User-Agent", DEFAULT_SUBSCRIPTION_USER_AGENT)
+    request.add_header("Accept", "text/plain, application/octet-stream, */*")
+    request.add_header("X-HWID", default_subscription_hwid())
+    request.add_header("X-Device-OS", platform.system() or "Linux")
+    request.add_header("X-Ver-OS", platform.release() or "unknown")
+    request.add_header("X-Device-Model", platform.machine() or socket.gethostname() or "unknown")
     if subscription.get("etag"):
         request.add_header("If-None-Match", subscription["etag"])
     if subscription.get("last_modified"):
@@ -766,13 +704,8 @@ def delete_subscription(store: dict[str, Any], subscription_id: str) -> None:
     ensure_active_selection(store)
 
 
-def read_or_migrate_gui_settings(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> dict[str, Any]:
+def read_gui_settings(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> dict[str, Any]:
     ensure_store_dir(paths, uid=uid, gid=gid)
-    if not paths.gui_settings_file.exists() and paths.legacy_gui_settings_file.exists():
-        legacy_settings = read_json_file(paths.legacy_gui_settings_file)
-        if legacy_settings:
-            atomic_write_json(paths.gui_settings_file, legacy_settings, uid=uid, gid=gid)
-
     settings = read_json_file(paths.gui_settings_file)
     return {
         "file_logs_enabled": bool(settings.get("file_logs_enabled", False)),
