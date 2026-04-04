@@ -118,11 +118,32 @@ dedupe_xray_binaries() {
   exit 1
 }
 
+apt_package_exists() {
+  apt-cache show "$1" >/dev/null 2>&1
+}
+
+collect_gui_dependency_packages() {
+  local packages=("python3-gi")
+
+  if apt_package_exists "gir1.2-gtk-4.0" && apt_package_exists "gir1.2-webkit-6.0"; then
+    packages+=("gir1.2-gtk-4.0" "gir1.2-webkit-6.0")
+  fi
+
+  if apt_package_exists "gir1.2-gtk-3.0" && apt_package_exists "gir1.2-webkit2-4.1"; then
+    packages+=("gir1.2-gtk-3.0" "gir1.2-webkit2-4.1")
+  elif apt_package_exists "gir1.2-gtk-3.0" && apt_package_exists "gir1.2-webkit2-4.0"; then
+    packages+=("gir1.2-gtk-3.0" "gir1.2-webkit2-4.0")
+  fi
+
+  printf '%s\n' "${packages[@]}"
+}
+
 ensure_real_home_detected
 echo "[1/4] Проверка базовых системных утилит"
 if command -v apt-get >/dev/null 2>&1; then
+  mapfile -t GUI_PACKAGES < <(collect_gui_dependency_packages)
   run_root apt-get update
-  run_root apt-get install -y ca-certificates curl iproute2 python3 sudo unzip
+  run_root apt-get install -y ca-certificates curl iproute2 python3 sudo unzip "${GUI_PACKAGES[@]}"
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
   echo "Установи зависимости вручную: curl, unzip, iproute2, python3, sudo, xray." >&2
