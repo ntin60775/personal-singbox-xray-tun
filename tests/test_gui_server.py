@@ -36,51 +36,62 @@ class FakeResponse:
 
 
 class GuiServerRuntimeSelectionTests(unittest.TestCase):
+    def main_html(self) -> str:
+        return gui_server.load_gui_asset(gui_server.REVIEW_GUI_ASSET)
+
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
-        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-02-root-review-routing-v2")
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-04-subscription-hwid-fix-v1")
 
-    def test_index_html_normalizes_data_attribute_names_for_dataset_actions(self) -> None:
+    def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
+        self.assertEqual(gui_server.INDEX_HTML, self.main_html())
         self.assertIn("function normalizeDataAttrName(name)", gui_server.INDEX_HTML)
         self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
         self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
 
-    def test_review_asset_contains_clash_fullscreen_candidate(self) -> None:
+    def test_main_gui_asset_contains_operational_controls(self) -> None:
         self.assertEqual(gui_server.REVIEW_GUI_ASSET, "design_review.html")
-        html = gui_server.load_gui_asset(gui_server.REVIEW_GUI_ASSET)
-        self.assertIn('id="clash-candidate"', html)
+        html = self.main_html()
+        self.assertIn('id="main-gui-shell"', html)
         self.assertIn("Главная панель", html)
+        self.assertIn('id="start-button"', html)
+        self.assertIn('id="save-import-button"', html)
+        self.assertIn('id="subscription-name"', html)
+        self.assertIn('id="profile-list"', html)
+        self.assertIn('id="node-list"', html)
+        self.assertIn('id="logging-toggle"', html)
+        self.assertIn('id="command-output"', html)
+        self.assertIn("Bundle стартует только из активного узла.", html)
         self.assertIn('fetch("/api/store"', html)
         self.assertIn('rel="icon"', html)
         self.assertIn('/assets/subvost-xray-tun-icon.svg', html)
 
-    def test_root_ui_is_operational_screen_with_real_controls(self) -> None:
-        self.assertIn('id="start-button"', gui_server.INDEX_HTML)
-        self.assertIn('id="save-import-button"', gui_server.INDEX_HTML)
-        self.assertIn('id="runtime-mode-store"', gui_server.INDEX_HTML)
-        self.assertNotIn('id="clash-candidate"', gui_server.INDEX_HTML)
-        self.assertIn('rel="icon"', gui_server.INDEX_HTML)
-        self.assertIn('/assets/subvost-xray-tun-icon.svg', gui_server.INDEX_HTML)
+    def test_main_gui_has_single_runtime_language(self) -> None:
+        html = self.main_html()
+        self.assertNotIn('id="runtime-mode-store"', html)
+        self.assertNotIn('id="clash-candidate"', html)
+        self.assertNotIn("Резерва нет", html)
+        self.assertIn("единственный режим: выбранный TUN-узел", html)
 
-    def test_root_and_review_routes_are_defined_separately(self) -> None:
+    def test_root_review_and_legacy_routes_serve_one_gui(self) -> None:
         self.assertEqual(gui_server.ROOT_GUI_PATHS, ["/", "/index.html"])
         self.assertEqual(gui_server.REVIEW_GUI_PATHS, ["/design-review", "/design-review.html"])
+        self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)
+        self.assertIn("/classic-ui", gui_server.LEGACY_GUI_PATHS)
         self.assertEqual(gui_server.FAVICON_ROUTE, "/assets/subvost-xray-tun-icon.svg")
 
         do_get_source = inspect.getsource(gui_server.Handler.do_GET)
         self.assertIn('if request_path in {"/favicon.ico", FAVICON_ROUTE}:', do_get_source)
-        self.assertIn("if request_path in ROOT_GUI_PATHS:", do_get_source)
-        self.assertIn("if request_path in REVIEW_GUI_PATHS:", do_get_source)
+        self.assertIn(
+            "if request_path in ROOT_GUI_PATHS or request_path in REVIEW_GUI_PATHS or request_path in LEGACY_GUI_PATHS:",
+            do_get_source,
+        )
 
     def test_launcher_reads_gui_version_from_shared_contract_module(self) -> None:
         launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
         self.assertIn('CURRENT_GUI_VERSION="$(load_current_gui_version)"', launcher)
         self.assertIn("from gui_contract import GUI_VERSION", launcher)
         self.assertNotIn('CURRENT_GUI_VERSION="2026-', launcher)
-
-    def test_legacy_routes_are_defined_for_old_embedded_ui(self) -> None:
-        self.assertIn("/legacy-ui", gui_server.LEGACY_GUI_PATHS)
-        self.assertIn("/classic-ui", gui_server.LEGACY_GUI_PATHS)
 
     def test_resolve_active_xray_config_prefers_snapshot_only_for_live_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -108,7 +119,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
                     paths.generated_xray_config_file,
                 )
 
-    def test_resolve_active_xray_config_respects_builtin_preference_when_stack_is_stopped(self) -> None:
+    def test_resolve_active_xray_config_returns_generated_path_when_stack_is_stopped(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             real_home = root / "home"
@@ -116,22 +127,14 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             paths = build_app_paths(real_home, str(real_home / ".config"))
             paths.store_dir.mkdir(parents=True, exist_ok=True)
 
-            template = root / "xray-tun-subvost.json"
-            template.write_text('{"builtin": true}', encoding="utf-8")
             paths.generated_xray_config_file.write_text('{"generated": true}', encoding="utf-8")
-
-            store = {
-                "runtime_preference": "builtin",
-                "active_selection": {"profile_id": "profile-1", "node_id": "node-1"},
-            }
-
-            with patch.object(gui_server, "APP_PATHS", paths), patch.object(gui_server, "XRAY_TEMPLATE_PATH", template):
+            with patch.object(gui_server, "APP_PATHS", paths):
                 self.assertEqual(
-                    gui_server.resolve_active_xray_config_path(store, {}, stack_is_live=False),
-                    template,
+                    gui_server.resolve_active_xray_config_path({}, {}, stack_is_live=False),
+                    paths.generated_xray_config_file,
                 )
 
-    def test_resolve_active_xray_config_falls_back_to_template_without_selection(self) -> None:
+    def test_resolve_active_xray_config_points_to_generated_path_without_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             real_home = root / "home"
@@ -139,20 +142,38 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             paths = build_app_paths(real_home, str(real_home / ".config"))
             paths.store_dir.mkdir(parents=True, exist_ok=True)
 
-            template = root / "xray-tun-subvost.json"
-            template.write_text("{}", encoding="utf-8")
-
-            with patch.object(gui_server, "APP_PATHS", paths), patch.object(gui_server, "XRAY_TEMPLATE_PATH", template):
+            with patch.object(gui_server, "APP_PATHS", paths):
                 resolved = gui_server.resolve_active_xray_config_path(
                     {"active_selection": {"profile_id": None, "node_id": None}},
                     {"XRAY_CONFIG": str(paths.active_runtime_xray_config_file)},
                     stack_is_live=False,
                 )
-                self.assertEqual(resolved, template)
+                self.assertEqual(resolved, paths.generated_xray_config_file)
+
+    def test_describe_stack_status_for_running_runtime(self) -> None:
+        status = gui_server.describe_stack_status(
+            xray_alive=True,
+            tun_present=True,
+            tun_interface="tun0",
+        )
+        self.assertEqual(status["state"], "running")
+        self.assertEqual(status["stack_line"], "Xray core")
+        self.assertIn("Единый TUN-runtime", status["stack_subline"])
+        self.assertIn("tun0", status["description"])
+
+    def test_describe_stack_status_for_degraded_runtime(self) -> None:
+        status = gui_server.describe_stack_status(
+            xray_alive=True,
+            tun_present=False,
+            tun_interface="tun0",
+        )
+        self.assertEqual(status["state"], "degraded")
+        self.assertEqual(status["stack_line"], "Xray core")
+        self.assertIn("Часть runtime активна", status["description"])
 
 
 class GuiServerSubscriptionRollbackTests(unittest.TestCase):
-    def test_handle_subscription_refresh_persists_last_error_and_builtin_runtime(self) -> None:
+    def test_handle_subscription_refresh_persists_last_error_without_switching_runtime_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             real_home = root / "home"
@@ -184,7 +205,6 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
                     gui_server.handle_subscription_refresh({"subscription_id": subscription["id"]})
 
             persisted = json.loads(paths.store_file.read_text(encoding="utf-8"))
-            self.assertEqual(persisted["runtime_preference"], "builtin")
             self.assertEqual(persisted["subscriptions"][0]["last_status"], "error")
             self.assertIn("невалидных строк 1", persisted["subscriptions"][0]["last_error"])
             self.assertEqual(len(persisted["profiles"][1]["nodes"]), 1)
@@ -210,9 +230,25 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
                     gui_server.handle_subscription_add({"name": "Broken", "url": "https://example.com/sub"})
 
             persisted = json.loads(paths.store_file.read_text(encoding="utf-8"))
-            self.assertEqual(persisted["runtime_preference"], "builtin")
             self.assertEqual(persisted["subscriptions"], [])
             self.assertEqual(len(persisted["profiles"]), 1)
+
+    def test_handle_start_requires_active_node(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            template = root / "xray-tun-subvost.json"
+            template.write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            ensure_store_initialized(paths, root)
+
+            with (
+                patch.object(gui_server, "APP_PATHS", paths),
+                patch.object(gui_server, "PROJECT_ROOT", root),
+            ):
+                with self.assertRaisesRegex(ValueError, "сначала выбери и активируй валидный узел"):
+                    gui_server.handle_start()
 
 
 if __name__ == "__main__":
