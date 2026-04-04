@@ -16,12 +16,11 @@ from subvost_paths import build_app_paths  # noqa: E402
 from subvost_store import (  # noqa: E402
     MANUAL_PROFILE_ID,
     add_subscription,
+    default_subscription_hwid,
     ensure_store_initialized,
-    get_runtime_preference,
     refresh_subscription,
     save_manual_import_results,
     save_store,
-    set_runtime_preference,
     sync_generated_runtime,
     update_profile,
 )
@@ -44,7 +43,18 @@ class FakeResponse:
 
 
 class SubvostStoreTests(unittest.TestCase):
-    def test_store_initialization_migrates_live_config(self) -> None:
+    def test_default_subscription_hwid_prefers_real_home_from_env(self) -> None:
+        with patch.dict("os.environ", {"SUBVOST_REAL_HOME": "/tmp/subvost-real-home"}, clear=False):
+            first = default_subscription_hwid()
+        with patch.dict("os.environ", {"SUBVOST_REAL_HOME": "/tmp/subvost-real-home"}, clear=False):
+            second = default_subscription_hwid()
+        with patch.dict("os.environ", {"SUBVOST_REAL_HOME": "/tmp/another-home"}, clear=False):
+            third = default_subscription_hwid()
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, third)
+
+    def test_store_initialization_does_not_migrate_tracked_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
             real_home = project_root / "home"
@@ -84,9 +94,9 @@ class SubvostStoreTests(unittest.TestCase):
 
             store = ensure_store_initialized(paths, project_root)
             manual_profile = next(profile for profile in store["profiles"] if profile["id"] == MANUAL_PROFILE_ID)
-            self.assertEqual(len(manual_profile["nodes"]), 1)
-            self.assertEqual(store["active_selection"]["profile_id"], MANUAL_PROFILE_ID)
-            self.assertTrue(paths.generated_xray_config_file.exists())
+            self.assertEqual(len(manual_profile["nodes"]), 0)
+            self.assertIsNone(store["active_selection"]["profile_id"])
+            self.assertFalse(paths.generated_xray_config_file.exists())
 
     def test_manual_import_can_activate_single_node(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -174,10 +184,13 @@ class SubvostStoreTests(unittest.TestCase):
             payload = (
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})) as mocked_urlopen:
                 result = refresh_subscription(store, subscription["id"])
             self.assertEqual(result["unique_nodes"], 1)
             self.assertEqual(result["duplicate_lines"], 0)
+            request = mocked_urlopen.call_args.args[0]
+            self.assertEqual(request.get_header("User-agent"), "Xray-core")
+            self.assertTrue(request.get_header("X-hwid"))
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
             profile["nodes"][0]["name"] = "Custom name"
@@ -188,6 +201,49 @@ class SubvostStoreTests(unittest.TestCase):
 
             self.assertEqual(profile["nodes"][0]["name"], "Custom name")
             self.assertEqual(store["subscriptions"][0]["etag"], "etag-2")
+
+    def test_refresh_subscription_does_not_auto_activate_first_node(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            payload = (
+                b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
+            )
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
+                refresh_subscription(store, subscription["id"])
+
+            self.assertIsNone(store["active_selection"]["profile_id"])
+            self.assertIsNone(store["active_selection"]["node_id"])
+
+    def test_refresh_subscription_rejects_provider_placeholder_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Stub", "https://example.com/sub")
+
+            stub_payload = base64.urlsafe_b64encode(
+                (
+                    "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1?type=tcp&security=none#Приложение не поддерживаетя\n"
+                    "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1?type=tcp&security=none#Обратись к @provider_support\n"
+                ).encode("utf-8")
+            )
+
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(stub_payload, {"ETag": "etag-1"})):
+                with self.assertRaisesRegex(ValueError, "заглушку"):
+                    refresh_subscription(store, subscription["id"])
+
+            self.assertEqual(store["subscriptions"][0]["last_status"], "error")
+            self.assertIn("заглушку", store["subscriptions"][0]["last_error"])
 
     def test_refresh_subscription_deduplicates_duplicate_lines_within_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -275,22 +331,6 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["subscriptions"][0]["etag"], "etag-1")
             self.assertEqual(store["subscriptions"][0]["last_status"], "error")
             self.assertIn("невалидных строк 1", store["subscriptions"][0]["last_error"])
-
-    def test_runtime_preference_can_switch_to_builtin_and_back(self) -> None:
-        store = {
-            "runtime_preference": "store",
-            "profiles": [],
-            "subscriptions": [],
-            "active_selection": {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
-            "meta": {},
-        }
-
-        self.assertEqual(get_runtime_preference(store), "store")
-        self.assertEqual(set_runtime_preference(store, "builtin"), "builtin")
-        self.assertEqual(get_runtime_preference(store), "builtin")
-        self.assertEqual(set_runtime_preference(store, "store"), "store")
-        self.assertEqual(get_runtime_preference(store), "store")
-
 
 if __name__ == "__main__":
     unittest.main()
