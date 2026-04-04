@@ -2,7 +2,7 @@
 
 ## Структура проекта и модулей
 
-Репозиторий представляет собой переносимый bundle для запуска `Xray + sing-box` в TUN-режиме. Публичные точки входа в корне: `run-xray-tun-subvost.sh`, `stop-xray-tun-subvost.sh`, `capture-xray-tun-state.sh`, `open-subvost-gui.sh`, `install-on-new-pc.sh` и `subvost-xray-tun.desktop`. JSON-конфиги лежат в корне: `singbox-tun-subvost.json` является repo-managed runtime-конфигом, а `xray-tun-subvost.json` хранится в Git только как санитизированный шаблон, где перед реальным запуском оператор локально дозаполняет `id`, `publicKey` и `shortId`. Диагностика и временные логи попадают в `logs/`. Внутренняя shell-реализация вынесена в `lib/` и `libexec/`, GUI backend — в `gui/`, исследовательские материалы — в `docs/research/`, вспомогательные repo-managed артефакты — в `assets/`.
+Репозиторий представляет собой переносимый bundle для запуска `xray-core` в `TUN`-режиме без дополнительных proxy-движков. Публичные точки входа в корне: `run-xray-tun-subvost.sh`, `stop-xray-tun-subvost.sh`, `capture-xray-tun-state.sh`, `open-subvost-gui.sh`, `install-on-new-pc.sh`, `install-subvost-gui-menu-entry.sh` и `subvost-xray-tun.desktop`. Основной tracked-конфиг лежит в корне: `xray-tun-subvost.json` хранится в Git только как санитизированный шаблон для генерации runtime-конфига выбранного узла и не запускается напрямую. Диагностика и временные логи попадают в `logs/`. Внутренняя shell-реализация вынесена в `lib/` и `libexec/`, GUI backend — в `gui/`, исследовательские материалы — в `docs/research/`, вспомогательные repo-managed артефакты — в `assets/`.
 
 Для task-centric knowledge используется каталог `knowledge/`:
 
@@ -14,18 +14,18 @@
 
 Исторические планы уже мигрированы в `knowledge/tasks/`. Их происхождение и исходный Markdown сохраняются внутри соответствующих task-каталогов, обычно в `artifacts/legacy-plan.md`. Новые задачи, подзадачи и рабочие планы создаются только в `knowledge/tasks/`.
 
-Артефакты knowledge-системы являются частью инженерной документации репозитория и хранятся в Git. `xray-tun-subvost.json` допустим в Git только в санитизированном виде: live-значения `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны оставаться локальными operator-managed данными и не коммитятся.
+Артефакты knowledge-системы являются частью инженерной документации репозитория и хранятся в Git. `xray-tun-subvost.json` допустим в Git только в санитизированном виде: live-значения `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны попадать только в локально сгенерированный runtime-конфиг и не коммитятся.
 
 ## Команды запуска, проверки и разработки
 
 Сборки как отдельного этапа нет: bundle запускается напрямую.
 
-- `sudo ./run-xray-tun-subvost.sh` — поднять `Xray` и `sing-box`, настроить DNS и сохранить state.
-- `./stop-xray-tun-subvost.sh` — корректно остановить стек и восстановить `resolv.conf`.
+- `sudo ./run-xray-tun-subvost.sh` — поднять основной `xray` runtime из активного узла, настроить DNS и сохранить state.
+- `./stop-xray-tun-subvost.sh` — корректно остановить runtime и восстановить `resolv.conf`.
 - `sudo ./capture-xray-tun-state.sh` — снять полный диагностический дамп в `logs/`.
 - `./open-subvost-gui.sh` — запустить GUI launcher с `pkexec`.
 - `bash ./install-on-new-pc.sh` — поставить системные зависимости на Debian/Ubuntu.
-- `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh` и `python3 -m py_compile gui/gui_server.py` — минимальная локальная проверка перед коммитом.
+- `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py` — минимальная локальная проверка перед коммитом.
 
 ## Стиль кода и именование
 
@@ -63,7 +63,7 @@ Legacy-артефакты, перенесённые в `knowledge/tasks/*/artifa
 
 Автотестов сейчас нет, поэтому обязательна ручная smoke-проверка. Минимум: успешный старт через `run-xray-tun-subvost.sh`, наличие `tun0`, корректная остановка через `stop-xray-tun-subvost.sh`, и при изменениях GUI — открытие `http://127.0.0.1:8421` и выполнение команд `Старт`/`Стоп`/`Снять диагностику`. GUI backend считается внутренним компонентом и запускается через `open-subvost-gui.sh` или `subvost-xray-tun.desktop`, а не прямым пользовательским вызовом `libexec/start-gui-backend-root.sh`. Если меняете конфиги, приложите пример ошибки или лог из `logs/` при регрессии.
 
-Если задача меняет preflight, DNS-логику, маршрутизацию или диагностику, дополнительно проверяйте негативные сценарии: отсутствие `tun`, конфликт DNS-менеджера, неполный старт `sing-box`, корректность восстановления `resolv.conf`.
+Если задача меняет preflight, DNS-логику, маршрутизацию или диагностику, дополнительно проверяйте негативные сценарии: отсутствие `tun`, конфликт DNS-менеджера, неполный старт `xray` runtime, корректность восстановления `resolv.conf`.
 
 ## Коммиты и Pull Request
 
@@ -73,7 +73,7 @@ Legacy-артефакты, перенесённые в `knowledge/tasks/*/artifa
 
 ## Безопасность и конфигурация
 
-В Git не должны попадать секреты, локальные адреса и диагностические дампы с приватными данными. `logs/*.log` и `__pycache__/` уже исключены из Git. `xray-tun-subvost.json` разрешён в репозитории только как санитизированный шаблон: поля `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны оставаться placeholders `REPLACE_WITH_REALITY_UUID`, `REPLACE_WITH_REALITY_PUBLIC_KEY` и `REPLACE_WITH_REALITY_SHORT_ID`. Если для локального smoke нужны live-значения, перед commit/PR верните placeholders. Любые изменения, требующие `sudo`, должны быть обратимыми и явно восстанавливать исходное состояние системы.
+В Git не должны попадать секреты, локальные адреса и диагностические дампы с приватными данными. `logs/*.log` и `__pycache__/` уже исключены из Git. `xray-tun-subvost.json` разрешён в репозитории только как санитизированный шаблон: поля `outbounds[0].settings.vnext[0].users[0].id`, `outbounds[0].streamSettings.realitySettings.publicKey` и `outbounds[0].streamSettings.realitySettings.shortId` должны оставаться placeholders `REPLACE_WITH_REALITY_UUID`, `REPLACE_WITH_REALITY_PUBLIC_KEY` и `REPLACE_WITH_REALITY_SHORT_ID`. Bundle стартует только из локально сгенерированного конфига выбранного узла. Любые изменения, требующие `sudo`, должны быть обратимыми и явно восстанавливать исходное состояние системы.
 
 Скрипты не должны автоматически менять постоянную системную конфигурацию DNS, firewall и network-manager-сервисов без отдельной и явно документированной причины. По умолчанию допустимы только обратимые runtime-изменения и диагностические проверки.
 
