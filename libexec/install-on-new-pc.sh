@@ -125,7 +125,7 @@ if command -v apt-get >/dev/null 2>&1; then
   run_root apt-get install -y ca-certificates curl iproute2 python3 sudo unzip
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
-  echo "Установи зависимости вручную: curl, unzip, iproute2, python3, sudo, xray, sing-box." >&2
+  echo "Установи зависимости вручную: curl, unzip, iproute2, python3, sudo, xray." >&2
   exit 1
 fi
 
@@ -138,28 +138,12 @@ echo "[3/5] Очистка лишних артефактов Xray-install"
 cleanup_xray_install_artifacts
 dedupe_xray_binaries
 
-echo "[4/5] Установка sing-box"
-run_root mkdir -p /etc/apt/keyrings
-run_root curl -fsSL https://sing-box.app/gpg.key -o /etc/apt/keyrings/sagernet.asc
-run_root chmod a+r /etc/apt/keyrings/sagernet.asc
-printf 'Types: deb\nURIs: https://deb.sagernet.org/\nSuites: *\nComponents: *\nEnabled: yes\nSigned-By: /etc/apt/keyrings/sagernet.asc\n' \
-  | run_root tee /etc/apt/sources.list.d/sagernet.sources >/dev/null
-run_root apt-get update
-run_root apt-get install -y sing-box
-
-echo "[5/5] Проверка установленных бинарников"
+echo "[4/4] Проверка установленных бинарников"
 XRAY_BIN_INSTALLED="$(preferred_xray_bin)"
 if [[ -n "$XRAY_BIN_INSTALLED" ]] && [[ -x "$XRAY_BIN_INSTALLED" ]]; then
   echo "Xray найден: ${XRAY_BIN_INSTALLED}"
 else
   echo "Xray не найден в PATH после установки." >&2
-  exit 1
-fi
-
-if command -v sing-box >/dev/null 2>&1; then
-  echo "sing-box найден: $(command -v sing-box)"
-else
-  echo "sing-box не найден в PATH после установки." >&2
   exit 1
 fi
 
