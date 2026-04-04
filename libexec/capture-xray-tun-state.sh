@@ -18,7 +18,10 @@ fi
 
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
-ACTIVE_XRAY_CONFIG="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+ACTIVE_XRAY_CONFIG="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME")"
+RUNTIME_IMPL="${RUNTIME_IMPL:-xray}"
+TUN_INTERFACE="${TUN_INTERFACE:-tun0}"
+ROUTE_TABLE="${ROUTE_TABLE:-18421}"
 
 if [[ -f "$STATE_FILE" ]]; then
   while IFS='=' read -r key value; do
@@ -31,6 +34,21 @@ if [[ -f "$STATE_FILE" ]]; then
       RESOLV_BACKUP)
         if [[ "$value" == /* ]]; then
           RESOLV_BACKUP="$value"
+        fi
+        ;;
+      RUNTIME_IMPL)
+        if [[ -n "$value" ]]; then
+          RUNTIME_IMPL="$value"
+        fi
+        ;;
+      TUN_INTERFACE)
+        if [[ -n "$value" ]]; then
+          TUN_INTERFACE="$value"
+        fi
+        ;;
+      ROUTE_TABLE)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_TABLE="$value"
         fi
         ;;
     esac
@@ -89,6 +107,9 @@ print_shell_block_as_real_user() {
   echo "state_file=${STATE_FILE}"
   echo "resolv_backup=${RESOLV_BACKUP}"
   echo "active_xray_config=${ACTIVE_XRAY_CONFIG}"
+  echo "runtime_impl=${RUNTIME_IMPL}"
+  echo "tun_interface=${TUN_INTERFACE}"
+  echo "route_table=${ROUTE_TABLE}"
   echo
 
   print_section "versions" bash -lc '
@@ -110,8 +131,6 @@ print_shell_block_as_real_user() {
     else
       echo "xray: not found"
     fi
-    echo
-    command -v sing-box >/dev/null 2>&1 && sing-box version || echo "sing-box: not found"
     echo
     command -v curl >/dev/null 2>&1 && curl --version | sed -n "1,2p" || echo "curl: not found"
     echo
@@ -156,7 +175,7 @@ print_shell_block_as_real_user() {
   '
 
   print_section "processes" bash -lc '
-    ps aux | grep -E "FlClashCore|FlClash|sing-box|xray|yandex_browser|chrome|chromium|firefox|curl" | grep -v grep || true
+    ps aux | grep -E "FlClashCore|FlClash|xray|yandex_browser|chrome|chromium|firefox|curl" | grep -v grep || true
   '
 
   print_section "ip -brief address" ip -brief address
@@ -164,11 +183,10 @@ print_shell_block_as_real_user() {
   print_section "ip rule show" ip rule show
   print_section "ip -6 rule show" ip -6 rule show
   print_section "ip route show table main" ip route show table main
-  print_section "ip route show table 2022" ip route show table 2022
+  print_section "ip route show table ${ROUTE_TABLE}" ip route show table "${ROUTE_TABLE}"
   print_shell_block "ip route show table all | grep tun/xray" 'ip route show table all | grep -E "\\b(tun|xray)[[:alnum:]_.-]*\\b" || true'
   print_section "ip -6 route show" ip -6 route show
-  print_section "ip route get 203.0.113.9" ip route get 203.0.113.9
-  print_section "ip route get 8.6.112.6" ip route get 8.6.112.6
+  print_section "ip route get 8.8.8.8" ip route get 8.8.8.8
   print_section "ip route get 34.160.111.145" ip route get 34.160.111.145
 
   print_section "ss -tnap" ss -tnap
@@ -233,11 +251,8 @@ print_shell_block_as_real_user() {
     fi
   '
 
-  print_section "xray config snippet" sed -n '1,220p' "${ACTIVE_XRAY_CONFIG}"
-  print_section "sing-box config snippet" sed -n '1,220p' "${SUBVOST_SINGBOX_CONFIG_PATH}"
-
-  print_section "xray log tail" tail -n 200 "${LOG_DIR}/xray-subvost.log"
-  print_section "sing-box log tail" tail -n 260 "${LOG_DIR}/singbox-subvost.log"
+  print_section "xray config snippet" sed -n '1,260p' "${ACTIVE_XRAY_CONFIG}"
+  print_section "xray log tail" tail -n 260 "${LOG_DIR}/xray-subvost.log"
   print_section "journalctl -k -b -n 200" journalctl -k -b --no-pager -n 200
   print_shell_block "journalctl -k -b | grep -i tun" 'journalctl -k -b --no-pager | grep -i tun || true'
   print_section "journalctl -b -u systemd-resolved -n 120" journalctl -b -u systemd-resolved --no-pager -n 120
