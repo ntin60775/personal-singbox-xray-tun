@@ -15,15 +15,17 @@ if [[ -z "$REAL_HOME" ]]; then
   exit 1
 fi
 
-ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME")"
 XRAY_CONFIG="${XRAY_CONFIG:-${ACTIVE_XRAY_CONFIG_DEFAULT}}"
-SINGBOX_CONFIG="${SINGBOX_CONFIG:-${SUBVOST_SINGBOX_CONFIG_PATH}}"
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
 ARG_XRAY_PID="${1:-}"
-ARG_SINGBOX_PID="${2:-}"
 XRAY_PID=""
-SINGBOX_PID=""
+RUNTIME_IMPL="${RUNTIME_IMPL:-xray}"
+TUN_INTERFACE="${TUN_INTERFACE:-tun0}"
+ROUTE_TABLE="${ROUTE_TABLE:-18421}"
+ROUTE_MARK="${ROUTE_MARK:-8421}"
+ROUTE_RULE_PREF="${ROUTE_RULE_PREF:-100}"
 
 ensure_absolute_path() {
   local path_value="$1"
@@ -45,11 +47,6 @@ if [[ -f "$STATE_FILE" ]]; then
           XRAY_PID="$value"
         fi
         ;;
-      SINGBOX_PID)
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
-          SINGBOX_PID="$value"
-        fi
-        ;;
       RESOLV_BACKUP)
         if [[ "$value" == /* ]]; then
           RESOLV_BACKUP="$value"
@@ -60,6 +57,31 @@ if [[ -f "$STATE_FILE" ]]; then
           XRAY_CONFIG="$value"
         fi
         ;;
+      RUNTIME_IMPL)
+        if [[ -n "$value" ]]; then
+          RUNTIME_IMPL="$value"
+        fi
+        ;;
+      TUN_INTERFACE)
+        if [[ -n "$value" ]]; then
+          TUN_INTERFACE="$value"
+        fi
+        ;;
+      ROUTE_TABLE)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_TABLE="$value"
+        fi
+        ;;
+      ROUTE_MARK)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_MARK="$value"
+        fi
+        ;;
+      ROUTE_RULE_PREF)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_RULE_PREF="$value"
+        fi
+        ;;
     esac
   done <"$STATE_FILE"
 fi
@@ -68,25 +90,24 @@ if [[ -n "$ARG_XRAY_PID" ]]; then
   XRAY_PID="$ARG_XRAY_PID"
 fi
 
-if [[ -n "$ARG_SINGBOX_PID" ]]; then
-  SINGBOX_PID="$ARG_SINGBOX_PID"
-fi
-
-echo "[1/3] Остановка sing-box TUN"
-if [[ -n "${SINGBOX_PID:-}" ]]; then
-  sudo kill "$SINGBOX_PID" 2>/dev/null || true
-else
-  sudo pkill -f "sing-box run -c ${SINGBOX_CONFIG}" 2>/dev/null || true
-fi
-
-echo "[2/3] Остановка Xray core"
+echo "[1/4] Остановка Xray core"
 if [[ -n "${XRAY_PID:-}" ]]; then
   sudo kill "$XRAY_PID" 2>/dev/null || true
 else
   sudo pkill -f "xray run -c ${XRAY_CONFIG}" 2>/dev/null || true
 fi
 
-echo "[3/3] Восстановление системного DNS"
+echo "[2/4] Очистка policy-routing"
+sudo ip rule del pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE" >/dev/null 2>&1 || true
+sudo ip route flush table "$ROUTE_TABLE" >/dev/null 2>&1 || true
+sudo ip route flush cache >/dev/null 2>&1 || true
+
+echo "[3/4] Очистка TUN-интерфейса"
+if [[ -n "$TUN_INTERFACE" ]]; then
+  sudo ip link delete "$TUN_INTERFACE" >/dev/null 2>&1 || true
+fi
+
+echo "[4/4] Восстановление системного DNS"
 if [[ -f "$RESOLV_BACKUP" ]]; then
   sudo cp -f "$RESOLV_BACKUP" /etc/resolv.conf
 fi

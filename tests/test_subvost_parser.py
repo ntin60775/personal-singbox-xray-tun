@@ -18,13 +18,15 @@ class SubvostParserTests(unittest.TestCase):
         raw_uri = (
             "vless://11111111-1111-1111-1111-111111111111@example.com:443"
             "?type=xhttp&security=reality&sni=edge.example.com&pbk=test-public-key"
-            "&sid=abcd1234&fp=chrome&host=edge.example.com&path=%2Fentry#Example"
+            "&sid=abcd1234&fp=chrome&host=edge.example.com&path=%2Fentry"
+            "&extra=%7B%22headers%22%3A%7B%7D%7D#Example"
         )
         normalized = parse_proxy_uri(raw_uri)
         self.assertEqual(normalized["protocol"], "vless")
         self.assertEqual(normalized["network"], "xhttp")
         self.assertEqual(normalized["security"], "reality")
         self.assertEqual(normalized["server_name"], "edge.example.com")
+        self.assertEqual(normalized["xhttp_extra"], {"headers": {}})
         self.assertEqual(normalized["display_name"], "Example")
         self.assertTrue(normalized["fingerprint_hash"])
 
@@ -83,6 +85,22 @@ class SubvostParserTests(unittest.TestCase):
         lines, payload_format = parse_subscription_payload(encoded)
         self.assertEqual(payload_format, "base64")
         self.assertEqual(lines, [raw])
+
+    def test_provider_placeholder_link_is_rejected(self) -> None:
+        raw_uri = (
+            "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1"
+            "?type=tcp&security=none#Приложение не поддерживаетя"
+        )
+        with self.assertRaisesRegex(ParseError, "заглушку"):
+            parse_proxy_uri(raw_uri)
+
+    def test_provider_device_limit_placeholder_surfaces_exact_reason(self) -> None:
+        raw_uri = (
+            "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1"
+            "?type=tcp&security=none#Достигнут%20лимит%20устройств"
+        )
+        with self.assertRaisesRegex(ParseError, "Достигнут лимит устройств"):
+            parse_proxy_uri(raw_uri)
 
 
 if __name__ == "__main__":

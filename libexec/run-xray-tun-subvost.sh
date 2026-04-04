@@ -18,9 +18,8 @@ if [[ -z "$REAL_HOME" ]]; then
   exit 1
 fi
 
-ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME" "${SUBVOST_XRAY_CONFIG_PATH}")"
+ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME")"
 ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_runtime_xray_config_for_home "$REAL_HOME")"
-GENERATED_XRAY_CONFIG_DEFAULT="$(subvost_resolve_generated_xray_config_for_home "$REAL_HOME")"
 STORE_FILE_DEFAULT="$(subvost_resolve_store_file_for_home "$REAL_HOME")"
 
 ensure_absolute_path() {
@@ -82,7 +81,7 @@ ensure_python3_available() {
 
 ensure_tun_device_available() {
   if [[ ! -e /dev/net/tun ]]; then
-    echo "Не найден /dev/net/tun. Без него sing-box не сможет поднять TUN-интерфейс." >&2
+    echo "Не найден /dev/net/tun. Без него xray-core не сможет поднять TUN-интерфейс." >&2
     echo "Проверь: ls -l /dev/net/tun ; lsmod | grep tun" >&2
     exit 1
   fi
@@ -149,334 +148,6 @@ capture_runtime_diagnostic() {
   printf '%s\n' "$diagnostic_path" | tail -n 1
 }
 
-list_runtime_interfaces() {
-  ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -v '^lo$' || true
-}
-
-normalize_ip_prefix() {
-  local raw_address="$1"
-
-  python3 - "$raw_address" <<'PY'
-import ipaddress
-import sys
-
-value = sys.argv[1].strip()
-if not value:
-    raise SystemExit(1)
-
-try:
-    print(ipaddress.ip_interface(value).with_prefixlen)
-except ValueError:
-    raise SystemExit(1)
-PY
-}
-
-load_singbox_tun_expectations() {
-  local parse_output
-  local line
-  local key
-  local value
-
-  EXPECTED_TUN_INTERFACE=""
-  EXPECTED_TUN_ADDRESSES=""
-
-  parse_output="$(
-    python3 - "$SINGBOX_CONFIG" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-
-try:
-    with open(path, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-except Exception:
-    raise SystemExit(0)
-
-for inbound in data.get("inbounds", []):
-    if inbound.get("type") != "tun":
-        continue
-
-    interface_name = inbound.get("interface_name")
-    if interface_name:
-        print(f"interface_name={interface_name}")
-
-    for address in inbound.get("address", []) or []:
-        print(f"address={address}")
-    break
-PY
-  )"
-
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    key="${line%%=*}"
-    value="${line#*=}"
-    case "$key" in
-      interface_name)
-        EXPECTED_TUN_INTERFACE="$value"
-        ;;
-      address)
-        if [[ -n "$EXPECTED_TUN_ADDRESSES" ]]; then
-          EXPECTED_TUN_ADDRESSES+=$'\n'
-        fi
-        EXPECTED_TUN_ADDRESSES+="$value"
-        ;;
-    esac
-  done <<<"$parse_output"
-}
-
-capture_prestart_interfaces() {
-  PRESTART_INTERFACES="$(list_runtime_interfaces)"
-  PRESTART_INTERFACES_READY="1"
-}
-
-interface_was_present_before_start() {
-  local interface_name="$1"
-  [[ "${PRESTART_INTERFACES_READY:-0}" == "1" ]] || return 1
-  printf '%s\n' "$PRESTART_INTERFACES" | grep -Fx -- "$interface_name" >/dev/null 2>&1
-}
-
-runtime_stack_is_alive() {
-  kill -0 "${XRAY_PID:-0}" 2>/dev/null && kill -0 "${SINGBOX_PID:-0}" 2>/dev/null
-}
-
-interface_matches_singbox_config() {
-  local interface_name="$1"
-  local configured_address
-  local interface_addresses=""
-  local normalized_interface_addresses=""
-  local runtime_address
-  local normalized_configured_address
-  local normalized_runtime_address
-  local saw_configured_address="0"
-
-  if [[ -n "$EXPECTED_TUN_INTERFACE" ]] && [[ "$interface_name" != "$EXPECTED_TUN_INTERFACE" ]]; then
-    return 1
-  fi
-
-  if [[ -z "$EXPECTED_TUN_ADDRESSES" ]]; then
-    [[ -n "$EXPECTED_TUN_INTERFACE" ]]
-    return
-  fi
-
-  interface_addresses="$(ip -o addr show dev "$interface_name" 2>/dev/null | awk '{print $4}')"
-  [[ -n "$interface_addresses" ]] || return 1
-
-  while IFS= read -r runtime_address; do
-    [[ -n "$runtime_address" ]] || continue
-    normalized_runtime_address="$(normalize_ip_prefix "$runtime_address" || true)"
-    if [[ -n "$normalized_runtime_address" ]]; then
-      if [[ -n "$normalized_interface_addresses" ]]; then
-        normalized_interface_addresses+=$'\n'
-      fi
-      normalized_interface_addresses+="$normalized_runtime_address"
-    fi
-  done <<<"$interface_addresses"
-
-  while IFS= read -r configured_address; do
-    [[ -n "$configured_address" ]] || continue
-    saw_configured_address="1"
-    normalized_configured_address="$(normalize_ip_prefix "$configured_address" || true)"
-    if [[ -n "$normalized_configured_address" ]]; then
-      if ! printf '%s\n' "$normalized_interface_addresses" | grep -Fx -- "$normalized_configured_address" >/dev/null 2>&1; then
-        return 1
-      fi
-      continue
-    fi
-    if ! printf '%s\n' "$interface_addresses" | grep -Fx -- "$configured_address" >/dev/null 2>&1; then
-      return 1
-    fi
-  done <<<"$EXPECTED_TUN_ADDRESSES"
-
-  [[ "$saw_configured_address" == "1" ]]
-}
-
-detect_runtime_tun_interface() {
-  local interface_name
-
-  if [[ -n "$EXPECTED_TUN_INTERFACE" ]] && ip link show "$EXPECTED_TUN_INTERFACE" >/dev/null 2>&1; then
-    printf '%s\n' "$EXPECTED_TUN_INTERFACE"
-    return 0
-  fi
-
-  while IFS= read -r interface_name; do
-    [[ -n "$interface_name" ]] || continue
-    if interface_was_present_before_start "$interface_name"; then
-      continue
-    fi
-    if interface_matches_singbox_config "$interface_name"; then
-      printf '%s\n' "$interface_name"
-      return 0
-    fi
-  done < <(list_runtime_interfaces)
-
-  if [[ -n "${ACTIVE_TUN_INTERFACE:-}" ]] && ip link show "$ACTIVE_TUN_INTERFACE" >/dev/null 2>&1; then
-    printf '%s\n' "$ACTIVE_TUN_INTERFACE"
-    return 0
-  fi
-
-  return 1
-}
-
-cleanup_partial_start() {
-  local interface_name="${ACTIVE_TUN_INTERFACE:-${EXPECTED_TUN_INTERFACE:-}}"
-
-  if [[ -n "${SINGBOX_PID:-}" ]]; then
-    sudo kill "$SINGBOX_PID" 2>/dev/null || true
-  fi
-
-  if [[ -n "${XRAY_PID:-}" ]]; then
-    sudo kill "$XRAY_PID" 2>/dev/null || true
-  fi
-
-  sleep 1
-
-  if [[ -n "$interface_name" ]] && [[ "${PRESTART_INTERFACES_READY:-0}" == "1" ]] && ! interface_was_present_before_start "$interface_name"; then
-    sudo ip link delete "$interface_name" >/dev/null 2>&1 || true
-  fi
-
-  if [[ -f "$STATE_FILE" ]]; then
-    rm -f "$STATE_FILE"
-  fi
-}
-
-ensure_tun_runtime_is_ready() {
-  if ! runtime_stack_is_alive; then
-    return 1
-  fi
-
-  ACTIVE_TUN_INTERFACE="$(detect_runtime_tun_interface || true)"
-
-  if [[ -z "$ACTIVE_TUN_INTERFACE" ]]; then
-    return 1
-  fi
-
-  if ! ip link show "$ACTIVE_TUN_INTERFACE" >/dev/null 2>&1; then
-    return 1
-  fi
-
-  if ! ip link show "$ACTIVE_TUN_INTERFACE" | grep -q '<.*UP.*>'; then
-    return 1
-  fi
-
-  if ! ip -o addr show dev "$ACTIVE_TUN_INTERFACE" | grep -q .; then
-    return 1
-  fi
-
-  if ! interface_matches_singbox_config "$ACTIVE_TUN_INTERFACE"; then
-    return 1
-  fi
-}
-
-wait_for_tun_runtime_ready() {
-  local deadline=$((SECONDS + POST_START_SANITY_TIMEOUT_SECS))
-
-  while (( SECONDS < deadline )); do
-    if ensure_tun_runtime_is_ready; then
-      return 0
-    fi
-
-    if ! runtime_stack_is_alive; then
-      return 1
-    fi
-
-    sleep 1
-  done
-
-  ensure_tun_runtime_is_ready
-}
-
-dump_tun_routes_for_diagnostic() {
-  local interface_name="${ACTIVE_TUN_INTERFACE:-${EXPECTED_TUN_INTERFACE:-}}"
-
-  if [[ -n "$interface_name" ]]; then
-    ip -4 route show table all 2>&1 | grep -F " dev ${interface_name}" || true
-    return
-  fi
-
-  ip -4 route show table all 2>&1 | grep -E 'dev (tun|xray)[[:alnum:]_.-]+' || true
-}
-
-fail_start_with_rollback() {
-  local failure_message="$1"
-  local diagnostic_path=""
-
-  echo "$failure_message" >&2
-  diagnostic_path="$(capture_runtime_diagnostic)"
-  echo "Выполняется rollback частично поднятого состояния..." >&2
-  cleanup_partial_start
-
-  if [[ -n "$diagnostic_path" ]]; then
-    echo "Диагностика сохранена в: $diagnostic_path" >&2
-  else
-    echo "Автоматически снять полный диагностический дамп не удалось. Запусти: sudo ${SUBVOST_CAPTURE_WRAPPER}" >&2
-  fi
-
-  exit 1
-}
-
-XRAY_BIN_DEFAULT="$(
-  subvost_find_executable \
-    "/usr/local/bin/xray" \
-    "/usr/bin/xray" \
-    "${REAL_HOME}/.local/bin/xray" \
-    "${HOME}/.local/bin/xray" \
-    "$(command -v xray 2>/dev/null || true)" \
-  || true
-)"
-SINGBOX_BIN_DEFAULT="$(
-  subvost_find_executable \
-    "$(command -v sing-box 2>/dev/null || true)" \
-    "/usr/local/bin/sing-box" \
-    "/usr/bin/sing-box" \
-  || true
-)"
-XRAY_BIN="${XRAY_BIN:-${XRAY_BIN_DEFAULT:-${HOME}/.local/bin/xray}}"
-XRAY_CONFIG="${XRAY_CONFIG:-${ACTIVE_XRAY_CONFIG_DEFAULT}}"
-XRAY_RUNTIME_CONFIG="${XRAY_RUNTIME_CONFIG:-${ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT}}"
-SINGBOX_CONFIG="${SINGBOX_CONFIG:-${SUBVOST_SINGBOX_CONFIG_PATH}}"
-SINGBOX_BIN="${SINGBOX_BIN:-${SINGBOX_BIN_DEFAULT:-/usr/bin/sing-box}}"
-STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
-RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
-RUNTIME_DNS_SERVERS="${RUNTIME_DNS_SERVERS:-8.8.8.8 1.1.1.1}"
-XRAY_LOG="${XRAY_LOG:-${LOG_DIR}/xray-subvost.log}"
-SINGBOX_LOG="${SINGBOX_LOG:-${LOG_DIR}/singbox-subvost.log}"
-ENABLE_FILE_LOGS="${ENABLE_FILE_LOGS:-0}"
-POST_START_SANITY_TIMEOUT_SECS="${POST_START_SANITY_TIMEOUT_SECS:-12}"
-XRAY_PID=""
-SINGBOX_PID=""
-ACTIVE_TUN_INTERFACE=""
-PRESTART_INTERFACES=""
-PRESTART_INTERFACES_READY="0"
-EXPECTED_TUN_INTERFACE=""
-EXPECTED_TUN_ADDRESSES=""
-ACTIVE_PROFILE_ID=""
-ACTIVE_NODE_ID=""
-
-if [[ -z "${XRAY_CONFIG_SOURCE:-}" ]]; then
-  if [[ "$XRAY_CONFIG" == "$SUBVOST_XRAY_CONFIG_PATH" ]]; then
-    XRAY_CONFIG_SOURCE="builtin"
-  elif [[ "$XRAY_CONFIG" == "$GENERATED_XRAY_CONFIG_DEFAULT" ]]; then
-    XRAY_CONFIG_SOURCE="store"
-  else
-    XRAY_CONFIG_SOURCE="custom"
-  fi
-fi
-
-ensure_python3_available
-load_singbox_tun_expectations
-
-mkdir -p "$LOG_DIR"
-ensure_absolute_path "$STATE_FILE" "STATE_FILE"
-ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
-ensure_absolute_path "$XRAY_LOG" "XRAY_LOG"
-ensure_absolute_path "$SINGBOX_LOG" "SINGBOX_LOG"
-ensure_absolute_path "$XRAY_RUNTIME_CONFIG" "XRAY_RUNTIME_CONFIG"
-
-backup_resolv_conf() {
-  sudo cp -fL /etc/resolv.conf "$RESOLV_BACKUP"
-}
-
 load_active_selection_from_store() {
   local store_file="$1"
   local selection_data=""
@@ -510,20 +181,8 @@ PY
   ACTIVE_NODE_ID="$(printf '%s\n' "$selection_data" | sed -n '2p')"
 }
 
-sync_runtime_xray_config_snapshot() {
-  local snapshot_dir
-
-  if [[ "$XRAY_CONFIG" == "$XRAY_RUNTIME_CONFIG" ]]; then
-    return 0
-  fi
-
-  snapshot_dir="$(dirname -- "$XRAY_RUNTIME_CONFIG")"
-  mkdir -p "$snapshot_dir"
-  cp -f -- "$XRAY_CONFIG" "$XRAY_RUNTIME_CONFIG"
-  chmod 600 "$XRAY_RUNTIME_CONFIG" 2>/dev/null || true
-  if [[ "$(id -u)" -eq 0 ]]; then
-    chown "${REAL_UID}:${REAL_GID}" "$XRAY_RUNTIME_CONFIG" 2>/dev/null || true
-  fi
+backup_resolv_conf() {
+  sudo cp -fL /etc/resolv.conf "$RESOLV_BACKUP"
 }
 
 write_runtime_resolv_conf() {
@@ -537,8 +196,164 @@ write_runtime_resolv_conf() {
   } | sudo tee /etc/resolv.conf >/dev/null
 }
 
-echo "[0/8] Режим: Xray core + sing-box TUN, без одновременной работы FlClash"
-echo "Схема повторяет рабочий подход Happ: Xray обслуживает SOCKS, sing-box поднимает TUN."
+detect_default_ipv4_interface() {
+  DEFAULT_IPV4_ROUTE_LINE="$(ip -4 route show default 2>/dev/null | head -n 1)"
+  if [[ -z "$DEFAULT_IPV4_ROUTE_LINE" ]]; then
+    echo "Не найден default IPv4 route. Без него runtime не сможет оставить исходящий трафик самого Xray во внешней сети." >&2
+    exit 1
+  fi
+
+  DEFAULT_IPV4_INTERFACE="$(
+    awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}' <<<"$DEFAULT_IPV4_ROUTE_LINE"
+  )"
+  if [[ -z "$DEFAULT_IPV4_INTERFACE" ]]; then
+    echo "Не удалось определить интерфейс из default IPv4 route: ${DEFAULT_IPV4_ROUTE_LINE}" >&2
+    exit 1
+  fi
+}
+
+materialize_runtime_config() {
+  python3 - \
+    "$XRAY_CONFIG" \
+    "$XRAY_RUNTIME_CONFIG" \
+    "$DEFAULT_IPV4_INTERFACE" \
+    "$ROUTE_MARK" \
+    "$REAL_UID" \
+    "$REAL_GID" \
+    "$SUBVOST_PROJECT_ROOT" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+base_config_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+default_interface = sys.argv[3]
+outbound_mark = int(sys.argv[4])
+uid = int(sys.argv[5])
+gid = int(sys.argv[6])
+project_root = Path(sys.argv[7])
+
+sys.path.insert(0, str(project_root / "gui"))
+
+from subvost_runtime import apply_transport_hints_to_runtime_config, read_json_config  # noqa: E402
+from subvost_paths import atomic_write_json  # noqa: E402
+
+base_config = read_json_config(base_config_path)
+
+if not base_config:
+    raise SystemExit(f"Не удалось прочитать активный Xray-конфиг: {base_config_path}")
+
+runtime_config = apply_transport_hints_to_runtime_config(
+    base_config,
+    default_interface=default_interface,
+    outbound_mark=outbound_mark,
+)
+atomic_write_json(output_path, runtime_config, uid=uid, gid=gid)
+PY
+}
+
+policy_route_cleanup() {
+  sudo ip rule del pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE" >/dev/null 2>&1 || true
+  sudo ip route flush table "$ROUTE_TABLE" >/dev/null 2>&1 || true
+  sudo ip route flush cache >/dev/null 2>&1 || true
+}
+
+cleanup_partial_start() {
+  policy_route_cleanup
+
+  if [[ -n "${XRAY_PID:-}" ]]; then
+    sudo kill "$XRAY_PID" 2>/dev/null || true
+  fi
+
+  sleep 1
+
+  if [[ -n "${TUN_INTERFACE_NAME:-}" ]]; then
+    sudo ip link delete "$TUN_INTERFACE_NAME" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -f "$STATE_FILE" ]]; then
+    rm -f "$STATE_FILE"
+  fi
+}
+
+fail_start_with_rollback() {
+  local failure_message="$1"
+  local diagnostic_path=""
+
+  echo "$failure_message" >&2
+  diagnostic_path="$(capture_runtime_diagnostic)"
+  echo "Выполняется rollback частично поднятого состояния..." >&2
+  cleanup_partial_start
+
+  if [[ -f "$RESOLV_BACKUP" ]]; then
+    sudo cp -f "$RESOLV_BACKUP" /etc/resolv.conf >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "$diagnostic_path" ]]; then
+    echo "Диагностика сохранена в: $diagnostic_path" >&2
+  else
+    echo "Автоматически снять полный диагностический дамп не удалось. Запусти: sudo ${SUBVOST_CAPTURE_WRAPPER}" >&2
+  fi
+
+  exit 1
+}
+
+wait_for_tun_interface_ready() {
+  local deadline=$((SECONDS + POST_START_SANITY_TIMEOUT_SECS))
+
+  while (( SECONDS < deadline )); do
+    if kill -0 "${XRAY_PID:-0}" 2>/dev/null \
+      && ip link show "$TUN_INTERFACE_NAME" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  kill -0 "${XRAY_PID:-0}" 2>/dev/null && ip link show "$TUN_INTERFACE_NAME" >/dev/null 2>&1
+}
+
+XRAY_BIN_DEFAULT="$(
+  subvost_find_executable \
+    "/usr/local/bin/xray" \
+    "/usr/bin/xray" \
+    "${REAL_HOME}/.local/bin/xray" \
+    "${HOME}/.local/bin/xray" \
+    "$(command -v xray 2>/dev/null || true)" \
+  || true
+)"
+XRAY_BIN="${XRAY_BIN:-${XRAY_BIN_DEFAULT:-${HOME}/.local/bin/xray}}"
+XRAY_CONFIG="${ACTIVE_XRAY_CONFIG_DEFAULT}"
+XRAY_RUNTIME_CONFIG="${XRAY_RUNTIME_CONFIG:-${ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT}}"
+STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
+RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
+RUNTIME_DNS_SERVERS="${RUNTIME_DNS_SERVERS:-8.8.8.8 1.1.1.1}"
+XRAY_LOG="${XRAY_LOG:-${LOG_DIR}/xray-subvost.log}"
+ENABLE_FILE_LOGS="${ENABLE_FILE_LOGS:-0}"
+POST_START_SANITY_TIMEOUT_SECS="${POST_START_SANITY_TIMEOUT_SECS:-12}"
+ROUTE_TABLE="${ROUTE_TABLE:-18421}"
+ROUTE_MARK="${ROUTE_MARK:-8421}"
+ROUTE_RULE_PREF="${ROUTE_RULE_PREF:-100}"
+TUN_INTERFACE_NAME="${TUN_INTERFACE_NAME:-tun0}"
+TUN_INTERFACE_ADDRESS="${TUN_INTERFACE_ADDRESS:-172.19.0.1/30}"
+XRAY_PID=""
+ACTIVE_PROFILE_ID=""
+ACTIVE_NODE_ID=""
+DEFAULT_IPV4_ROUTE_LINE=""
+DEFAULT_IPV4_INTERFACE=""
+XRAY_CONFIG_SOURCE="store"
+
+ensure_python3_available
+
+mkdir -p "$LOG_DIR"
+ensure_absolute_path "$STATE_FILE" "STATE_FILE"
+ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
+ensure_absolute_path "$XRAY_LOG" "XRAY_LOG"
+ensure_absolute_path "$XRAY_RUNTIME_CONFIG" "XRAY_RUNTIME_CONFIG"
+ensure_absolute_path "$XRAY_CONFIG" "XRAY_CONFIG"
+
+echo "[0/8] Режим: Xray core TUN"
+echo "Поднимается основной runtime проекта без дополнительных прокси-движков."
 echo "Пользователь bundle: ${REAL_USER}"
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
   echo "Файловое логирование: включено"
@@ -552,8 +367,16 @@ if [[ ! -x "$XRAY_BIN" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$SINGBOX_BIN" ]]; then
-  echo "Не найден исполняемый файл sing-box: $SINGBOX_BIN" >&2
+load_active_selection_from_store "$STORE_FILE_DEFAULT"
+if [[ -z "$ACTIVE_PROFILE_ID" || -z "$ACTIVE_NODE_ID" ]]; then
+  echo "Не найден активный узел в локальном store." >&2
+  echo "Сначала открой GUI, импортируй подписку при необходимости и явно активируй нужную ноду." >&2
+  exit 1
+fi
+
+if [[ ! -f "$XRAY_CONFIG" ]]; then
+  echo "Не найден сгенерированный Xray-конфиг активного узла: $XRAY_CONFIG" >&2
+  echo "Открой GUI и снова активируй узел, чтобы пересобрать runtime-конфиг." >&2
   exit 1
 fi
 
@@ -561,32 +384,17 @@ ensure_no_conflicting_xray_service
 
 echo "[1/8] Проверка TUN-окружения"
 ensure_tun_device_available
-if [[ -n "$EXPECTED_TUN_INTERFACE" ]]; then
-  ip -brief address show "$EXPECTED_TUN_INTERFACE" 2>/dev/null || true
-else
-  ip -brief address | grep -E 'FlClashX|tun0|xray0' || true
-fi
+ip -brief address | grep -E 'FlClashX|tun0|xray0' || true
 
-if [[ -n "$EXPECTED_TUN_INTERFACE" ]] && ip link show "$EXPECTED_TUN_INTERFACE" >/dev/null 2>&1; then
-  echo "Обнаружен уже существующий TUN-интерфейс ${EXPECTED_TUN_INTERFACE}." >&2
+if ip link show "$TUN_INTERFACE_NAME" >/dev/null 2>&1; then
+  echo "Обнаружен уже существующий TUN-интерфейс ${TUN_INTERFACE_NAME}." >&2
   echo "Сначала выполни ${SUBVOST_STOP_WRAPPER} и убедись, что интерфейс исчез." >&2
   exit 1
 fi
 
-if [[ -z "$EXPECTED_TUN_INTERFACE" ]] && { ip link show tun0 >/dev/null 2>&1 || ip link show xray0 >/dev/null 2>&1; }; then
-  echo "Обнаружен уже существующий TUN-интерфейс tun0/xray0." >&2
-  echo "Сначала выполни ${SUBVOST_STOP_WRAPPER} и убедись, что интерфейс исчез." >&2
-  exit 1
-fi
-
-if pgrep -xaf 'FlClashX|FlClashCore' >/dev/null; then
+if pgrep -xaf 'FlClashX|FlClashCore' >/dev/null 2>&1; then
   echo "Обнаружен активный FlClash. Полностью останови FlClashX/FlClashCore и запусти скрипт снова." >&2
   exit 1
-fi
-
-if pgrep -u "$REAL_USER" -xaf '.*(yandex_browser|chrome|chromium|firefox|brave|vivaldi).*' >/dev/null; then
-  echo "Предупреждение: браузер уже запущен до старта туннеля."
-  echo "Для чистой проверки лучше полностью закрыть браузер и открыть его после [8/8]."
 fi
 
 if [[ -f "$STATE_FILE" ]]; then
@@ -595,35 +403,29 @@ if [[ -f "$STATE_FILE" ]]; then
   exit 1
 fi
 
-capture_prestart_interfaces
-
-echo "[2/8] Preflight-проверка конфигов и DNS-окружения"
+echo "[2/8] Preflight DNS и routing-окружения"
 ensure_dns_environment_is_supported
+detect_default_ipv4_interface
+echo "Основной внешний интерфейс: ${DEFAULT_IPV4_INTERFACE}"
+echo "Default route: ${DEFAULT_IPV4_ROUTE_LINE}"
+
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
   XRAY_CHECK_LOG="$XRAY_LOG"
-  SINGBOX_CHECK_LOG="$SINGBOX_LOG"
   XRAY_RUN_TARGET="$XRAY_LOG"
-  SINGBOX_RUN_TARGET="$SINGBOX_LOG"
 else
   XRAY_CHECK_LOG="$(make_temp_log xray-check)"
-  SINGBOX_CHECK_LOG="$(make_temp_log singbox-check)"
   XRAY_RUN_TARGET="/dev/null"
-  SINGBOX_RUN_TARGET="/dev/null"
 fi
 
-sync_runtime_xray_config_snapshot
+echo "[3/8] Materialize runtime-конфига"
+materialize_runtime_config
 
 if ! "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
   echo "Xray config check завершился ошибкой. Смотри лог: $XRAY_CHECK_LOG" >&2
   exit 1
 fi
 
-if ! "$SINGBOX_BIN" check -c "$SINGBOX_CONFIG" >>"$SINGBOX_CHECK_LOG" 2>&1; then
-  echo "sing-box config check завершился ошибкой. Смотри лог: $SINGBOX_CHECK_LOG" >&2
-  exit 1
-fi
-
-echo "[3/8] Запуск Xray core"
+echo "[4/8] Запуск Xray core"
 sudo -v
 sudo "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_RUN_TARGET" 2>&1 &
 XRAY_PID=$!
@@ -640,58 +442,63 @@ if ! kill -0 "$XRAY_PID" 2>/dev/null; then
   fail_start_with_rollback "Xray завершился сразу после старта. Смотри лог: $XRAY_LOG"
 fi
 
-echo "[4/8] Запуск sing-box TUN"
-sudo "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >>"$SINGBOX_RUN_TARGET" 2>&1 &
-SINGBOX_PID=$!
-sleep 2
-
-if ! kill -0 "$SINGBOX_PID" 2>/dev/null; then
-  if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
-    echo "sing-box завершился сразу после старта. Смотри лог: $SINGBOX_LOG" >&2
-  else
-    SINGBOX_FAIL_LOG="$(make_temp_log singbox-start-fail)"
-    capture_start_failure "$SINGBOX_FAIL_LOG" "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG"
-    fail_start_with_rollback "sing-box завершился сразу после старта. Диагностика команды сохранена в: $SINGBOX_FAIL_LOG"
-  fi
-  fail_start_with_rollback "sing-box завершился сразу после старта. Смотри лог: $SINGBOX_LOG"
+echo "[5/8] Ожидание tun-интерфейса и настройка policy-routing"
+if ! wait_for_tun_interface_ready; then
+  fail_start_with_rollback "Xray не создал интерфейс ${TUN_INTERFACE_NAME} за отведённое время."
 fi
 
-echo "[5/8] Post-start sanity check"
-if ! wait_for_tun_runtime_ready; then
-  TUN_ROUTE_OUTPUT="$(dump_tun_routes_for_diagnostic)"
-  fail_start_with_rollback "Post-start sanity check провален: ожидаемый TUN-интерфейс ${ACTIVE_TUN_INTERFACE:-${EXPECTED_TUN_INTERFACE:-не найден}} не появился в готовом состоянии, не получил все адреса из текущего SINGBOX_CONFIG или стек Xray/sing-box завершился во время ожидания.
-Проверь вывод: ${TUN_ROUTE_OUTPUT}"
+sudo ip link set dev "$TUN_INTERFACE_NAME" up >/dev/null 2>&1 || true
+if [[ -n "$TUN_INTERFACE_ADDRESS" ]]; then
+  sudo ip address add "$TUN_INTERFACE_ADDRESS" dev "$TUN_INTERFACE_NAME" >/dev/null 2>&1 || true
+fi
+sudo ip route replace table "$ROUTE_TABLE" default dev "$TUN_INTERFACE_NAME"
+sudo ip rule add pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE"
+sudo ip route flush cache >/dev/null 2>&1 || true
+
+if ! ip rule show | grep -F "lookup ${ROUTE_TABLE}" >/dev/null 2>&1; then
+  fail_start_with_rollback "Policy-routing правило для таблицы ${ROUTE_TABLE} не появилось."
 fi
 
-if [[ "$ENABLE_FILE_LOGS" != "1" ]]; then
-  rm -f "$XRAY_CHECK_LOG" "$SINGBOX_CHECK_LOG"
+if ! ip link show "$TUN_INTERFACE_NAME" | grep -q '<.*UP.*>'; then
+  fail_start_with_rollback "TUN-интерфейс ${TUN_INTERFACE_NAME} создан, но не находится в состоянии UP."
 fi
 
 echo "[6/8] Настройка системного DNS"
 backup_resolv_conf
 write_runtime_resolv_conf
 
+if [[ "$ENABLE_FILE_LOGS" != "1" ]]; then
+  rm -f "$XRAY_CHECK_LOG"
+fi
+
 echo "[7/8] Сохранение состояния"
-load_active_selection_from_store "$STORE_FILE_DEFAULT"
-printf 'XRAY_PID=%s\nSINGBOX_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PROFILE_ID=%s\nACTIVE_NODE_ID=%s\n' \
+printf 'XRAY_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PROFILE_ID=%s\nACTIVE_NODE_ID=%s\n' \
   "$XRAY_PID" \
-  "$SINGBOX_PID" \
   "$RESOLV_BACKUP" \
   "$XRAY_RUNTIME_CONFIG" \
   "$ACTIVE_PROFILE_ID" \
   "$ACTIVE_NODE_ID" \
   >"$STATE_FILE"
 printf 'XRAY_CONFIG_SOURCE=%s\n' "$XRAY_CONFIG_SOURCE" >>"$STATE_FILE"
+printf 'RUNTIME_IMPL=%s\n' "xray" >>"$STATE_FILE"
+printf 'TUN_INTERFACE=%s\n' "$TUN_INTERFACE_NAME" >>"$STATE_FILE"
+printf 'TUN_INTERFACE_ADDRESS=%s\n' "$TUN_INTERFACE_ADDRESS" >>"$STATE_FILE"
+printf 'ROUTE_TABLE=%s\n' "$ROUTE_TABLE" >>"$STATE_FILE"
+printf 'ROUTE_MARK=%s\n' "$ROUTE_MARK" >>"$STATE_FILE"
+printf 'ROUTE_RULE_PREF=%s\n' "$ROUTE_RULE_PREF" >>"$STATE_FILE"
 
 echo "[8/8] Готово"
 echo "XRAY_PID=$XRAY_PID"
-echo "SINGBOX_PID=$SINGBOX_PID"
-echo "RESOLV_BACKUP=$RESOLV_BACKUP"
+echo "RUNTIME_IMPL=xray"
 echo "XRAY_CONFIG=$XRAY_RUNTIME_CONFIG"
 echo "XRAY_CONFIG_SOURCE=$XRAY_CONFIG_SOURCE"
+echo "TUN_INTERFACE=$TUN_INTERFACE_NAME"
+echo "TUN_INTERFACE_ADDRESS=$TUN_INTERFACE_ADDRESS"
+echo "DEFAULT_IPV4_INTERFACE=$DEFAULT_IPV4_INTERFACE"
+echo "ROUTE_TABLE=$ROUTE_TABLE"
+echo "ROUTE_MARK=$ROUTE_MARK"
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
   echo "Лог Xray: $XRAY_LOG"
-  echo "Лог sing-box: $SINGBOX_LOG"
 else
   echo "Файловые логи отключены"
 fi

@@ -21,6 +21,14 @@ SUPPORTED_SS_METHODS = {
     "2022-blake3-aes-256-gcm",
     "2022-blake3-chacha20-poly1305",
 }
+ZERO_UUID = "00000000-0000-0000-0000-000000000000"
+PLACEHOLDER_TEXT_MARKERS = (
+    "не поддерж",
+    "поддерживаетя",
+    "обратись к",
+    "@provider_support",
+    "not support",
+)
 
 
 class ParseError(ValueError):
@@ -77,6 +85,39 @@ def _fingerprint_payload(normalized: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _placeholder_message(normalized: dict[str, Any]) -> str | None:
+    address = str(normalized.get("address", "")).strip().lower()
+    port = int(normalized.get("port", 0) or 0)
+    uuid = str(normalized.get("uuid", "")).strip().lower()
+    display_name = str(normalized.get("display_name", "")).strip()
+    combined_text = " ".join(
+        part.strip().lower()
+        for part in [str(normalized.get("display_name", "")), str(normalized.get("raw_uri", ""))]
+        if part
+    )
+
+    looks_like_stub_endpoint = address in {"0.0.0.0", "::", "[::]"} and port in {0, 1}
+    has_stub_text = any(marker in combined_text for marker in PLACEHOLDER_TEXT_MARKERS)
+    has_stub_identity = uuid == ZERO_UUID
+
+    if looks_like_stub_endpoint and (has_stub_text or has_stub_identity):
+        if display_name:
+            suffix = "" if display_name.endswith((".", "!", "?")) else "."
+            return f"Провайдер вернул заглушку: {display_name}{suffix}"
+        return (
+            "Провайдер вернул заглушку вместо рабочего узла. "
+            "Вероятно, эту подписку нужно запрашивать через xray-совместимый клиент."
+        )
+    return None
+
+
+def _finalize_parsed_proxy(normalized: dict[str, Any]) -> dict[str, Any]:
+    message = _placeholder_message(normalized)
+    if message:
+        raise ParseError(message)
+    return normalized
+
+
 def _ensure_supported_query_keys(query: dict[str, str], allowed_keys: set[str]) -> None:
     unexpected = sorted(key for key, value in query.items() if value and key not in allowed_keys)
     if unexpected:
@@ -108,8 +149,19 @@ def _parse_stream_common(
     short_id = (query.get("sid") or query.get("shortId") or "").strip()
     spider_x = (query.get("spx") or query.get("spiderX") or "/").strip() or "/"
     mode = (query.get("mode") or "auto").strip()
+    xhttp_extra: dict[str, Any] = {}
     alpn = _split_csv(query.get("alpn"))
     allow_insecure = _bool_value(query.get("allowInsecure") or query.get("insecure"))
+
+    extra_value = (query.get("extra") or "").strip()
+    if extra_value:
+        try:
+            parsed_extra = json.loads(extra_value)
+        except json.JSONDecodeError as exc:
+            raise ParseError("Параметр extra должен быть JSON-объектом.") from exc
+        if not isinstance(parsed_extra, dict):
+            raise ParseError("Параметр extra должен быть JSON-объектом.")
+        xhttp_extra = parsed_extra
 
     if network in {"ws", "xhttp"} and not path:
         path = "/"
@@ -146,6 +198,7 @@ def _parse_stream_common(
         "short_id": short_id,
         "spider_x": spider_x,
         "mode": mode,
+        "xhttp_extra": xhttp_extra,
         "alpn": alpn,
         "allow_insecure": allow_insecure,
     }
@@ -178,6 +231,7 @@ def parse_vless_uri(raw_uri: str) -> dict[str, Any]:
             "spx",
             "spiderX",
             "mode",
+            "extra",
             "alpn",
             "allowInsecure",
             "insecure",
@@ -237,6 +291,7 @@ def parse_trojan_uri(raw_uri: str) -> dict[str, Any]:
             "spx",
             "spiderX",
             "mode",
+            "extra",
             "alpn",
             "allowInsecure",
             "insecure",
@@ -326,6 +381,7 @@ def parse_vmess_uri(raw_uri: str) -> dict[str, Any]:
         "short_id": "",
         "spider_x": "/",
         "mode": "auto",
+        "xhttp_extra": {},
         "alpn": _split_csv(str(payload.get("alpn", "")).strip()),
         "allow_insecure": _bool_value(str(payload.get("allowInsecure", "")).strip()),
         "display_name": _default_name(str(payload.get("ps", "")).strip(), "vmess", address, int(port_raw)),
@@ -395,6 +451,7 @@ def parse_ss_uri(raw_uri: str) -> dict[str, Any]:
         "short_id": "",
         "spider_x": "/",
         "mode": "auto",
+        "xhttp_extra": {},
         "alpn": [],
         "allow_insecure": False,
         "display_name": _default_name(unquote(parsed.fragment), "ss", authority.hostname, authority.port),
@@ -414,12 +471,12 @@ def parse_proxy_uri(raw_uri: str) -> dict[str, Any]:
         raise ParseError(f"Неподдерживаемая схема '{scheme}'.")
 
     if scheme == "vless":
-        return parse_vless_uri(value)
+        return _finalize_parsed_proxy(parse_vless_uri(value))
     if scheme == "vmess":
-        return parse_vmess_uri(value)
+        return _finalize_parsed_proxy(parse_vmess_uri(value))
     if scheme == "trojan":
-        return parse_trojan_uri(value)
-    return parse_ss_uri(value)
+        return _finalize_parsed_proxy(parse_trojan_uri(value))
+    return _finalize_parsed_proxy(parse_ss_uri(value))
 
 
 def preview_links(raw_text: str) -> list[dict[str, Any]]:

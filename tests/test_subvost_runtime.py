@@ -9,10 +9,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "gui"))
 
-from subvost_runtime import extract_node_from_existing_config, render_runtime_config  # noqa: E402
+from subvost_runtime import (  # noqa: E402
+    apply_transport_hints_to_runtime_config,
+    render_runtime_config,
+)
 
 
 TEMPLATE_CONFIG = {
+    "log": {"loglevel": "info"},
     "inbounds": [{"tag": "socks-in", "listen": "127.0.0.1", "port": 10808}],
     "outbounds": [
         {
@@ -42,6 +46,7 @@ TEMPLATE_CONFIG = {
             },
         },
         {"tag": "direct", "protocol": "freedom"},
+        {"tag": "block", "protocol": "blackhole"},
     ],
     "routing": {"rules": [{"outboundTag": "proxy"}]},
 }
@@ -69,6 +74,7 @@ class SubvostRuntimeTests(unittest.TestCase):
                 "short_id": "",
                 "spider_x": "/",
                 "mode": "auto",
+                "xhttp_extra": {},
                 "alpn": [],
                 "allow_insecure": False,
             },
@@ -81,16 +87,56 @@ class SubvostRuntimeTests(unittest.TestCase):
         self.assertEqual(rendered["outbounds"][1], TEMPLATE_CONFIG["outbounds"][1])
         self.assertEqual(rendered["routing"], TEMPLATE_CONFIG["routing"])
 
-    def test_extract_node_from_existing_config(self) -> None:
-        config = copy.deepcopy(TEMPLATE_CONFIG)
-        config["outbounds"][0]["settings"]["vnext"][0]["users"][0]["id"] = "live-uuid"
-        config["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"] = "live-public"
-        config["outbounds"][0]["streamSettings"]["realitySettings"]["shortId"] = "live-short"
-        normalized = extract_node_from_existing_config(config)
-        self.assertIsNotNone(normalized)
-        self.assertEqual(normalized["protocol"], "vless")
-        self.assertEqual(normalized["security"], "reality")
-        self.assertEqual(normalized["public_key"], "live-public")
+    def test_render_runtime_preserves_xhttp_extra_from_node(self) -> None:
+        normalized_node = {
+            "enabled": True,
+            "parse_error": "",
+            "normalized": {
+                "protocol": "vless",
+                "address": "edge.example.com",
+                "port": 443,
+                "uuid": "11111111-1111-1111-1111-111111111111",
+                "encryption": "none",
+                "flow": "",
+                "network": "xhttp",
+                "security": "reality",
+                "host": "edge.example.com",
+                "path": "/",
+                "server_name": "edge.example.com",
+                "service_name": "",
+                "grpc_authority": "",
+                "fingerprint": "chrome",
+                "public_key": "test-public-key",
+                "short_id": "abcd1234",
+                "spider_x": "/",
+                "mode": "auto",
+                "xhttp_extra": {"headers": {}, "xPaddingBytes": "100-1000"},
+                "alpn": [],
+                "allow_insecure": False,
+            },
+        }
+
+        rendered = render_runtime_config(copy.deepcopy(TEMPLATE_CONFIG), normalized_node)
+        self.assertEqual(
+            rendered["outbounds"][0]["streamSettings"]["xhttpSettings"]["extra"],
+            {"headers": {}, "xPaddingBytes": "100-1000"},
+        )
+
+    def test_apply_transport_hints_updates_proxy_and_direct_outbounds(self) -> None:
+        active_config = copy.deepcopy(TEMPLATE_CONFIG)
+        rendered = apply_transport_hints_to_runtime_config(
+            active_config,
+            default_interface="wlp3s0",
+            outbound_mark=8421,
+        )
+
+        self.assertEqual(rendered["outbounds"][0]["settings"], active_config["outbounds"][0]["settings"])
+        self.assertEqual(rendered["outbounds"][0]["streamSettings"]["sockopt"]["interface"], "wlp3s0")
+        self.assertEqual(rendered["outbounds"][0]["streamSettings"]["sockopt"]["mark"], 8421)
+        self.assertEqual(rendered["outbounds"][1]["streamSettings"]["sockopt"]["interface"], "wlp3s0")
+        self.assertEqual(rendered["outbounds"][1]["streamSettings"]["sockopt"]["mark"], 8421)
+        self.assertEqual(rendered["outbounds"][2], active_config["outbounds"][2])
+        self.assertEqual(rendered["routing"]["rules"], active_config["routing"]["rules"])
 
 
 if __name__ == "__main__":
