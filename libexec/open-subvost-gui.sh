@@ -11,6 +11,9 @@ URL="http://${HOST}:${PORT}"
 REAL_USER="${USER:-$(id -un)}"
 REAL_HOME="${HOME:-$(getent passwd "$REAL_USER" | cut -d: -f6)}"
 REAL_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${REAL_HOME}/.config}"
+REAL_UID="$(id -u "$REAL_USER" 2>/dev/null || id -u)"
+LAUNCH_MODE="${SUBVOST_GUI_LAUNCH_MODE:-auto}"
+WEBVIEW_LOG_FILE="/tmp/subvost-xray-tun-webview-${REAL_UID}.log"
 FORCE_RESTART=0
 
 if [[ -z "$REAL_HOME" ]]; then
@@ -34,6 +37,12 @@ parse_args() {
 Использование: open-subvost-gui.sh [--force-restart-backend]
 
   --force-restart-backend  принудительно перезапустить GUI backend перед открытием браузера
+
+Переменные окружения:
+  SUBVOST_GUI_LAUNCH_MODE=auto|webview|browser
+    auto    сначала встроенное GTK/WebKitGTK окно, затем fallback на браузер
+    webview требовать встроенное окно и завершаться ошибкой без fallback
+    browser всегда открывать системный браузер
 EOF
         exit 0
         ;;
@@ -111,7 +120,61 @@ PY
 }
 
 open_browser() {
-  xdg-open "${URL}" >/dev/null 2>&1 &
+  command -v xdg-open >/dev/null 2>&1 || {
+    echo "Не найдена команда xdg-open для запуска системного браузера." >&2
+    return 1
+  }
+
+  nohup xdg-open "${URL}" >/dev/null 2>&1 &
+}
+
+embedded_webview_available() {
+  python3 "${SUBVOST_GUI_DIR}/embedded_webview.py" --check >/dev/null 2>&1
+}
+
+open_embedded_webview() {
+  embedded_webview_available || return 1
+
+  nohup python3 "${SUBVOST_GUI_DIR}/embedded_webview.py" \
+    --url "${URL}" \
+    --title "Subvost Xray TUN" \
+    --icon-path "${SUBVOST_ASSETS_DIR}/subvost-xray-tun-icon.svg" \
+    >"${WEBVIEW_LOG_FILE}" 2>&1 &
+
+  local gui_pid="$!"
+  sleep 0.4
+
+  if kill -0 "${gui_pid}" 2>/dev/null; then
+    return 0
+  fi
+
+  if wait "${gui_pid}"; then
+    return 0
+  fi
+
+  tail -n 80 "${WEBVIEW_LOG_FILE}" >&2 2>/dev/null || true
+  return 1
+}
+
+open_gui_frontend() {
+  case "${LAUNCH_MODE}" in
+    auto)
+      open_embedded_webview || open_browser
+      ;;
+    webview)
+      open_embedded_webview || {
+        echo "Встроенный GTK/WebKitGTK launcher недоступен." >&2
+        return 1
+      }
+      ;;
+    browser)
+      open_browser
+      ;;
+    *)
+      echo "Неподдерживаемый SUBVOST_GUI_LAUNCH_MODE: ${LAUNCH_MODE}" >&2
+      return 1
+      ;;
+  esac
 }
 
 start_backend() {
@@ -143,5 +206,5 @@ if ! wait_for_server; then
   exit 1
 fi
 
-open_browser
+open_gui_frontend
 exit 0
