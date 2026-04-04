@@ -51,3 +51,5 @@
 | `TASK-2026-0033` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0033-main-ui-functional-rebuild/` | Возврат рабочего web UI на основной маршрут |
 | `TASK-2026-0034` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0034-promote-clash-ui-to-main/` | Перевод Clash-кандидата в основной web UI |
 | `TASK-2026-0035` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0035-proxy-client-reference-ui/` | Редизайн review-экрана по референсам proxy-клиентов |
+| `TASK-2026-0036` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0036-xray-core-only-runtime/` | Альтернативный TUN-runtime только на `xray-core` без обязательного `sing-box` |
+| `TASK-2026-0037` | `—` | `на проверке` | `высокий` | `—` | `knowledge/tasks/TASK-2026-0037-pure-xray-repo/` | Полная миграция репозитория на чистый `xray`, с одной рабочей web-GUI и сохранением импорта подписок по URL |
