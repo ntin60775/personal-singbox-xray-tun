@@ -73,8 +73,7 @@
 
     .app-window,
     .panel,
-    .sidebar-nav-item,
-    .sidebar-footer {
+    .sidebar-nav-item {
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
       backdrop-filter: blur(18px);
@@ -95,57 +94,12 @@
     }
 
     .sidebar {
-      padding: 18px 14px;
+      padding: 20px 14px;
       background: rgba(22, 28, 39, 0.32);
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 14px;
+      display: block;
       min-height: 0;
       border-radius: 22px;
       overflow: hidden;
-    }
-
-    .sidebar-brand {
-      display: grid;
-      gap: 8px;
-      padding: 12px 14px;
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(195, 210, 230, 0.08);
-      min-width: 0;
-    }
-
-    .sidebar-brand-top {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .sidebar-brand-badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 22px;
-      padding: 0 8px;
-      border-radius: 999px;
-      background: rgba(77, 144, 255, 0.14);
-      color: #9bc0ff;
-      font-size: 0.7rem;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .sidebar-brand strong {
-      font-family: var(--sans-display);
-      font-size: 1.6rem;
-      line-height: 0.96;
-      letter-spacing: -0.05em;
-    }
-
-    .sidebar-brand span {
-      color: var(--muted);
-      font-size: 0.8rem;
-      line-height: 1.4;
     }
 
     .sidebar-nav {
@@ -156,16 +110,39 @@
     }
 
     .sidebar-nav-item {
+      width: 100%;
       padding: 12px 14px;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.04);
       display: grid;
       gap: 4px;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      transition:
+        transform 180ms ease,
+        background-color 180ms ease,
+        border-color 180ms ease,
+        box-shadow 180ms ease;
+    }
+
+    .sidebar-nav-item:hover {
+      transform: translateY(-1px);
+      border-color: rgba(120, 170, 255, 0.18);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .sidebar-nav-item:focus-visible {
+      outline: 2px solid rgba(120, 170, 255, 0.42);
+      outline-offset: 2px;
     }
 
     .sidebar-nav-item[data-active="true"] {
       background: linear-gradient(135deg, rgba(77, 144, 255, 0.2), rgba(77, 144, 255, 0.08));
       border-color: rgba(120, 170, 255, 0.22);
+      box-shadow:
+        inset 0 0 0 1px rgba(120, 170, 255, 0.14),
+        var(--shadow);
     }
 
     .sidebar-nav-item strong {
@@ -177,33 +154,6 @@
       font-size: 0.76rem;
       line-height: 1.35;
       min-width: 0;
-    }
-
-    .sidebar-footer {
-      padding: 12px 14px;
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.04);
-      display: grid;
-      gap: 10px;
-    }
-
-    .sidebar-footer-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 10px;
-    }
-
-    .sidebar-footer-row span {
-      color: var(--muted);
-      font-size: 0.74rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .sidebar-footer-row strong {
-      font-size: 0.86rem;
     }
 
     .workspace {
@@ -655,6 +605,33 @@
       font-family: var(--mono);
     }
 
+    [data-scroll-target="true"] {
+      scroll-margin-top: 18px;
+    }
+
+    .nav-target-flash {
+      animation: nav-target-flash 760ms ease;
+    }
+
+    @keyframes nav-target-flash {
+      0% {
+        border-color: rgba(195, 210, 230, 0.08);
+        box-shadow: var(--shadow);
+      }
+
+      35% {
+        border-color: rgba(120, 170, 255, 0.28);
+        box-shadow:
+          0 0 0 3px rgba(120, 170, 255, 0.16),
+          var(--shadow);
+      }
+
+      100% {
+        border-color: rgba(195, 210, 230, 0.08);
+        box-shadow: var(--shadow);
+      }
+    }
+
     .diagnostics-note {
       margin-top: 8px;
       padding: 10px 12px;
@@ -991,10 +968,6 @@
         grid-template-columns: 1fr;
       }
 
-      .sidebar {
-        grid-template-rows: auto auto auto;
-      }
-
       .sidebar-nav {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
@@ -1032,8 +1005,6 @@
 
       .workspace-top,
       .panel,
-      .sidebar-brand,
-      .sidebar-footer,
       .sidebar-nav-item {
         box-shadow: none;
       }
@@ -1055,63 +1026,40 @@
   <main class="page">
     <section class="app-window" id="main-gui-shell">
       <aside class="sidebar">
-        <div class="sidebar-brand">
-          <div class="sidebar-brand-top">
-            <strong>Subvost</strong>
-            <span class="sidebar-brand-badge">Main</span>
-          </div>
-          <span>Единая рабочая панель для подписок, выбора узла, запуска TUN и быстрой диагностики.</span>
-        </div>
-
-        <nav class="sidebar-nav">
-          <div class="sidebar-nav-item" data-active="true">
+        <nav class="sidebar-nav" id="sidebar-nav" aria-label="Навигация по рабочим секциям">
+          <button class="sidebar-nav-item" data-active="true" data-nav-target="workspace-overview" type="button">
             <strong>Главная</strong>
-            <span>Обзор запуска, сети и текущего узла</span>
-          </div>
-          <div class="sidebar-nav-item">
+            <span>Обзор запуска, активного узла и общего состояния стека</span>
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="node-list-anchor" type="button">
             <strong>Прокси</strong>
-            <span>Выбор рабочего узла и ручное переключение</span>
-          </div>
-          <div class="sidebar-nav-item">
+            <span>Выбор рабочего узла, активация и ручное переключение</span>
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="profile-list-anchor" type="button">
             <strong>Профили</strong>
             <span id="nav-profiles-copy">Ожидание данных</span>
-          </div>
-          <div class="sidebar-nav-item">
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="panel-stack" type="button">
             <strong>Соединения</strong>
-            <span>Состояние стека и DNS/TUN</span>
-          </div>
-          <div class="sidebar-nav-item">
+            <span>Xray, DNS и TUN без перехода по лишним экранам</span>
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="panel-start" type="button">
             <strong>Проверка</strong>
-            <span>Метрики готовности следующего старта</span>
-          </div>
-          <div class="sidebar-nav-item">
+            <span>Готовность следующего старта и ручной импорт ссылок</span>
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="panel-diagnostics" type="button">
             <strong>Журнал</strong>
             <span>Последнее действие и диагностика</span>
-          </div>
-          <div class="sidebar-nav-item">
+          </button>
+          <button class="sidebar-nav-item" data-active="false" data-nav-target="panel-subscriptions" type="button">
             <strong>Настройки</strong>
-            <span>Логи, импорт и рабочие параметры</span>
-          </div>
+            <span>Подписки, обновление источников и рабочие параметры</span>
+          </button>
         </nav>
-
-        <div class="sidebar-footer">
-          <div class="sidebar-footer-row">
-            <span>Состояние</span>
-            <strong id="sidebar-state">Проверяю</strong>
-          </div>
-          <div class="sidebar-footer-row">
-            <span>Следующий запуск</span>
-            <strong id="sidebar-next-start">Ожидание данных</strong>
-          </div>
-          <div class="sidebar-footer-row">
-            <span>Готовность</span>
-            <strong id="sidebar-readiness">Ожидание данных</strong>
-          </div>
-        </div>
       </aside>
 
       <section class="workspace">
-        <header class="workspace-top">
+        <header class="workspace-top" id="workspace-overview" data-scroll-target="true">
           <div class="workspace-title">
             <p class="workspace-kicker">Subvost Xray TUN</p>
             <h1>Главная панель</h1>
@@ -1198,7 +1146,7 @@
             </div>
           </article>
 
-          <article class="panel panel-stack">
+          <article class="panel panel-stack" id="panel-stack" data-scroll-target="true">
             <div class="panel-head">
               <div>
                 <h2>Состояние стека</h2>
@@ -1231,7 +1179,7 @@
             </div>
           </article>
 
-          <article class="panel panel-start">
+          <article class="panel panel-start" id="panel-start" data-scroll-target="true">
             <div class="panel-head">
               <div>
                 <h2>Готовность следующего запуска</h2>
@@ -1340,17 +1288,17 @@ ss://..."></textarea>
                 </div>
               </div>
             </div>
-            <div class="control-block">
+            <div class="control-block" id="profile-list-anchor" data-scroll-target="true">
               <p class="subsection-title">Профили</p>
               <div class="interactive-list" id="profile-list"></div>
             </div>
-            <div class="control-block">
+            <div class="control-block" id="node-list-anchor" data-scroll-target="true">
               <p class="subsection-title">Узлы выбранного профиля</p>
               <div class="interactive-list" id="node-list"></div>
             </div>
           </article>
 
-          <article class="panel panel-subscriptions">
+          <article class="panel panel-subscriptions" id="panel-subscriptions" data-scroll-target="true">
             <div class="panel-head">
               <div>
                 <h2>Подписки</h2>
@@ -1383,7 +1331,7 @@ ss://..."></textarea>
             </div>
           </article>
 
-          <article class="panel panel-diagnostics">
+          <article class="panel panel-diagnostics" id="panel-diagnostics" data-scroll-target="true">
             <div class="panel-head">
               <div>
                 <h2>Диагностика</h2>
@@ -1432,15 +1380,15 @@ ss://..."></textarea>
       polling: null,
       busy: false,
       selectedProfileId: null,
+      activeNavTarget: "workspace-overview",
       storePayload: null,
       statusPayload: null,
     };
 
     const els = {
+      sidebarNav: document.getElementById("sidebar-nav"),
+      navButtons: Array.from(document.querySelectorAll(".sidebar-nav-item[data-nav-target]")),
       navProfilesCopy: document.getElementById("nav-profiles-copy"),
-      sidebarState: document.getElementById("sidebar-state"),
-      sidebarNextStart: document.getElementById("sidebar-next-start"),
-      sidebarReadiness: document.getElementById("sidebar-readiness"),
       topReadyNodes: document.getElementById("top-ready-nodes"),
       topFreshSubscriptions: document.getElementById("top-fresh-subscriptions"),
       topStackHealth: document.getElementById("top-stack-health"),
@@ -1515,6 +1463,72 @@ ss://..."></textarea>
       nodeList: document.getElementById("node-list"),
       commandOutput: document.getElementById("command-output"),
     };
+
+    function setActiveNavTarget(targetId) {
+      state.activeNavTarget = targetId;
+      for (const button of els.navButtons) {
+        const active = button.dataset.navTarget === targetId;
+        button.dataset.active = active ? "true" : "false";
+        if (active) {
+          button.setAttribute("aria-current", "page");
+        } else {
+          button.removeAttribute("aria-current");
+        }
+      }
+    }
+
+    function navFlashHostFor(target) {
+      return target.closest(".panel, .workspace-top") || target;
+    }
+
+    function flashNavTarget(target) {
+      const host = navFlashHostFor(target);
+      host.classList.remove("nav-target-flash");
+      void host.offsetWidth;
+      host.classList.add("nav-target-flash");
+      window.setTimeout(() => {
+        host.classList.remove("nav-target-flash");
+      }, 820);
+    }
+
+    function resolveNavTarget(targetId) {
+      if (!targetId) {
+        return "workspace-overview";
+      }
+      return document.getElementById(targetId) ? targetId : "workspace-overview";
+    }
+
+    function activateNavTarget(targetId, options = {}) {
+      const {
+        scroll = true,
+        flash = true,
+        updateHash = true,
+      } = options;
+      const resolvedTargetId = resolveNavTarget(targetId);
+      const target = document.getElementById(resolvedTargetId);
+      if (!target) {
+        return;
+      }
+
+      setActiveNavTarget(resolvedTargetId);
+      if (updateHash) {
+        history.replaceState(null, "", `#${resolvedTargetId}`);
+      }
+      if (scroll) {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+          inline: "nearest",
+        });
+      }
+      if (flash) {
+        flashNavTarget(target);
+      }
+    }
+
+    function initialNavTarget() {
+      return resolveNavTarget(window.location.hash.replace(/^#/, ""));
+    }
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -1773,9 +1787,6 @@ ss://..."></textarea>
       }
 
       els.navProfilesCopy.textContent = `${model.profileCount} профиля • ${model.readyProfiles} готовы к запуску`;
-      els.sidebarState.textContent = model.stateLabel;
-      els.sidebarNextStart.textContent = model.nextStartLabel;
-      els.sidebarReadiness.textContent = `${model.routeReadiness}% • ${statusPillTone(model.state)}`;
       els.topReadyNodes.textContent = `${model.readyNodes} из ${model.nodeCount}`;
       els.topFreshSubscriptions.textContent = `${model.freshSubscriptions} из ${model.subscriptionCount}`;
       els.topStackHealth.textContent = `${model.stackHealth}% • ${model.stateLabel}`;
@@ -2075,7 +2086,7 @@ ss://..."></textarea>
       const message = `Не удалось получить состояние: ${error.message}`;
       els.statusPill.dataset.state = "unknown";
       els.statusPillText.textContent = "Нет связи с backend";
-      els.sidebarState.textContent = "Ошибка backend";
+      els.topStackHealth.textContent = "Ошибка backend";
       els.diagLastMessage.textContent = message;
       els.commandOutput.textContent = message;
     }
@@ -2391,6 +2402,11 @@ ss://..."></textarea>
     els.saveImportButton.addEventListener("click", saveImport);
     els.addSubscriptionButton.addEventListener("click", addSubscription);
     els.refreshAllButton.addEventListener("click", refreshAllSubscriptions);
+    els.sidebarNav.addEventListener("click", (event) => {
+      const button = event.target.closest(".sidebar-nav-item[data-nav-target]");
+      if (!button) return;
+      activateNavTarget(button.dataset.navTarget);
+    });
     els.importFile.addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -2422,9 +2438,21 @@ ss://..."></textarea>
         els.diagLastMessage.textContent = `Ошибка узла: ${error.message}`;
       });
     });
+    window.addEventListener("hashchange", () => {
+      activateNavTarget(initialNavTarget(), {
+        scroll: false,
+        flash: false,
+        updateHash: false,
+      });
+    });
 
     clearFeedback();
     refreshActionButtons();
+    activateNavTarget(initialNavTarget(), {
+      scroll: false,
+      flash: false,
+      updateHash: Boolean(window.location.hash),
+    });
     loadStore().catch(reportLoadError);
 
     state.polling = window.setInterval(() => {
