@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subvost Xray TUN Control</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/subvost-xray-tun-icon.svg">
+  <style>
+    :root {
+      --bg: #0d1219;
+      --surface: #121923;
+      --surface-soft: #182130;
+      --surface-mute: #0f151d;
+      --line: rgba(164, 184, 207, 0.12);
+      --line-strong: rgba(164, 184, 207, 0.22);
+      --text: #eef4fb;
+      --muted: #95a6bc;
+      --accent: #67a6ff;
+      --accent-soft: rgba(103, 166, 255, 0.16);
+      --success: #37c680;
+      --warning: #f0b24a;
+      --danger: #ff7979;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+      --sans-display: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+      --sans: "IBM Plex Sans", "Noto Sans", "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", "JetBrains Mono", "DejaVu Sans Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      color: var(--text);
+      font-family: var(--sans);
+      background:
+        radial-gradient(circle at top left, rgba(103, 166, 255, 0.12), transparent 26%),
+        linear-gradient(180deg, #101720 0%, var(--bg) 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent 72%);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .mono {
+      font-family: var(--mono);
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .page {
+      height: 100dvh;
+      padding: 12px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .app-shell {
+      height: 100%;
+      width: min(100%, 1360px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) minmax(180px, 24dvh);
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background:
+        linear-gradient(180deg, rgba(18, 25, 35, 0.96), rgba(12, 18, 26, 0.98)),
+        radial-gradient(circle at top right, rgba(103, 166, 255, 0.08), transparent 24%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin: 0 auto;
+    }
+
+    .topbar,
+    .panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1.2fr) minmax(320px, 1fr) auto;
+      gap: 12px;
+      padding: 12px 14px;
+      align-items: center;
+    }
+
+    .topbar-primary {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: #7fb3ff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .headline-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .status-pill,
+    .context-pill,
+    .metric-chip,
+    .panel-badge,
+    .row-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(164, 184, 207, 0.14);
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.8rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .status-pill {
+      color: var(--text);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--warning);
+      box-shadow: 0 0 0 6px rgba(240, 178, 74, 0.16);
+    }
+
+    .status-pill[data-state="running"] .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 6px rgba(55, 198, 128, 0.16);
+    }
+
+    .status-pill[data-state="stopped"] .status-dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 6px rgba(255, 121, 121, 0.16);
+    }
+
+    .context-pill {
+      color: var(--muted);
+      max-width: min(34vw, 420px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .metric-chip {
+      min-height: 48px;
+      padding: 8px 12px;
+      border-radius: var(--radius-md);
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .metric-chip span {
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric-chip strong {
+      font-size: 0.9rem;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .action-row,
+    .filter-row,
+    .inline-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .action-row {
+      justify-content: flex-end;
+    }
+
+    .action-button,
+    .ghost-button,
+    .tiny-button,
+    .filter-chip {
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(164, 184, 207, 0.14);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font-size: 0.82rem;
+      font-weight: 700;
+      transition:
+        transform 160ms ease,
+        opacity 160ms ease,
+        background-color 160ms ease,
+        border-color 160ms ease;
+    }
+
+    .action-button.primary {
+      background: linear-gradient(135deg, rgba(103, 166, 255, 0.26), rgba(103, 166, 255, 0.12));
+      border-color: rgba(103, 166, 255, 0.26);
+    }
+
+    .ghost-button {
+      min-height: 34px;
+      padding: 0 12px;
+      color: var(--muted);
+    }
+
+    .tiny-button {
+      min-height: 30px;
+      padding: 0 11px;
+      font-size: 0.76rem;
+    }
+
+    .tiny-button[data-tone="danger"] {
+      color: #ffc3c3;
+      border-color: rgba(255, 121, 121, 0.24);
+    }
+
+    .tiny-button[data-tone="accent"] {
+      color: #cfe0ff;
+      border-color: rgba(103, 166, 255, 0.24);
+    }
+
+    .filter-chip[data-active="true"] {
+      background: rgba(103, 166, 255, 0.16);
+      border-color: rgba(103, 166, 255, 0.22);
+      color: #d9e7ff;
+    }
+
+    .action-button:hover,
+    .ghost-button:hover,
+    .tiny-button:hover,
+    .filter-chip:hover {
+      transform: translateY(-1px);
+    }
+
+    .action-button:disabled,
+    .ghost-button:disabled,
+    .tiny-button:disabled,
+    .filter-chip:disabled,
+    .url-input:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+      transform: none;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .panel {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .nodes-panel {
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .log-panel {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .panel-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+
+    .subscription-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+
+    .url-input {
+      width: 100%;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.16);
+      background: rgba(8, 12, 18, 0.42);
+      color: var(--text);
+    }
+
+    .url-input::placeholder {
+      color: rgba(149, 166, 188, 0.72);
+    }
+
+    .list-scroll,
+    .log-scroll {
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .list-scroll::-webkit-scrollbar,
+    .log-scroll::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .list-scroll::-webkit-scrollbar-thumb,
+    .log-scroll::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(164, 184, 207, 0.18);
+    }
+
+    .list-grid,
+    .log-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .list-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid rgba(164, 184, 207, 0.1);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .list-row[data-selected="true"] {
+      border-color: rgba(103, 166, 255, 0.28);
+      box-shadow: inset 0 0 0 1px rgba(103, 166, 255, 0.16);
+      background: rgba(103, 166, 255, 0.08);
+    }
+
+    .list-row[data-tone="error"] {
+      border-color: rgba(255, 121, 121, 0.22);
+      background: rgba(255, 121, 121, 0.06);
+    }
+
+    .list-row[data-disabled="true"] {
+      opacity: 0.58;
+    }
+
+    .subscription-row,
+    .node-row {
+      cursor: pointer;
+    }
+
+    .row-main {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .row-main strong {
+      font-size: 0.9rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .row-meta {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .row-side {
+      display: grid;
+      gap: 6px;
+      justify-items: end;
+      text-align: right;
+    }
+
+    .row-badge[data-tone="success"] {
+      color: #bdf2d2;
+    }
+
+    .row-badge[data-tone="warning"] {
+      color: #ffe2aa;
+    }
+
+    .row-badge[data-tone="danger"] {
+      color: #ffc5c5;
+    }
+
+    .row-badge[data-tone="accent"] {
+      color: #d7e6ff;
+    }
+
+    .error-banner {
+      display: grid;
+      gap: 4px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 121, 121, 0.22);
+      background: rgba(255, 121, 121, 0.08);
+    }
+
+    .error-banner[hidden] {
+      display: none;
+    }
+
+    .error-banner strong {
+      font-size: 0.82rem;
+    }
+
+    .error-banner span {
+      color: #ffd0d0;
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    .log-entry {
+      display: grid;
+      gap: 6px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.08);
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .log-entry[data-level="error"] {
+      border-color: rgba(255, 121, 121, 0.24);
+      background: rgba(255, 121, 121, 0.06);
+    }
+
+    .log-entry[data-level="warning"] {
+      border-color: rgba(240, 178, 74, 0.24);
+      background: rgba(240, 178, 74, 0.06);
+    }
+
+    .log-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .log-level {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .log-message {
+      font-size: 0.84rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .log-details {
+      margin: 0;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(8, 12, 18, 0.5);
+      color: #d6e2f4;
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      line-height: 1.48;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 104px;
+      overflow: auto;
+    }
+
+    .empty-state {
+      display: grid;
+      place-items: center;
+      min-height: 100%;
+      padding: 18px;
+      border: 1px dashed rgba(164, 184, 207, 0.16);
+      border-radius: var(--radius-md);
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 1120px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .action-row {
+        justify-content: flex-start;
+      }
+
+      .metric-strip {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 920px) {
+      .workspace {
+        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+      }
+
+      .metric-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="app-shell" id="main-gui-shell">
+      <header class="topbar">
+        <div class="topbar-primary">
+          <p class="eyebrow">Subvost Xray TUN</p>
+          <div class="headline-row">
+            <div class="status-pill" id="status-pill" data-state="unknown">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="status-text">Проверяю состояние</span>
+            </div>
+            <span class="context-pill" id="active-subscription">Подписка: —</span>
+            <span class="context-pill" id="active-node">Узел: —</span>
+          </div>
+        </div>
+
+        <div class="metric-strip">
+          <div class="metric-chip">
+            <span>Подписки</span>
+            <strong id="subscription-indicator">Ожидание</strong>
+          </div>
+          <div class="metric-chip">
+            <span>Скорость</span>
+            <strong id="speed-indicator">↓ — ↑ —</strong>
+          </div>
+          <div class="metric-chip">
+            <span>Трафик</span>
+            <strong id="traffic-indicator">RX — / TX —</strong>
+          </div>
+        </div>
+
+        <div class="action-row" aria-label="Основные действия">
+          <button class="action-button primary" id="start-button" type="button">Старт</button>
+          <button class="action-button" id="stop-button" type="button">Стоп</button>
+          <button class="action-button" id="diag-button" type="button">Диагностика</button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="panel subscriptions-panel" id="panel-subscriptions">
+          <div class="panel-head">
+            <div>
+              <h2>Подписки</h2>
+              <p id="subscription-copy">Добавление по URL, обновление и удаление без лишних форм.</p>
+            </div>
+            <button class="ghost-button" id="refresh-all-button" type="button">Обновить все</button>
+          </div>
+
+          <form class="subscription-form" id="subscription-form">
+            <input
+              class="url-input mono"
+              id="subscription-url"
+              type="url"
+              placeholder="https://example.com/subscription"
+              autocomplete="off"
+            >
+            <button class="action-button primary" id="add-subscription-button" type="submit">Добавить</button>
+          </form>
+
+          <div class="list-scroll">
+            <div class="list-grid" id="subscription-list"></div>
+          </div>
+        </aside>
+
+        <section class="panel nodes-panel" id="panel-nodes">
+          <div class="panel-head">
+            <div>
+              <h2 id="node-panel-title">Узлы</h2>
+              <p id="node-panel-copy">Выбор строки сразу активирует узел. Для проверки доступен отдельный ping.</p>
+            </div>
+            <span class="panel-badge" id="node-panel-badge">Ожидание</span>
+          </div>
+
+          <div class="row-meta" id="node-selection-copy">Ожидание списка подписок.</div>
+
+          <div class="list-scroll">
+            <div class="list-grid" id="node-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel log-panel" id="panel-log">
+        <div class="panel-head">
+          <div>
+            <h2>Лог</h2>
+            <p>Последние действия backend и хвост `xray`-лога. Ошибки всегда видны явно.</p>
+          </div>
+          <div class="filter-row" id="log-filter-row">
+            <button class="filter-chip" data-log-filter="all" data-active="true" type="button">Все</button>
+            <button class="filter-chip" data-log-filter="error" data-active="false" type="button">Ошибки</button>
+          </div>
+        </div>
+
+        <div class="error-banner" id="error-banner" hidden>
+          <strong>Последняя ошибка</strong>
+          <span id="error-banner-text">Ошибок пока нет.</span>
+        </div>
+
+        <div class="log-scroll">
+          <div class="log-list" id="log-list"></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      polling: null,
+      busy: false,
+      selectedSubscriptionId: null,
+      statusPayload: null,
+      storePayload: null,
+      logFilter: "all",
+    };
+
+    const els = {
+      statusPill: document.getElementById("status-pill"),
+      statusText: document.getElementById("status-text"),
+      activeSubscription: document.getElementById("active-subscription"),
+      activeNode: document.getElementById("active-node"),
+      subscriptionIndicator: document.getElementById("subscription-indicator"),
+      speedIndicator: document.getElementById("speed-indicator"),
+      trafficIndicator: document.getElementById("traffic-indicator"),
+      startButton: document.getElementById("start-button"),
+      stopButton: document.getElementById("stop-button"),
+      diagButton: document.getElementById("diag-button"),
+      subscriptionForm: document.getElementById("subscription-form"),
+      subscriptionUrl: document.getElementById("subscription-url"),
+      addSubscriptionButton: document.getElementById("add-subscription-button"),
+      refreshAllButton: document.getElementById("refresh-all-button"),
+      subscriptionCopy: document.getElementById("subscription-copy"),
+      subscriptionList: document.getElementById("subscription-list"),
+      nodePanelTitle: document.getElementById("node-panel-title"),
+      nodePanelCopy: document.getElementById("node-panel-copy"),
+      nodePanelBadge: document.getElementById("node-panel-badge"),
+      nodeSelectionCopy: document.getElementById("node-selection-copy"),
+      nodeList: document.getElementById("node-list"),
+      logFilterRow: document.getElementById("log-filter-row"),
+      errorBanner: document.getElementById("error-banner"),
+      errorBannerText: document.getElementById("error-banner-text"),
+      logList: document.getElementById("log-list"),
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replaceAll('"', "&quot;");
+    }
+
+    function formatTimestamp(value) {
+      if (!value) return "сейчас";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString("ru-RU");
+    }
+
+    function normalizeDataAttrName(name) {
+      return String(name).replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+    }
+
+    function tinyButton(label, action, attrs = {}, tone = "") {
+      const attrParts = Object.entries(attrs).map(([key, value]) => ` data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"`);
+      const toneAttr = tone ? ` data-tone="${tone}"` : "";
+      const disabledAttr = state.busy ? " disabled" : "";
+      return `<button class="tiny-button"${toneAttr}${disabledAttr} data-action="${escapeAttr(action)}"${attrParts.join("")} type="button">${escapeHtml(label)}</button>`;
+    }
+
+    function emptyState(message) {
+      return `<div class="empty-state">${escapeHtml(message)}</div>`;
+    }
+
+    function apiState() {
+      return {
+        store: state.storePayload?.store?.store || state.storePayload?.store || { profiles: [], subscriptions: [] },
+        status: state.statusPayload || {},
+      };
+    }
+
+    function subscriptionsFromStore() {
+      const store = state.storePayload?.store || {};
+      return Array.isArray(store.subscriptions) ? store.subscriptions : [];
+    }
+
+    function profilesFromStore() {
+      const store = state.storePayload?.store || {};
+      return Array.isArray(store.profiles) ? store.profiles : [];
+    }
+
+    function activeProfile() {
+      return state.storePayload?.active_profile || null;
+    }
+
+    function activeNode() {
+      return state.storePayload?.active_node || null;
+    }
+
+    function ensureSelectedSubscription() {
+      const subscriptions = subscriptionsFromStore();
+      const activeSubscriptionId = activeProfile()?.source_subscription_id || null;
+      if (!subscriptions.length) {
+        state.selectedSubscriptionId = null;
+        return null;
+      }
+      if (state.selectedSubscriptionId && subscriptions.some((item) => item.id === state.selectedSubscriptionId)) {
+        return subscriptions.find((item) => item.id === state.selectedSubscriptionId) || null;
+      }
+      state.selectedSubscriptionId = activeSubscriptionId && subscriptions.some((item) => item.id === activeSubscriptionId)
+        ? activeSubscriptionId
+        : subscriptions[0].id;
+      return subscriptions.find((item) => item.id === state.selectedSubscriptionId) || null;
+    }
+
+    function selectedSubscription() {
+      return ensureSelectedSubscription();
+    }
+
+    function selectedProfile() {
+      const subscription = selectedSubscription();
+      if (!subscription) return null;
+      return profilesFromStore().find((profile) => profile.id === subscription.profile_id) || null;
+    }
+
+    function pingKey(profileId, nodeId) {
+      return `${profileId}:${nodeId}`;
+    }
+
+    function pingSnapshot(profileId, nodeId) {
+      return state.statusPayload?.ping?.cache?.[pingKey(profileId, nodeId)] || null;
+    }
+
+    function renderHeader() {
+      const subscriptions = subscriptionsFromStore();
+      const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
+      const statusSummary = state.statusPayload?.summary || {};
+      const traffic = state.statusPayload?.traffic || {};
+      const activeSubscriptionName = activeProfile()?.source_subscription_id
+        ? (subscriptions.find((item) => item.id === activeProfile()?.source_subscription_id)?.name || "—")
+        : "—";
+      const activeNodeName = activeNode()?.name || "—";
+
+      els.statusPill.dataset.state = statusSummary.state || "unknown";
+      els.statusText.textContent = statusSummary.label || "Нет данных";
+      els.activeSubscription.textContent = `Подписка: ${activeSubscriptionName}`;
+      els.activeNode.textContent = `Узел: ${activeNodeName}`;
+      els.subscriptionIndicator.textContent = subscriptions.length
+        ? `${freshSubscriptions}/${subscriptions.length} актуальны`
+        : "нет подписок";
+      els.speedIndicator.textContent = `↓ ${traffic.rx_rate_label || "—"} ↑ ${traffic.tx_rate_label || "—"}`;
+      els.trafficIndicator.textContent = `RX ${traffic.rx_total_label || "—"} / TX ${traffic.tx_total_label || "—"}`;
+    }
+
+    function renderSubscriptions() {
+      const subscriptions = subscriptionsFromStore();
+      const selectedId = selectedSubscription()?.id || null;
+      const profiles = profilesFromStore();
+      const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
+
+      els.subscriptionCopy.textContent = subscriptions.length
+        ? `${freshSubscriptions} из ${subscriptions.length} подписок актуальны.`
+        : "Добавьте первую подписку по URL.";
+
+      if (!subscriptions.length) {
+        els.subscriptionList.innerHTML = emptyState("Подписок пока нет.");
+        return;
+      }
+
+      els.subscriptionList.innerHTML = subscriptions.map((subscription) => {
+        const profile = profiles.find((item) => item.id === subscription.profile_id);
+        const nodeCount = Array.isArray(profile?.nodes) ? profile.nodes.length : 0;
+        const tone = subscription.last_status === "ok"
+          ? "success"
+          : subscription.last_status === "error"
+            ? "danger"
+            : "warning";
+        const timestamp = subscription.last_success_at
+          ? `обновлена ${formatTimestamp(subscription.last_success_at)}`
+          : "ещё не обновлялась";
+        const message = subscription.last_error || timestamp;
+
+        return `
+          <div class="list-row subscription-row" data-subscription-id="${escapeAttr(subscription.id)}" data-selected="${selectedId === subscription.id ? "true" : "false"}" data-tone="${tone === "danger" ? "error" : "normal"}">
+            <div class="row-main">
+              <strong>${escapeHtml(subscription.name)}</strong>
+              <div class="row-meta">${escapeHtml(subscription.url)}</div>
+              <div class="row-meta">${escapeHtml(message)}</div>
+            </div>
+            <div class="row-side">
+              <span class="row-badge" data-tone="${tone}">${escapeHtml(subscription.last_status === "ok" ? "актуальна" : subscription.last_status === "error" ? "ошибка" : "ожидает обновления")}</span>
+              <span class="row-badge" data-tone="accent">узлов ${nodeCount}</span>
+              <div class="inline-actions">
+                ${tinyButton("Обновить", "refresh-subscription", { subscriptionId: subscription.id })}
+                ${tinyButton("Удалить", "delete-subscription", { subscriptionId: subscription.id, name: subscription.name }, "danger")}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderNodes() {
+      const subscription = selectedSubscription();
+      const profile = selectedProfile();
+      const currentActiveNode = activeNode();
+
+      if (!subscription || !profile) {
+        els.nodePanelTitle.textContent = "Узлы";
+        els.nodePanelBadge.textContent = "Нет подписки";
+        els.nodeSelectionCopy.textContent = "Выберите подписку слева, чтобы увидеть узлы.";
+        els.nodeList.innerHTML = emptyState("Для работы с узлами нужна хотя бы одна подписка.");
+        return;
+      }
+
+      const nodes = Array.isArray(profile.nodes) ? profile.nodes : [];
+      const readyNodes = nodes.filter((node) => node.enabled !== false && !node.parse_error).length;
+      els.nodePanelTitle.textContent = subscription.name;
+      els.nodePanelBadge.textContent = `${readyNodes}/${nodes.length} готовы`;
+      els.nodeSelectionCopy.textContent = "Клик по строке делает узел активным сразу.";
+
+      if (!nodes.length) {
+        els.nodeList.innerHTML = emptyState("В этой подписке пока нет узлов.");
+        return;
+      }
+
+      els.nodeList.innerHTML = nodes.map((node) => {
+        const active = currentActiveNode?.id === node.id;
+        const disabled = node.enabled === false || Boolean(node.parse_error);
+        const ping = pingSnapshot(profile.id, node.id);
+        const endpoint = `${node.normalized?.address || "—"}:${node.normalized?.port || "—"}`;
+        const meta = [
+          String(node.protocol || "—").toUpperCase(),
+          endpoint,
+          node.normalized?.network ? `транспорт=${node.normalized.network}` : "",
+        ].filter(Boolean).join(" · ");
+        const pingLabel = ping
+          ? (ping.ok ? ping.label : "ошибка ping")
+          : "ping не проверен";
+        const tone = ping
+          ? (ping.ok ? "success" : "danger")
+          : "warning";
+        const errorMeta = node.parse_error ? `Ошибка разбора: ${node.parse_error}` : meta;
+
+        return `
+          <div class="list-row node-row" data-profile-id="${escapeAttr(profile.id)}" data-node-id="${escapeAttr(node.id)}" data-selected="${active ? "true" : "false"}" data-disabled="${disabled ? "true" : "false"}">
+            <div class="row-main">
+              <strong>${escapeHtml(node.name || "Без имени")}</strong>
+              <div class="row-meta">${escapeHtml(errorMeta)}</div>
+            </div>
+            <div class="row-side">
+              <span class="row-badge" data-tone="${tone}">${escapeHtml(pingLabel)}</span>
+              <span class="row-badge" data-tone="${active ? "accent" : disabled ? "danger" : "success"}">${escapeHtml(active ? "активен" : disabled ? "недоступен" : "готов")}</span>
+              <div class="inline-actions">
+                ${tinyButton("Ping", "ping-node", { profileId: profile.id, nodeId: node.id }, "accent")}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderLogs() {
+      const logPayload = state.statusPayload?.logs || {};
+      const latestError = logPayload.latest_error || null;
+      const entries = Array.isArray(logPayload.entries) ? logPayload.entries : [];
+      const filtered = state.logFilter === "error"
+        ? entries.filter((entry) => entry.level === "error")
+        : entries;
+
+      if (latestError) {
+        els.errorBanner.hidden = false;
+        els.errorBannerText.textContent = latestError.message || "Ошибка без текста.";
+      } else {
+        els.errorBanner.hidden = true;
+        els.errorBannerText.textContent = "Ошибок пока нет.";
+      }
+
+      if (!filtered.length) {
+        els.logList.innerHTML = emptyState(state.logFilter === "error" ? "Ошибок пока нет." : "Лог пока пуст.");
+        return;
+      }
+
+      els.logList.innerHTML = filtered.map((entry) => {
+        const levelLabel = entry.level === "error"
+          ? "Ошибка"
+          : entry.level === "warning"
+            ? "Предупреждение"
+            : "Событие";
+        const details = entry.details && (entry.level === "error" || entry.source === "action")
+          ? `<pre class="log-details">${escapeHtml(entry.details)}</pre>`
+          : "";
+        return `
+          <div class="log-entry" data-level="${escapeAttr(entry.level || "info")}">
+            <div class="log-meta">
+              <span class="log-level">${escapeHtml(levelLabel)}</span>
+              <span>${escapeHtml(entry.name || entry.source || "system")}</span>
+              <span>${escapeHtml(entry.timestamp ? formatTimestamp(entry.timestamp) : "без времени")}</span>
+            </div>
+            <div class="log-message">${escapeHtml(entry.message || "—")}</div>
+            ${details}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderSubscriptions();
+      renderNodes();
+      renderLogs();
+      refreshActionButtons();
+      updateFilterButtons();
+    }
+
+    function updateFilterButtons() {
+      for (const button of els.logFilterRow.querySelectorAll("[data-log-filter]")) {
+        button.dataset.active = button.dataset.logFilter === state.logFilter ? "true" : "false";
+      }
+    }
+
+    function refreshActionButtons() {
+      const summaryState = state.statusPayload?.summary?.state || "unknown";
+      const startReady = Boolean(state.statusPayload?.runtime?.start_ready);
+      els.startButton.disabled = state.busy || summaryState === "running" || !startReady;
+      els.stopButton.disabled = state.busy || summaryState === "stopped";
+      els.diagButton.disabled = state.busy;
+      els.addSubscriptionButton.disabled = state.busy;
+      els.refreshAllButton.disabled = state.busy;
+      els.subscriptionUrl.disabled = state.busy;
+    }
+
+    function setBusy(busy) {
+      state.busy = busy;
+      refreshActionButtons();
+      for (const button of document.querySelectorAll(".tiny-button")) {
+        button.disabled = busy;
+      }
+    }
+
+    function reportLoadError(error) {
+      els.statusPill.dataset.state = "unknown";
+      els.statusText.textContent = "Нет связи с backend";
+      els.subscriptionIndicator.textContent = "ошибка backend";
+      els.speedIndicator.textContent = "↓ — ↑ —";
+      els.trafficIndicator.textContent = "RX — / TX —";
+      els.activeSubscription.textContent = "Подписка: —";
+      els.activeNode.textContent = "Узел: —";
+      els.errorBanner.hidden = false;
+      els.errorBannerText.textContent = `Не удалось получить состояние: ${error.message}`;
+      els.logList.innerHTML = `
+        <div class="log-entry" data-level="error">
+          <div class="log-meta">
+            <span class="log-level">Ошибка</span>
+            <span>backend</span>
+            <span>${escapeHtml(formatTimestamp(new Date().toISOString()))}</span>
+          </div>
+          <div class="log-message">${escapeHtml(`Не удалось получить состояние: ${error.message}`)}</div>
+        </div>
+      `;
+    }
+
+    async function loadStore() {
+      const response = await fetch("/api/store", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`store ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.status) {
+        state.statusPayload = data.status;
+      }
+      if (data.store) {
+        state.storePayload = data.store;
+      }
+      renderAll();
+      return data;
+    }
+
+    async function apiPost(endpoint, payload = {}) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `${endpoint} ${response.status}`);
+      }
+      return data;
+    }
+
+    async function syncFromResponse(data) {
+      if (data.status) {
+        state.statusPayload = data.status;
+      }
+      if (data.store) {
+        state.storePayload = data.store;
+      }
+      renderAll();
+    }
+
+    async function runAction(endpoint) {
+      setBusy(true);
+      try {
+        const data = await apiPost(endpoint, {});
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function addSubscription(event) {
+      event.preventDefault();
+      const url = els.subscriptionUrl.value.trim();
+      if (!url) {
+        reportLoadError(new Error("Укажите URL подписки."));
+        return;
+      }
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/subscriptions/add", {
+          name: "",
+          url,
+        });
+        els.subscriptionUrl.value = "";
+        if (data.subscription?.id) {
+          state.selectedSubscriptionId = data.subscription.id;
+        } else if (data.focus_profile_id) {
+          const subscription = subscriptionsFromStore().find((item) => item.profile_id === data.focus_profile_id);
+          state.selectedSubscriptionId = subscription?.id || state.selectedSubscriptionId;
+        }
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function handleSubscriptionAction(button) {
+      const action = button.dataset.action;
+      const subscriptionId = button.dataset.subscriptionId;
+      if (!subscriptionId) return;
+
+      if (action === "refresh-subscription") {
+        setBusy(true);
+        try {
+          const data = await apiPost("/api/subscriptions/refresh", { subscription_id: subscriptionId });
+          await syncFromResponse(data);
+        } finally {
+          setBusy(false);
+          await loadStore().catch(reportLoadError);
+        }
+        return;
+      }
+
+      if (action === "delete-subscription") {
+        if (!window.confirm(`Удалить подписку '${button.dataset.name || "без имени"}'?`)) return;
+        setBusy(true);
+        try {
+          const data = await apiPost("/api/subscriptions/delete", { subscription_id: subscriptionId });
+          if (state.selectedSubscriptionId === subscriptionId) {
+            state.selectedSubscriptionId = null;
+          }
+          await syncFromResponse(data);
+        } finally {
+          setBusy(false);
+          await loadStore().catch(reportLoadError);
+        }
+      }
+    }
+
+    async function activateNode(profileId, nodeId) {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/selection/activate", { profile_id: profileId, node_id: nodeId });
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function pingNode(profileId, nodeId) {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/nodes/ping", { profile_id: profileId, node_id: nodeId });
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    els.startButton.addEventListener("click", () => runAction("/api/start").catch(reportLoadError));
+    els.stopButton.addEventListener("click", () => runAction("/api/stop").catch(reportLoadError));
+    els.diagButton.addEventListener("click", () => runAction("/api/diagnostics").catch(reportLoadError));
+    els.refreshAllButton.addEventListener("click", () => {
+      setBusy(true);
+      apiPost("/api/subscriptions/refresh-all", {})
+        .then(syncFromResponse)
+        .catch(reportLoadError)
+        .finally(async () => {
+          setBusy(false);
+          await loadStore().catch(reportLoadError);
+        });
+    });
+    els.subscriptionForm.addEventListener("submit", (event) => {
+      addSubscription(event).catch(reportLoadError);
+    });
+
+    els.subscriptionList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (button) {
+        handleSubscriptionAction(button).catch(reportLoadError);
+        return;
+      }
+      const row = event.target.closest("[data-subscription-id]");
+      if (!row) return;
+      state.selectedSubscriptionId = row.dataset.subscriptionId;
+      renderAll();
+    });
+
+    els.nodeList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action='ping-node']");
+      if (button) {
+        pingNode(button.dataset.profileId, button.dataset.nodeId).catch(reportLoadError);
+        return;
+      }
+      const row = event.target.closest("[data-node-id]");
+      if (!row || row.dataset.disabled === "true" || state.busy) return;
+      activateNode(row.dataset.profileId, row.dataset.nodeId).catch(reportLoadError);
+    });
+
+    els.logFilterRow.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-log-filter]");
+      if (!button) return;
+      state.logFilter = button.dataset.logFilter;
+      updateFilterButtons();
+      renderLogs();
+    });
+
+    refreshActionButtons();
+    updateFilterButtons();
+    loadStore().catch(reportLoadError);
+
+    state.polling = window.setInterval(() => {
+      if (!state.busy) {
+        loadStore().catch(() => {});
+      }
+    }, 4000);
+  </script>
+</body>
+</html>

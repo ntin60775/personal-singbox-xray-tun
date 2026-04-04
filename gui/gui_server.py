@@ -6,8 +6,11 @@ import json
 import os
 import pwd
 import re
+import socket
 import subprocess
 import threading
+import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
@@ -45,9 +48,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8421
 ACTION_LOCK = threading.Lock()
 ROOT_GUI_PATHS = ["/", "/index.html"]
-REVIEW_GUI_ASSET = "design_review.html"
-REVIEW_GUI_PATHS = ["/design-review", "/design-review.html"]
-LEGACY_GUI_PATHS = ["/legacy-ui", "/legacy-ui.html", "/classic-ui", "/classic-ui.html"]
+MAIN_GUI_ASSET = "main_gui.html"
 ASSETS_DIR = GUI_DIR.parent / "assets"
 FAVICON_ASSET_NAME = "subvost-xray-tun-icon.svg"
 FAVICON_PATH = ASSETS_DIR / FAVICON_ASSET_NAME
@@ -115,6 +116,16 @@ LAST_ACTION: dict[str, Any] = {
     "timestamp": None,
     "details": "",
 }
+ACTION_LOG: deque[dict[str, Any]] = deque(maxlen=200)
+PING_CACHE: dict[str, dict[str, Any]] = {}
+PING_CACHE_LOCK = threading.Lock()
+TRAFFIC_SAMPLE_LOCK = threading.Lock()
+LAST_TRAFFIC_SAMPLE: dict[str, Any] = {
+    "interface": None,
+    "timestamp": None,
+    "rx_bytes": None,
+    "tx_bytes": None,
+}
 
 
 def runtime_source_label(source: str | None) -> str:
@@ -141,7 +152,7 @@ def load_binary_asset(path: Path) -> bytes:
 
 
 # Основной web-интерфейс хранится только в одном asset-файле.
-INDEX_HTML = load_gui_asset(REVIEW_GUI_ASSET)
+INDEX_HTML = load_gui_asset(MAIN_GUI_ASSET)
 
 @dataclass
 class CommandResult:
@@ -153,6 +164,165 @@ class CommandResult:
 
 def iso_now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def humanize_bytes(value: int | None) -> str:
+    if value is None or value < 0:
+        return "—"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    number = float(value)
+    unit = units[0]
+    for candidate in units:
+        unit = candidate
+        if number < 1024 or candidate == units[-1]:
+            break
+        number /= 1024
+    decimals = 0 if unit == "B" else 1
+    return f"{number:.{decimals}f} {unit}"
+
+
+def humanize_rate(value: float | None) -> str:
+    if value is None or value < 0:
+        return "—"
+    return f"{humanize_bytes(int(value))}/s"
+
+
+def log_level_from_text(text: str) -> str:
+    lowered = text.lower()
+    if any(token in lowered for token in ["error", "failed", "traceback", "fatal", "ошибка", "не удалось", "invalid"]):
+        return "error"
+    if any(token in lowered for token in ["warning", "warn", "предупреж"]):
+        return "warning"
+    return "info"
+
+
+def append_action_log_entry(
+    *,
+    name: str,
+    level: str,
+    message: str,
+    details: str = "",
+    source: str = "action",
+) -> None:
+    ACTION_LOG.append(
+        {
+            "timestamp": iso_now(),
+            "name": name,
+            "level": level,
+            "message": message,
+            "details": normalize_output(details, limit=4000) if details else "",
+            "source": source,
+        }
+    )
+
+
+def read_interface_byte_counter(interface_name: str, direction: str) -> int | None:
+    if not interface_name:
+        return None
+    counter_path = Path("/sys/class/net") / interface_name / "statistics" / f"{direction}_bytes"
+    if not counter_path.exists():
+        return None
+    try:
+        return int(counter_path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def collect_traffic_metrics(interface_name: str) -> dict[str, Any]:
+    rx_bytes = read_interface_byte_counter(interface_name, "rx")
+    tx_bytes = read_interface_byte_counter(interface_name, "tx")
+    now = time.monotonic()
+    rx_rate = 0.0
+    tx_rate = 0.0
+
+    with TRAFFIC_SAMPLE_LOCK:
+        previous = LAST_TRAFFIC_SAMPLE.copy()
+        LAST_TRAFFIC_SAMPLE.update(
+            {
+                "interface": interface_name,
+                "timestamp": now,
+                "rx_bytes": rx_bytes,
+                "tx_bytes": tx_bytes,
+            }
+        )
+
+    if (
+        previous.get("interface") == interface_name
+        and previous.get("timestamp") is not None
+        and rx_bytes is not None
+        and tx_bytes is not None
+        and previous.get("rx_bytes") is not None
+        and previous.get("tx_bytes") is not None
+    ):
+        elapsed = now - float(previous["timestamp"])
+        if elapsed > 0.2:
+            rx_delta = max(0, rx_bytes - int(previous["rx_bytes"]))
+            tx_delta = max(0, tx_bytes - int(previous["tx_bytes"]))
+            rx_rate = rx_delta / elapsed
+            tx_rate = tx_delta / elapsed
+
+    available = rx_bytes is not None and tx_bytes is not None
+    return {
+        "interface": interface_name,
+        "available": available,
+        "rx_bytes": rx_bytes or 0,
+        "tx_bytes": tx_bytes or 0,
+        "rx_rate_bytes_per_sec": rx_rate,
+        "tx_rate_bytes_per_sec": tx_rate,
+        "rx_total_label": humanize_bytes(rx_bytes),
+        "tx_total_label": humanize_bytes(tx_bytes),
+        "rx_rate_label": humanize_rate(rx_rate if available else None),
+        "tx_rate_label": humanize_rate(tx_rate if available else None),
+    }
+
+
+def tail_text_file(path: Path, *, max_bytes: int = 24000) -> str:
+    if not path.exists():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        handle.seek(max(0, size - max_bytes), os.SEEK_SET)
+        chunk = handle.read()
+    return chunk.decode("utf-8", errors="ignore")
+
+
+def collect_log_payload() -> dict[str, Any]:
+    action_entries = list(ACTION_LOG)
+    file_entries: list[dict[str, Any]] = []
+    log_file = LOG_DIR / "xray-subvost.log"
+    tail = tail_text_file(log_file)
+    for line in tail.splitlines()[-120:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        file_entries.append(
+            {
+                "timestamp": None,
+                "name": "xray",
+                "level": log_level_from_text(stripped),
+                "message": stripped,
+                "details": "",
+                "source": "file",
+            }
+        )
+
+    combined = action_entries + file_entries
+    latest_error = next((entry for entry in reversed(combined) if entry.get("level") == "error"), None)
+    return {
+        "entries": combined[-160:],
+        "latest_error": latest_error,
+        "has_errors": latest_error is not None,
+    }
+
+
+def ping_cache_key(profile_id: str, node_id: str) -> str:
+    return f"{profile_id}:{node_id}"
+
+
+def ping_cache_snapshot() -> dict[str, Any]:
+    with PING_CACHE_LOCK:
+        return dict(PING_CACHE)
 
 
 def load_settings() -> dict[str, Any]:
@@ -268,14 +438,21 @@ def normalize_output(text: str, limit: int = 12000) -> str:
 
 
 def remember_action(name: str, ok: bool | None, message: str, details: str) -> None:
+    normalized_details = normalize_output(details)
     LAST_ACTION.update(
         {
             "name": name,
             "ok": ok,
             "message": message,
             "timestamp": iso_now(),
-            "details": normalize_output(details),
+            "details": normalized_details,
         }
+    )
+    append_action_log_entry(
+        name=name,
+        level="error" if ok is False else "info",
+        message=message,
+        details=normalized_details,
     )
 
 
@@ -443,6 +620,42 @@ def parse_connection_info(
     }
 
 
+def find_profile_and_node(
+    store: dict[str, Any],
+    profile_id: str,
+    node_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    for profile in store.get("profiles", []):
+        if profile.get("id") != profile_id:
+            continue
+        for node in profile.get("nodes", []):
+            if node.get("id") == node_id:
+                return profile, node
+        return profile, None
+    return None, None
+
+
+def ping_node(node: dict[str, Any], *, timeout: float = 3.0) -> dict[str, Any]:
+    normalized = node.get("normalized", {}) or {}
+    host = str(normalized.get("address") or "").strip()
+    port = normalized.get("port")
+    if not host or not port:
+        raise ValueError("Для узла не хватает адреса или порта.")
+
+    started = time.perf_counter()
+    with socket.create_connection((host, int(port)), timeout=timeout):
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+
+    return {
+        "host": host,
+        "port": int(port),
+        "latency_ms": elapsed_ms,
+        "label": f"{elapsed_ms:.1f} мс",
+        "timestamp": iso_now(),
+        "ok": True,
+    }
+
+
 def collect_status() -> dict[str, Any]:
     settings = load_settings()
     store = ensure_store_ready()
@@ -475,6 +688,8 @@ def collect_status() -> dict[str, Any]:
         if os.geteuid() == 0
         else "Пользовательский backend; возможен запрос sudo в терминале."
     )
+    traffic = collect_traffic_metrics(tun_interface)
+    logs_payload = collect_log_payload()
 
     log_files = []
     for candidate in [LOG_DIR / "xray-subvost.log"]:
@@ -536,6 +751,11 @@ def collect_status() -> dict[str, Any]:
             "active_xray_config": str(active_xray_config_path),
             **runtime_state,
         },
+        "traffic": traffic,
+        "ping": {
+            "cache": ping_cache_snapshot(),
+        },
+        "logs": logs_payload,
         "artifacts": {
             "latest_diagnostic": str(latest_diag) if latest_diag else None,
             "state_file": str(STATE_FILE),
@@ -870,6 +1090,65 @@ def handle_node_delete(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def handle_node_ping(payload: dict[str, Any]) -> dict[str, Any]:
+    store = ensure_store_ready()
+    profile_id = str(payload.get("profile_id", "")).strip()
+    node_id = str(payload.get("node_id", "")).strip()
+    if not profile_id or not node_id:
+        raise ValueError("Для ping нужны profile_id и node_id.")
+
+    profile, node = find_profile_and_node(store, profile_id, node_id)
+    if not profile or not node:
+        raise ValueError("Узел для ping не найден.")
+    if not profile.get("enabled", True):
+        raise ValueError("Профиль отключён.")
+    if not node.get("enabled", True):
+        raise ValueError("Узел отключён.")
+
+    try:
+        result = ping_node(node)
+    except OSError as exc:
+        message = f"Ping не выполнен: {exc}."
+        result = {
+            "host": str(node.get("normalized", {}).get("address") or "—"),
+            "port": node.get("normalized", {}).get("port"),
+            "latency_ms": None,
+            "label": "Ошибка",
+            "timestamp": iso_now(),
+            "ok": False,
+            "error": str(exc),
+        }
+        with PING_CACHE_LOCK:
+            PING_CACHE[ping_cache_key(profile_id, node_id)] = result
+        raise ValueError(message) from exc
+
+    with PING_CACHE_LOCK:
+        PING_CACHE[ping_cache_key(profile_id, node_id)] = result
+
+    remember_action(
+        "Ping узла",
+        True,
+        f"Узел '{node.get('name', 'без имени')}' ответил за {result['label']}.",
+        json.dumps(
+            {
+                "profile_id": profile_id,
+                "node_id": node_id,
+                **result,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return {
+        "ok": True,
+        "ping": {
+            "profile_id": profile_id,
+            "node_id": node_id,
+            **result,
+        },
+        "status": collect_status(),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SubvostGui/1.0"
 
@@ -921,7 +1200,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(load_binary_asset(FAVICON_PATH), "image/svg+xml; charset=utf-8")
             return
 
-        if request_path in ROOT_GUI_PATHS or request_path in REVIEW_GUI_PATHS or request_path in LEGACY_GUI_PATHS:
+        if request_path in ROOT_GUI_PATHS:
             self.send_html(INDEX_HTML)
             return
 
@@ -964,6 +1243,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/subscriptions/update",
             "/api/subscriptions/delete",
             "/api/selection/activate",
+            "/api/nodes/ping",
             "/api/profiles/update",
             "/api/profiles/delete",
             "/api/nodes/update",
@@ -1005,6 +1285,8 @@ class Handler(BaseHTTPRequestHandler):
                 response = handle_subscription_delete(payload)
             elif self.path == "/api/selection/activate":
                 response = handle_selection_activate(payload)
+            elif self.path == "/api/nodes/ping":
+                response = handle_node_ping(payload)
             elif self.path == "/api/profiles/update":
                 response = handle_profile_update(payload)
             elif self.path == "/api/profiles/delete":
