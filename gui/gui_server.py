@@ -18,7 +18,7 @@ from typing import Any
 from gui_contract import GUI_VERSION
 from subvost_parser import preview_links
 from subvost_paths import build_app_paths
-from subvost_runtime import config_has_placeholders, node_can_render_runtime, read_json_config
+from subvost_runtime import node_can_render_runtime, read_json_config
 from subvost_store import (
     activate_selection,
     add_subscription,
@@ -27,14 +27,12 @@ from subvost_store import (
     delete_subscription,
     ensure_store_initialized,
     get_active_node,
-    get_runtime_preference,
-    read_or_migrate_gui_settings,
+    read_gui_settings,
     refresh_all_subscriptions,
     refresh_subscription,
     save_gui_settings,
     save_manual_import_results,
     save_store,
-    set_runtime_preference,
     store_payload,
     sync_generated_runtime,
     update_node,
@@ -103,7 +101,6 @@ STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
 DIAG_SCRIPT = PROJECT_ROOT / "capture-xray-tun-state.sh"
 LOG_DIR = PROJECT_ROOT / "logs"
 XRAY_TEMPLATE_PATH = PROJECT_ROOT / "xray-tun-subvost.json"
-SINGBOX_CONFIG_PATH = PROJECT_ROOT / "singbox-tun-subvost.json"
 REAL_USER, REAL_HOME = discover_real_user()
 REAL_PW_ENTRY = pwd.getpwnam(REAL_USER)
 REAL_UID = REAL_PW_ENTRY.pw_uid
@@ -123,10 +120,10 @@ LAST_ACTION: dict[str, Any] = {
 def runtime_source_label(source: str | None) -> str:
     if source == "store":
         return "Выбранный узел"
-    if source == "builtin":
-        return "Встроенный config"
     if source == "custom":
         return "Пользовательский config"
+    if source == "blocked":
+        return "Старт заблокирован"
     return "Не определён"
 
 
@@ -143,1974 +140,8 @@ def load_binary_asset(path: Path) -> bytes:
     return path.read_bytes()
 
 
-INDEX_HTML = """<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="subvost-gui-version" content=\"""" + GUI_VERSION + """\">
-  <title>Subvost Xray TUN Control</title>
-  <link rel="icon" type="image/svg+xml" href=\"""" + FAVICON_ROUTE + """\">
-  <style>
-    :root {
-      --bg: #f3f7fb;
-      --bg-deep: #e7eef8;
-      --panel: rgba(255, 255, 255, 0.82);
-      --panel-strong: rgba(255, 255, 255, 0.96);
-      --line: rgba(30, 41, 59, 0.1);
-      --text: #132238;
-      --muted: #5b6b80;
-      --primary: #2563eb;
-      --primary-soft: rgba(37, 99, 235, 0.12);
-      --accent: #f97316;
-      --accent-soft: rgba(249, 115, 22, 0.12);
-      --success: #0f9f6e;
-      --success-soft: rgba(15, 159, 110, 0.14);
-      --danger: #dc2626;
-      --danger-soft: rgba(220, 38, 38, 0.12);
-      --warning: #b45309;
-      --shadow: 0 14px 44px rgba(18, 36, 61, 0.10);
-      --radius-xl: 28px;
-      --radius-lg: 20px;
-      --radius-md: 16px;
-      --radius-sm: 12px;
-      --mono: "IBM Plex Mono", "DejaVu Sans Mono", monospace;
-      --sans: "IBM Plex Sans", "Noto Sans", "Segoe UI", sans-serif;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html, body {
-      margin: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 32%),
-        radial-gradient(circle at 85% 20%, rgba(249, 115, 22, 0.12), transparent 24%),
-        linear-gradient(180deg, var(--bg) 0%, #f8fbfe 48%, var(--bg-deep) 100%);
-      color: var(--text);
-      font-family: var(--sans);
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(19, 34, 56, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(19, 34, 56, 0.04) 1px, transparent 1px);
-      background-size: 36px 36px;
-      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent 70%);
-      pointer-events: none;
-    }
-
-    main {
-      position: relative;
-      width: min(1540px, calc(100vw - 24px));
-      margin: 0 auto;
-      padding: 14px 0 18px;
-    }
-
-    .hero,
-    .card {
-      position: relative;
-      overflow: hidden;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      box-shadow: var(--shadow);
-    }
-
-    .hero {
-      border-radius: var(--radius-xl);
-      padding: 22px;
-      display: grid;
-      grid-template-columns: minmax(300px, 1.05fr) minmax(640px, 1.55fr);
-      gap: 18px;
-      align-items: stretch;
-    }
-
-    .hero::after,
-    .card::after {
-      content: "";
-      position: absolute;
-      inset: auto auto -60px -60px;
-      width: 140px;
-      height: 140px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(37, 99, 235, 0.12), transparent 70%);
-      pointer-events: none;
-    }
-
-    .hero-intro {
-      display: grid;
-      align-content: center;
-      gap: 12px;
-    }
-
-    .hero-side {
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-
-    .hero-top {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .eyebrow {
-      margin: 0 0 10px;
-      color: var(--primary);
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-    }
-
-    h1 {
-      margin: 0;
-      max-width: 10ch;
-      font-size: clamp(2.2rem, 4vw, 4.1rem);
-      line-height: 0.9;
-      letter-spacing: -0.05em;
-    }
-
-    .hero-copy {
-      margin: 0;
-      max-width: 46ch;
-      color: var(--muted);
-      font-size: 0.95rem;
-      line-height: 1.55;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      min-height: 42px;
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: var(--panel-strong);
-      border: 1px solid var(--line);
-      color: var(--text);
-      font-size: 0.9rem;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .status-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--warning);
-      box-shadow: 0 0 0 6px rgba(180, 83, 9, 0.12);
-      transition: background-color 180ms ease, box-shadow 180ms ease;
-    }
-
-    .status-pill[data-state="running"] .status-dot {
-      background: var(--success);
-      box-shadow: 0 0 0 6px var(--success-soft);
-    }
-
-    .status-pill[data-state="stopped"] .status-dot {
-      background: var(--danger);
-      box-shadow: 0 0 0 6px var(--danger-soft);
-    }
-
-    .hero-meta {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .metric {
-      padding: 14px 16px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--line);
-      background: rgba(248, 250, 252, 0.74);
-      min-height: 88px;
-    }
-
-    .metric-label {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 0.74rem;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .metric-value {
-      font-size: 1.22rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-    }
-
-    .metric-sub {
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.35;
-    }
-
-    .actions {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr 1.2fr;
-      gap: 10px;
-    }
-
-    button,
-    .switch input {
-      font: inherit;
-    }
-
-    .button {
-      position: relative;
-      border: 0;
-      min-height: 54px;
-      padding: 14px 18px;
-      border-radius: 16px;
-      font-size: 0.98rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition:
-        transform 180ms ease,
-        opacity 180ms ease,
-        background-color 180ms ease,
-        box-shadow 180ms ease;
-    }
-
-    .button:hover {
-      transform: translateY(-1px);
-    }
-
-    .button:active {
-      transform: translateY(0);
-    }
-
-    .button:focus-visible,
-    .switch input:focus-visible + .switch-ui {
-      outline: 3px solid rgba(37, 99, 235, 0.28);
-      outline-offset: 2px;
-    }
-
-    .button[disabled] {
-      cursor: not-allowed;
-      opacity: 0.55;
-      transform: none;
-    }
-
-    .button-primary {
-      color: #fff;
-      background: linear-gradient(135deg, #1d4ed8, #2563eb 55%, #3b82f6 100%);
-      box-shadow: 0 16px 28px rgba(37, 99, 235, 0.28);
-    }
-
-    .button-accent {
-      color: #fff;
-      background: linear-gradient(135deg, #ea580c, #f97316 55%, #fb923c 100%);
-      box-shadow: 0 16px 28px rgba(249, 115, 22, 0.26);
-    }
-
-    .button-danger {
-      color: #991b1b;
-      background: linear-gradient(180deg, #fff7f7, #fee2e2);
-      border: 1px solid rgba(220, 38, 38, 0.18);
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 14px;
-      margin-top: 14px;
-    }
-
-    .stack {
-      display: grid;
-      grid-template-rows: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      min-height: 0;
-    }
-
-    .card {
-      border-radius: var(--radius-xl);
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-
-    .runtime-stage {
-      margin-bottom: 14px;
-      padding: 14px;
-      border-radius: 18px;
-      border: 1px solid rgba(30, 41, 59, 0.08);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(237, 244, 252, 0.96));
-    }
-
-    .runtime-stage-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .runtime-segment {
-      display: inline-grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-      padding: 6px;
-      border-radius: 16px;
-      background: rgba(19, 34, 56, 0.06);
-      border: 1px solid rgba(30, 41, 59, 0.08);
-    }
-
-    .runtime-segment-button {
-      min-height: 42px;
-      padding: 10px 14px;
-      border: 0;
-      border-radius: 12px;
-      background: transparent;
-      color: var(--muted);
-      font-size: 0.88rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
-    }
-
-    .runtime-segment-button[data-selected="true"] {
-      background: #fff;
-      color: var(--text);
-      box-shadow: 0 10px 20px rgba(18, 36, 61, 0.08);
-    }
-
-    .runtime-segment-button[disabled] {
-      cursor: not-allowed;
-      opacity: 0.55;
-    }
-
-    .runtime-note {
-      margin: 12px 0 0;
-      color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.5;
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-
-    .card-title {
-      margin: 0;
-      font-size: 1rem;
-      letter-spacing: -0.03em;
-    }
-
-    .card-copy {
-      margin: 4px 0 0;
-      color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.45;
-    }
-
-    .info-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .info-item {
-      padding: 12px 13px;
-      border-radius: 14px;
-      background: rgba(248, 250, 252, 0.9);
-      border: 1px solid rgba(30, 41, 59, 0.08);
-    }
-
-    .info-label {
-      display: block;
-      margin-bottom: 6px;
-      color: var(--muted);
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .info-value {
-      font-size: 0.9rem;
-      line-height: 1.4;
-      word-break: break-word;
-    }
-
-    .mono {
-      font-family: var(--mono);
-      font-size: 0.84rem;
-    }
-
-    .switch-card {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 12px;
-      padding: 14px;
-      border-radius: 16px;
-      background: linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(255, 255, 255, 0.72));
-      border: 1px solid rgba(37, 99, 235, 0.12);
-    }
-
-    .switch-card p {
-      margin: 4px 0 0;
-      color: var(--muted);
-      line-height: 1.45;
-      font-size: 0.82rem;
-    }
-
-    .switch {
-      position: relative;
-      width: 66px;
-      min-width: 66px;
-      height: 38px;
-    }
-
-    .switch input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      margin: 0;
-    }
-
-    .switch-ui {
-      display: block;
-      width: 100%;
-      height: 100%;
-      border-radius: 999px;
-      background: rgba(91, 107, 128, 0.28);
-      border: 1px solid rgba(91, 107, 128, 0.16);
-      transition: background-color 180ms ease;
-    }
-
-    .switch-ui::after {
-      content: "";
-      position: absolute;
-      top: 4px;
-      left: 4px;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 8px 18px rgba(19, 34, 56, 0.18);
-      transition: transform 180ms ease;
-    }
-
-    .switch input:checked + .switch-ui {
-      background: linear-gradient(135deg, #2563eb, #3b82f6);
-    }
-
-    .switch input:checked + .switch-ui::after {
-      transform: translateX(28px);
-    }
-
-    .badge-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 30px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(19, 34, 56, 0.05);
-      color: var(--text);
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-
-    .badge[data-tone="accent"] {
-      background: var(--accent-soft);
-      color: var(--warning);
-    }
-
-    .badge[data-tone="success"] {
-      background: var(--success-soft);
-      color: var(--success);
-    }
-
-    .badge[data-tone="danger"] {
-      background: var(--danger-soft);
-      color: var(--danger);
-    }
-
-    .feedback-panel {
-      margin-top: 12px;
-      padding: 14px;
-      border-radius: 16px;
-      border: 1px solid rgba(30, 41, 59, 0.08);
-      background: rgba(248, 250, 252, 0.92);
-    }
-
-    .feedback-panel[data-tone="success"] {
-      border-color: rgba(15, 159, 110, 0.22);
-      background: linear-gradient(180deg, rgba(15, 159, 110, 0.08), rgba(255, 255, 255, 0.92));
-    }
-
-    .feedback-panel[data-tone="accent"] {
-      border-color: rgba(249, 115, 22, 0.22);
-      background: linear-gradient(180deg, rgba(249, 115, 22, 0.08), rgba(255, 255, 255, 0.92));
-    }
-
-    .feedback-panel[data-tone="danger"] {
-      border-color: rgba(220, 38, 38, 0.2);
-      background: linear-gradient(180deg, rgba(220, 38, 38, 0.06), rgba(255, 255, 255, 0.92));
-    }
-
-    .feedback-title {
-      font-size: 0.92rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-
-    .feedback-copy {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.5;
-    }
-
-    .output-panel {
-      margin: 0;
-      min-height: 132px;
-      max-height: 180px;
-      overflow: auto;
-      padding: 14px;
-      border-radius: 16px;
-      background: #0f172a;
-      color: #d7e3f6;
-      border: 1px solid rgba(148, 163, 184, 0.16);
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      line-height: 1.55;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .footer-note {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.45;
-    }
-
-    .data-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-      margin-top: 14px;
-    }
-
-    .section-block {
-      margin-top: 18px;
-      padding-top: 16px;
-      border-top: 1px solid var(--line);
-    }
-
-    .field-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    .text-input,
-    .textarea-input {
-      width: 100%;
-      border: 1px solid rgba(30, 41, 59, 0.12);
-      background: rgba(248, 250, 252, 0.94);
-      color: var(--text);
-      border-radius: 14px;
-      padding: 12px 13px;
-      font: inherit;
-    }
-
-    .textarea-input {
-      min-height: 124px;
-      resize: vertical;
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      line-height: 1.5;
-    }
-
-    .section-actions {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
-    .button-secondary {
-      color: var(--text);
-      background: linear-gradient(180deg, #ffffff, #eef4fb);
-      border: 1px solid rgba(30, 41, 59, 0.12);
-    }
-
-    .small-action {
-      min-height: 42px;
-      padding: 10px 14px;
-      font-size: 0.88rem;
-      box-shadow: none;
-    }
-
-    .check-row {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 0.84rem;
-    }
-
-    .check-row input {
-      width: 16px;
-      height: 16px;
-      accent-color: var(--primary);
-    }
-
-    .list-panel {
-      display: grid;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
-    .list-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: start;
-      padding: 12px 13px;
-      border-radius: 16px;
-      background: rgba(248, 250, 252, 0.9);
-      border: 1px solid rgba(30, 41, 59, 0.08);
-    }
-
-    .list-row[data-selected="true"] {
-      border-color: rgba(37, 99, 235, 0.28);
-      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.16);
-    }
-
-    .list-main {
-      min-width: 0;
-    }
-
-    .row-title {
-      display: block;
-      font-size: 0.95rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      word-break: break-word;
-    }
-
-    .row-meta {
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.45;
-      word-break: break-word;
-    }
-
-    .inline-actions {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .tiny-button {
-      min-height: 34px;
-      padding: 7px 11px;
-      border-radius: 999px;
-      border: 1px solid rgba(30, 41, 59, 0.12);
-      background: #fff;
-      color: var(--text);
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .tiny-button:hover {
-      transform: translateY(-1px);
-    }
-
-    .tiny-button[data-tone="danger"] {
-      color: var(--danger);
-      border-color: rgba(220, 38, 38, 0.18);
-      background: #fff7f7;
-    }
-
-    .tiny-button[data-tone="accent"] {
-      color: var(--warning);
-      border-color: rgba(249, 115, 22, 0.18);
-      background: #fff7ed;
-    }
-
-    .empty-note {
-      margin: 0;
-      color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.45;
-    }
-
-    @media (max-width: 1360px) {
-      .hero {
-        grid-template-columns: 1fr;
-      }
-
-      .hero-top {
-        justify-content: flex-start;
-      }
-    }
-
-    @media (max-width: 1100px) {
-      .grid,
-      .data-grid,
-      .hero-meta,
-      .actions,
-      .info-grid,
-      .field-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .stack {
-        grid-template-rows: none;
-      }
-    }
-
-    @media (max-width: 640px) {
-      main {
-        width: calc(100vw - 16px);
-        padding: 8px 0 16px;
-      }
-
-      .hero,
-      .card {
-        padding: 16px;
-      }
-
-      .hero-copy {
-        max-width: none;
-      }
-
-      .status-pill {
-        width: 100%;
-        justify-content: center;
-      }
-
-      .list-row {
-        grid-template-columns: 1fr;
-      }
-
-      .inline-actions {
-        justify-content: flex-start;
-      }
-
-      .runtime-segment {
-        width: 100%;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        scroll-behavior: auto !important;
-      }
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <section class="hero">
-      <div class="hero-intro">
-        <div>
-          <p class="eyebrow">Subvost Xray TUN</p>
-          <h1>Локальный пульт управления туннелем</h1>
-        </div>
-        <p class="hero-copy">
-          Старт, стоп, диагностика и ключевой статус на одном экране без ручного обновления и без лишней прокрутки.
-        </p>
-      </div>
-
-      <div class="hero-side">
-        <div class="hero-top">
-          <div class="status-pill" id="status-pill" data-state="unknown" aria-live="polite">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span id="status-pill-text">Проверяю состояние</span>
-          </div>
-        </div>
-
-        <div class="hero-meta">
-          <div class="metric">
-            <span class="metric-label">Стек</span>
-            <div class="metric-value" id="hero-stack">-</div>
-            <div class="metric-sub" id="hero-stack-sub">Ожидание данных</div>
-          </div>
-          <div class="metric">
-            <span class="metric-label">TUN / DNS</span>
-            <div class="metric-value" id="hero-tun">-</div>
-            <div class="metric-sub" id="hero-dns">Ожидание данных</div>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Логи</span>
-            <div class="metric-value" id="hero-logs">-</div>
-            <div class="metric-sub" id="hero-logs-sub">Ожидание данных</div>
-          </div>
-        </div>
-
-        <div class="actions" aria-label="Основные действия">
-          <button class="button button-primary" id="start-button" type="button">Старт</button>
-          <button class="button button-danger" id="stop-button" type="button">Стоп</button>
-          <button class="button button-accent" id="diag-button" type="button">Снять диагностику</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="grid">
-      <div class="stack">
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Состояние и управление</h2>
-              <p class="card-copy">Статус процессов, TUN-интерфейса и режим логирования.</p>
-            </div>
-          </div>
-
-          <div class="switch-card">
-            <div>
-              <strong>Файловое логирование</strong>
-              <p>Применяется при следующем старте. Текущую активную сессию переключатель не перезапускает.</p>
-            </div>
-            <label class="switch" aria-label="Включить файловое логирование">
-              <input type="checkbox" id="logging-toggle">
-              <span class="switch-ui" aria-hidden="true"></span>
-            </label>
-          </div>
-
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label">Статус</span>
-              <div class="info-value" id="state-summary">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Режим запуска</span>
-              <div class="info-value" id="runtime-mode">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Xray PID</span>
-              <div class="info-value mono" id="xray-pid">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">sing-box PID</span>
-              <div class="info-value mono" id="singbox-pid">-</div>
-            </div>
-          </div>
-
-          <div class="badge-row" id="state-badges"></div>
-        </article>
-
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Минимум по соединению</h2>
-              <p class="card-copy">Точка выхода, локальные порты, TUN и DNS без перегруза деталями.</p>
-            </div>
-          </div>
-
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label">Удалённый узел</span>
-              <div class="info-value mono" id="remote-host">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">SNI / Host</span>
-              <div class="info-value mono" id="remote-sni">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">SOCKS / Mixed</span>
-              <div class="info-value mono" id="local-ports">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">TUN адрес</span>
-              <div class="info-value mono" id="tun-address">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Интерфейс</span>
-              <div class="info-value mono" id="tun-interface">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">DNS</span>
-              <div class="info-value mono" id="dns-servers">-</div>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <div class="stack">
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Диагностика</h2>
-              <p class="card-copy">Последний дамп и служебные файлы, которые пригодятся при разборе сбоев.</p>
-            </div>
-          </div>
-
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label">Последняя диагностика</span>
-              <div class="info-value mono" id="latest-diagnostic">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">State file</span>
-              <div class="info-value mono" id="state-file">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Backup resolv.conf</span>
-              <div class="info-value mono" id="resolv-backup">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Логи</span>
-              <div class="info-value mono" id="log-files">-</div>
-            </div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Последнее действие и вывод</h2>
-              <p class="card-copy">Короткий итог операции и хвост stdout/stderr без отдельного нижнего блока.</p>
-            </div>
-          </div>
-          <div class="info-grid">
-            <div class="info-item">
-              <span class="info-label">Операция</span>
-              <div class="info-value" id="last-action-name">-</div>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Когда</span>
-              <div class="info-value mono" id="last-action-time">-</div>
-            </div>
-          </div>
-          <div class="badge-row" id="action-badges"></div>
-          <p class="footer-note" id="last-action-message">GUI готов.</p>
-          <pre class="output-panel" id="command-output" aria-live="polite">Ожидание данных...</pre>
-        </article>
-      </div>
-    </section>
-
-    <section class="data-grid">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2 class="card-title">1. Источники узлов</h2>
-            <p class="card-copy">Добавь ссылки вручную или через subscription URL и сразу увидь, сколько узлов реально загрузилось.</p>
-          </div>
-          <div class="badge-row" id="store-counts"></div>
-        </div>
-
-        <div class="field">
-          <span class="info-label">Ссылки для импорта</span>
-          <textarea class="textarea-input" id="import-input" placeholder="vless://...
-vmess://...
-trojan://...
-ss://..."></textarea>
-        </div>
-
-        <div class="field-grid">
-          <label class="field">
-            <span class="info-label">Файл со ссылками</span>
-            <input class="text-input" id="import-file" type="file" accept=".txt,text/plain">
-          </label>
-          <label class="field">
-            <span class="info-label">Поведение после сохранения</span>
-            <span class="check-row">
-              <input type="checkbox" id="activate-single-toggle">
-              Автоматически активировать, если валидна ровно одна ссылка
-            </span>
-          </label>
-        </div>
-
-        <div class="section-actions">
-          <button class="button button-secondary small-action" id="preview-button" type="button">Проверить</button>
-          <button class="button button-primary small-action" id="save-import-button" type="button">Сохранить</button>
-        </div>
-
-        <div class="list-panel" id="import-preview-list">
-          <p class="empty-note">Предпросмотр ещё не строился.</p>
-        </div>
-
-        <div class="section-block">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Подписки</h2>
-              <p class="card-copy">Добавление URL, явный результат первого обновления и быстрый переход к загруженному профилю.</p>
-            </div>
-          </div>
-
-          <div class="field-grid">
-            <label class="field">
-              <span class="info-label">Имя подписки</span>
-              <input class="text-input" id="subscription-name" type="text" placeholder="Например, Happ">
-            </label>
-            <label class="field">
-              <span class="info-label">Subscription URL</span>
-              <input class="text-input mono" id="subscription-url" type="url" placeholder="https://example.com/subscription">
-            </label>
-          </div>
-
-          <div class="section-actions">
-            <button class="button button-accent small-action" id="add-subscription-button" type="button">Добавить подписку</button>
-            <button class="button button-secondary small-action" id="refresh-all-button" type="button">Обновить все</button>
-          </div>
-
-          <div class="feedback-panel" id="subscription-feedback" hidden>
-            <div class="feedback-title" id="subscription-feedback-title">Статус подписки</div>
-            <div class="feedback-copy" id="subscription-feedback-copy">Действия по подписке будут видны здесь.</div>
-            <div class="badge-row" id="subscription-feedback-badges"></div>
-          </div>
-
-          <div class="list-panel" id="subscription-list">
-            <p class="empty-note">Подписок пока нет.</p>
-          </div>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2 class="card-title">2. Runtime, профили и узлы</h2>
-            <p class="card-copy">Сначала выбери, откуда bundle берёт runtime-конфиг, потом переключай профиль и узел.</p>
-          </div>
-        </div>
-
-        <div class="runtime-stage">
-          <div class="runtime-stage-header">
-            <div>
-              <span class="info-label">Источник runtime</span>
-              <div class="runtime-segment" role="tablist" aria-label="Источник runtime-конфига">
-                <button class="runtime-segment-button" id="runtime-mode-store" data-runtime-mode="store" type="button">Выбранный узел</button>
-                <button class="runtime-segment-button" id="runtime-mode-builtin" data-runtime-mode="builtin" type="button">Встроенный config</button>
-              </div>
-            </div>
-          </div>
-          <p class="runtime-note" id="runtime-mode-note">Источник runtime уточняется.</p>
-          <div class="badge-row" id="runtime-mode-badges"></div>
-        </div>
-
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label">Активный профиль</span>
-            <div class="info-value" id="active-profile-name">-</div>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Активный узел</span>
-            <div class="info-value" id="active-node-name">-</div>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Runtime-конфиг</span>
-            <div class="info-value mono" id="runtime-source">-</div>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Что используется</span>
-            <div class="info-value" id="active-selection-summary">-</div>
-          </div>
-        </div>
-
-        <div class="section-block">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Профили</h2>
-              <p class="card-copy">Manual profile и профили, созданные из подписок.</p>
-            </div>
-          </div>
-          <div class="list-panel" id="profile-list">
-            <p class="empty-note">Профили пока не загружены.</p>
-          </div>
-        </div>
-
-        <div class="section-block">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Узлы выбранного профиля</h2>
-              <p class="card-copy">Активация, переименование, отключение и удаление.</p>
-            </div>
-          </div>
-          <div class="list-panel" id="node-list">
-            <p class="empty-note">Выбери профиль, чтобы увидеть узлы.</p>
-          </div>
-        </div>
-      </article>
-    </section>
-  </main>
-
-  <script>
-    const state = {
-      polling: null,
-      busy: false,
-      selectedProfileId: null,
-      storePayload: null,
-      previewResults: [],
-      statusPayload: null,
-    };
-
-    const els = {
-      startButton: document.getElementById("start-button"),
-      stopButton: document.getElementById("stop-button"),
-      diagButton: document.getElementById("diag-button"),
-      loggingToggle: document.getElementById("logging-toggle"),
-      statusPill: document.getElementById("status-pill"),
-      statusPillText: document.getElementById("status-pill-text"),
-      heroStack: document.getElementById("hero-stack"),
-      heroStackSub: document.getElementById("hero-stack-sub"),
-      heroTun: document.getElementById("hero-tun"),
-      heroDns: document.getElementById("hero-dns"),
-      heroLogs: document.getElementById("hero-logs"),
-      heroLogsSub: document.getElementById("hero-logs-sub"),
-      stateSummary: document.getElementById("state-summary"),
-      runtimeMode: document.getElementById("runtime-mode"),
-      xrayPid: document.getElementById("xray-pid"),
-      singboxPid: document.getElementById("singbox-pid"),
-      stateBadges: document.getElementById("state-badges"),
-      remoteHost: document.getElementById("remote-host"),
-      remoteSni: document.getElementById("remote-sni"),
-      localPorts: document.getElementById("local-ports"),
-      tunAddress: document.getElementById("tun-address"),
-      tunInterface: document.getElementById("tun-interface"),
-      dnsServers: document.getElementById("dns-servers"),
-      latestDiagnostic: document.getElementById("latest-diagnostic"),
-      stateFile: document.getElementById("state-file"),
-      resolvBackup: document.getElementById("resolv-backup"),
-      logFiles: document.getElementById("log-files"),
-      lastActionName: document.getElementById("last-action-name"),
-      lastActionTime: document.getElementById("last-action-time"),
-      actionBadges: document.getElementById("action-badges"),
-      lastActionMessage: document.getElementById("last-action-message"),
-      commandOutput: document.getElementById("command-output"),
-      storeCounts: document.getElementById("store-counts"),
-      subscriptionFeedback: document.getElementById("subscription-feedback"),
-      subscriptionFeedbackTitle: document.getElementById("subscription-feedback-title"),
-      subscriptionFeedbackCopy: document.getElementById("subscription-feedback-copy"),
-      subscriptionFeedbackBadges: document.getElementById("subscription-feedback-badges"),
-      activeProfileName: document.getElementById("active-profile-name"),
-      activeNodeName: document.getElementById("active-node-name"),
-      runtimeSource: document.getElementById("runtime-source"),
-      activeSelectionSummary: document.getElementById("active-selection-summary"),
-      runtimeModeStore: document.getElementById("runtime-mode-store"),
-      runtimeModeBuiltin: document.getElementById("runtime-mode-builtin"),
-      runtimeModeNote: document.getElementById("runtime-mode-note"),
-      runtimeModeBadges: document.getElementById("runtime-mode-badges"),
-      importInput: document.getElementById("import-input"),
-      importFile: document.getElementById("import-file"),
-      activateSingleToggle: document.getElementById("activate-single-toggle"),
-      previewButton: document.getElementById("preview-button"),
-      saveImportButton: document.getElementById("save-import-button"),
-      importPreviewList: document.getElementById("import-preview-list"),
-      subscriptionName: document.getElementById("subscription-name"),
-      subscriptionUrl: document.getElementById("subscription-url"),
-      addSubscriptionButton: document.getElementById("add-subscription-button"),
-      refreshAllButton: document.getElementById("refresh-all-button"),
-      subscriptionList: document.getElementById("subscription-list"),
-      profileList: document.getElementById("profile-list"),
-      nodeList: document.getElementById("node-list"),
-    };
-
-    const runtimeModeButtons = [els.runtimeModeStore, els.runtimeModeBuiltin];
-
-    function setBusy(busy) {
-      state.busy = busy;
-      for (const button of [
-        els.startButton,
-        els.stopButton,
-        els.diagButton,
-        els.previewButton,
-        els.saveImportButton,
-        els.addSubscriptionButton,
-        els.refreshAllButton
-      ]) {
-        button.disabled = busy;
-      }
-      for (const button of runtimeModeButtons) {
-        button.disabled = busy;
-      }
-      els.loggingToggle.disabled = busy;
-      els.importFile.disabled = busy;
-    }
-
-    function formatTimestamp(value) {
-      if (!value) return "—";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return value;
-      return date.toLocaleString("ru-RU");
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
-    }
-
-    function escapeAttr(value) {
-      return escapeHtml(value).replaceAll('"', "&quot;");
-    }
-
-    function badge(label, tone = "") {
-      const attr = tone ? ` data-tone="${tone}"` : "";
-      return `<span class="badge"${attr}>${escapeHtml(label)}</span>`;
-    }
-
-    function normalizeDataAttrName(name) {
-      return String(name).replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
-    }
-
-    function tinyButton(label, action, attrs = {}, tone = "") {
-      const attrParts = Object.entries(attrs).map(([key, value]) => ` data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"`);
-      const toneAttr = tone ? ` data-tone="${tone}"` : "";
-      return `<button class="tiny-button"${toneAttr} data-action="${escapeAttr(action)}"${attrParts.join("")} type="button">${escapeHtml(label)}</button>`;
-    }
-
-    function renderBadges(container, items) {
-      container.innerHTML = items.join("");
-    }
-
-    function renderEmpty(container, message) {
-      container.innerHTML = `<p class="empty-note">${escapeHtml(message)}</p>`;
-    }
-
-    function pluralizeNodes(value) {
-      const abs = Math.abs(Number(value) || 0);
-      const mod10 = abs % 10;
-      const mod100 = abs % 100;
-      if (mod10 === 1 && mod100 !== 11) return "узел";
-      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "узла";
-      return "узлов";
-    }
-
-    function clearFeedback() {
-      els.subscriptionFeedback.hidden = true;
-      els.subscriptionFeedback.dataset.tone = "";
-      els.subscriptionFeedbackTitle.textContent = "";
-      els.subscriptionFeedbackCopy.textContent = "";
-      renderBadges(els.subscriptionFeedbackBadges, []);
-    }
-
-    function setFeedback({ tone = "", title = "", copy = "", badges = [] }) {
-      els.subscriptionFeedback.hidden = false;
-      els.subscriptionFeedback.dataset.tone = tone;
-      els.subscriptionFeedbackTitle.textContent = title;
-      els.subscriptionFeedbackCopy.textContent = copy;
-      renderBadges(els.subscriptionFeedbackBadges, badges);
-    }
-
-    function compactPathValue(value) {
-      if (!value || value === "—") return "—";
-      return value
-        .split(",")
-        .map((item) => {
-          const trimmed = item.trim();
-          const parts = trimmed.split("/");
-          return parts[parts.length - 1] || trimmed;
-        })
-        .join(", ");
-    }
-
-    function assignCompactPath(element, value) {
-      element.textContent = compactPathValue(value);
-      element.title = value || "";
-    }
-
-    function applyRuntimeState(runtime, activeNode) {
-      const preference = runtime?.preference || "store";
-      for (const button of runtimeModeButtons) {
-        button.dataset.selected = button.dataset.runtimeMode === preference ? "true" : "false";
-      }
-
-      const liveSource = runtime?.live_source_label ? `Сейчас запущено: ${runtime.live_source_label}.` : "Стек сейчас не запущен.";
-      const nextStart = runtime?.next_start_source_label ? `Следующий старт: ${runtime.next_start_source_label}.` : "";
-      const activeNodeLine = activeNode
-        ? `Подготовленный узел: ${activeNode.name}.`
-        : "Подготовленного узла для режима store пока нет.";
-
-      els.runtimeModeNote.textContent = [liveSource, nextStart, runtime?.next_start_reason || activeNodeLine]
-        .filter(Boolean)
-        .join(" ");
-
-      const runtimeBadges = [
-        badge(`режим ${runtime?.preference_label || "—"}`, "accent"),
-        badge(
-          runtime?.store_candidate_ready ? "store готов" : "store не готов",
-          runtime?.store_candidate_ready ? "success" : "danger"
-        ),
-        badge(
-          runtime?.builtin_has_placeholders ? "builtin требует live-данных" : "builtin готов",
-          runtime?.builtin_has_placeholders ? "accent" : "success"
-        ),
-      ];
-      if (runtime?.live_source_label) {
-        runtimeBadges.unshift(badge(`live ${runtime.live_source_label}`, "success"));
-      }
-      renderBadges(els.runtimeModeBadges, runtimeBadges);
-    }
-
-    function applyStatus(data) {
-      state.statusPayload = data;
-      const summary = data.summary;
-      const action = data.last_action || {};
-
-      els.statusPill.dataset.state = summary.state;
-      els.statusPillText.textContent = summary.label;
-      els.heroStack.textContent = summary.stack_line;
-      els.heroStackSub.textContent = summary.stack_subline;
-      els.heroTun.textContent = summary.tun_line;
-      els.heroDns.textContent = summary.dns_line;
-      els.heroLogs.textContent = summary.logs_line;
-      els.heroLogsSub.textContent = summary.logs_subline;
-
-      els.stateSummary.textContent = summary.description;
-      els.runtimeMode.textContent = data.runtime.mode_label;
-      els.xrayPid.textContent = data.processes.xray_pid || "—";
-      els.singboxPid.textContent = data.processes.singbox_pid || "—";
-      els.activeProfileName.textContent = data.active_profile?.name || "—";
-      els.activeNodeName.textContent = data.active_node?.name || "—";
-      assignCompactPath(els.runtimeSource, data.artifacts.active_xray_config || data.runtime.active_xray_config || "—");
-      applyRuntimeState(data.runtime, data.active_node);
-
-      const summaryRuntimeSource = summary.state === "stopped"
-        ? data.runtime.next_start_source
-        : (data.runtime.live_source || data.runtime.next_start_source);
-      if (summaryRuntimeSource === "builtin") {
-        els.activeSelectionSummary.textContent = data.runtime.builtin_has_placeholders
-          ? "Встроенный config выбран, но требует локальных live-значений."
-          : "Сейчас используется встроенный operator-managed config."
-      } else if (data.active_node) {
-        els.activeSelectionSummary.textContent = `${data.connection.protocol_label || "—"} · ${data.active_node.name}`;
-      } else {
-        els.activeSelectionSummary.textContent = "Для режима выбранного узла пока нет готового активного узла.";
-      }
-
-      renderBadges(els.stateBadges, [
-        badge(summary.badges[0], summary.state === "running" ? "success" : summary.state === "stopped" ? "danger" : "accent"),
-        badge(summary.badges[1], data.processes.tun_present ? "success" : "danger"),
-        badge(summary.badges[2], data.settings.file_logs_enabled ? "accent" : "")
-      ]);
-
-      els.remoteHost.textContent = data.connection.remote_endpoint || "—";
-      els.remoteSni.textContent = data.connection.remote_sni || "—";
-      els.localPorts.textContent = data.connection.local_ports || "—";
-      els.tunAddress.textContent = data.connection.tun_address || "—";
-      els.tunInterface.textContent = data.connection.tun_interface || "—";
-      els.dnsServers.textContent = data.connection.dns_servers || "—";
-
-      assignCompactPath(els.latestDiagnostic, data.artifacts.latest_diagnostic || "—");
-      assignCompactPath(els.stateFile, data.artifacts.state_file || "—");
-      assignCompactPath(els.resolvBackup, data.artifacts.resolv_backup || "—");
-      assignCompactPath(els.logFiles, data.artifacts.log_files || "—");
-
-      els.lastActionName.textContent = action.name || "—";
-      els.lastActionTime.textContent = formatTimestamp(action.timestamp);
-      els.lastActionMessage.textContent = action.message || "—";
-      els.commandOutput.textContent = action.details || "Нет детального вывода.";
-
-      const actionBadges = [];
-      if (action.ok === true) actionBadges.push(badge("успех", "success"));
-      if (action.ok === false) actionBadges.push(badge("ошибка", "danger"));
-      if (data.runtime.requires_terminal_sudo_hint) actionBadges.push(badge("sudo может ждать подтверждение в терминале", "accent"));
-      renderBadges(els.actionBadges, actionBadges);
-
-      els.loggingToggle.checked = Boolean(data.settings.file_logs_enabled);
-
-      els.startButton.disabled = state.busy || summary.state === "running";
-      els.stopButton.disabled = state.busy || summary.state === "stopped";
-
-      if (data.store_summary) {
-        renderBadges(els.storeCounts, [
-          badge(`профили ${data.store_summary.profiles_total || 0}`, "accent"),
-          badge(`подписки ${data.store_summary.subscriptions_total || 0}`),
-          badge(`узлы ${data.store_summary.nodes_enabled || 0}/${data.store_summary.nodes_total || 0}`, "success")
-        ]);
-      }
-    }
-
-    function applyStore(payload) {
-      state.storePayload = payload;
-      const store = payload.store || { profiles: [], subscriptions: [] };
-      const profiles = store.profiles || [];
-      const activeProfile = payload.active_profile || null;
-      const activeNode = payload.active_node || null;
-
-      if (!state.selectedProfileId || !profiles.some((profile) => profile.id === state.selectedProfileId)) {
-        state.selectedProfileId = activeProfile?.id || profiles[0]?.id || null;
-      }
-
-      renderBadges(els.storeCounts, [
-        badge(`профили ${payload.summary?.profiles_total || 0}`, "accent"),
-        badge(`подписки ${payload.summary?.subscriptions_total || 0}`),
-        badge(`узлы ${payload.summary?.nodes_enabled || 0}/${payload.summary?.nodes_total || 0}`, "success")
-      ]);
-
-      els.activeProfileName.textContent = activeProfile?.name || "—";
-      els.activeNodeName.textContent = activeNode?.name || "—";
-
-      renderSubscriptions(store.subscriptions || []);
-      renderProfiles(profiles, activeProfile, activeNode);
-      renderNodes(profiles.find((profile) => profile.id === state.selectedProfileId) || null, activeNode);
-    }
-
-    function renderPreview(results) {
-      state.previewResults = results;
-      if (!results.length) {
-        renderEmpty(els.importPreviewList, "Ввод пустой или не содержит строк для импорта.");
-        return;
-      }
-
-      els.importPreviewList.innerHTML = results.map((result) => {
-        const title = result.valid
-          ? `${result.normalized.display_name} · ${result.normalized.protocol.toUpperCase()} · ${result.normalized.address}:${result.normalized.port}`
-          : `Строка ${result.line_number}`;
-        const meta = result.valid
-          ? `network=${result.normalized.network}, security=${result.normalized.security}, fingerprint=${result.fingerprint.slice(0, 12)}…`
-          : result.error;
-        return `
-          <div class="list-row">
-            <div class="list-main">
-              <strong class="row-title">${escapeHtml(title)}</strong>
-              <div class="row-meta">${escapeHtml(meta)}</div>
-              <div class="badge-row">
-                ${badge(result.valid ? "валидно" : "ошибка", result.valid ? "success" : "danger")}
-                ${result.valid ? badge(`line ${result.line_number}`) : ""}
-              </div>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function renderSubscriptions(subscriptions) {
-      if (!subscriptions.length) {
-        renderEmpty(els.subscriptionList, "Подписок пока нет.");
-        return;
-      }
-
-      els.subscriptionList.innerHTML = subscriptions.map((subscription) => {
-        let tone = "";
-        if (subscription.last_status === "ok") tone = "success";
-        if (subscription.last_status === "error") tone = "danger";
-        const selected = subscription.profile_id === state.selectedProfileId;
-
-        const metaParts = [
-          subscription.url,
-          subscription.last_success_at ? `успех ${formatTimestamp(subscription.last_success_at)}` : "ещё не обновлялась",
-          subscription.last_error ? `ошибка: ${subscription.last_error}` : ""
-        ].filter(Boolean);
-
-        return `
-          <div class="list-row" data-selected="${selected ? "true" : "false"}">
-            <div class="list-main">
-              <strong class="row-title">${escapeHtml(subscription.name)}</strong>
-              <div class="row-meta">${escapeHtml(metaParts.join(" · "))}</div>
-              <div class="badge-row">
-                ${badge(subscription.enabled ? "enabled" : "disabled", subscription.enabled ? "success" : "danger")}
-                ${badge(subscription.last_status || "never", tone)}
-                ${selected ? badge("профиль открыт", "accent") : ""}
-              </div>
-            </div>
-            <div class="inline-actions">
-              ${tinyButton("Показать узлы", "open-subscription-profile", { profileId: subscription.profile_id }, "accent")}
-              ${tinyButton("Обновить", "refresh-subscription", { subscriptionId: subscription.id })}
-              ${tinyButton(subscription.enabled ? "Отключить" : "Включить", "toggle-subscription", { subscriptionId: subscription.id, enabled: String(subscription.enabled) }, "accent")}
-              ${tinyButton("Переименовать", "rename-subscription", { subscriptionId: subscription.id, name: subscription.name })}
-              ${tinyButton("Удалить", "delete-subscription", { subscriptionId: subscription.id, name: subscription.name }, "danger")}
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function renderProfiles(profiles, activeProfile, activeNode) {
-      if (!profiles.length) {
-        renderEmpty(els.profileList, "Профилей пока нет.");
-        return;
-      }
-
-      els.profileList.innerHTML = profiles.map((profile) => {
-        const selected = profile.id === state.selectedProfileId;
-        const isActive = activeProfile?.id === profile.id;
-        const enabledNodes = (profile.nodes || []).filter((node) => node.enabled).length;
-        const badges = [
-          badge(profile.kind === "manual" ? "manual" : "subscription"),
-          badge(profile.enabled ? "enabled" : "disabled", profile.enabled ? "success" : "danger"),
-          badge(`узлы ${enabledNodes}/${profile.nodes?.length || 0}`)
-        ];
-        if (isActive && activeNode) badges.push(badge("активный профиль", "success"));
-
-        return `
-          <div class="list-row" data-selected="${selected ? "true" : "false"}">
-            <div class="list-main">
-              <strong class="row-title">${escapeHtml(profile.name)}</strong>
-              <div class="row-meta">${escapeHtml(profile.source_subscription_id ? `subscription ${profile.source_subscription_id}` : "ручной профиль")}</div>
-              <div class="badge-row">${badges.join("")}</div>
-            </div>
-            <div class="inline-actions">
-              ${tinyButton("Показать", "select-profile", { profileId: profile.id })}
-              ${tinyButton("Переименовать", "rename-profile", { profileId: profile.id, name: profile.name })}
-              ${profile.id !== "manual" ? tinyButton(profile.enabled ? "Отключить" : "Включить", "toggle-profile", { profileId: profile.id, enabled: String(profile.enabled) }, "accent") : ""}
-              ${profile.id !== "manual" ? tinyButton("Удалить", "delete-profile", { profileId: profile.id, name: profile.name }, "danger") : ""}
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function renderNodes(profile, activeNode) {
-      if (!profile) {
-        renderEmpty(els.nodeList, "Выбери профиль, чтобы увидеть узлы.");
-        return;
-      }
-
-      if (!profile.nodes || !profile.nodes.length) {
-        renderEmpty(els.nodeList, "В этом профиле пока нет узлов.");
-        return;
-      }
-
-      els.nodeList.innerHTML = profile.nodes.map((node) => {
-        const isActive = activeNode?.id === node.id;
-        const meta = [
-          `${node.protocol.toUpperCase()} · ${node.normalized.address}:${node.normalized.port}`,
-          `origin=${node.origin?.kind || "—"}`,
-          node.normalized.network ? `network=${node.normalized.network}` : ""
-        ].filter(Boolean).join(" · ");
-
-        return `
-          <div class="list-row" data-selected="${isActive ? "true" : "false"}">
-            <div class="list-main">
-              <strong class="row-title">${escapeHtml(node.name)}</strong>
-              <div class="row-meta">${escapeHtml(meta)}</div>
-              <div class="badge-row">
-                ${badge(node.enabled ? "enabled" : "disabled", node.enabled ? "success" : "danger")}
-                ${isActive ? badge("активный узел", "success") : ""}
-              </div>
-            </div>
-            <div class="inline-actions">
-              ${tinyButton("Активировать", "activate-node", { profileId: profile.id, nodeId: node.id })}
-              ${tinyButton("Переименовать", "rename-node", { profileId: profile.id, nodeId: node.id, name: node.name })}
-              ${tinyButton(node.enabled ? "Отключить" : "Включить", "toggle-node", { profileId: profile.id, nodeId: node.id, enabled: String(node.enabled) }, "accent")}
-              ${tinyButton("Удалить", "delete-node", { profileId: profile.id, nodeId: node.id, name: node.name }, "danger")}
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    async function loadStore() {
-      const response = await fetch("/api/store", { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`store ${response.status}`);
-      }
-      const data = await response.json();
-      if (data.status) applyStatus(data.status);
-      if (data.store) applyStore(data.store);
-      return data;
-    }
-
-    async function apiPost(endpoint, payload = {}) {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || `${endpoint} ${response.status}`);
-      }
-      return data;
-    }
-
-    async function runAction(endpoint) {
-      setBusy(true);
-      try {
-        const data = await apiPost(endpoint, {});
-        applyStatus(data.status);
-      } catch (error) {
-        els.lastActionMessage.textContent = `Ошибка: ${error.message}`;
-      } finally {
-        setBusy(false);
-        await loadStore().catch(() => {});
-      }
-    }
-
-    async function saveLoggingSetting() {
-      setBusy(true);
-      try {
-        const data = await apiPost("/api/settings/logging", { enabled: els.loggingToggle.checked });
-        applyStatus(data.status);
-      } catch (error) {
-        els.loggingToggle.checked = !els.loggingToggle.checked;
-        els.lastActionMessage.textContent = `Ошибка сохранения настройки: ${error.message}`;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function previewImport() {
-      const data = await apiPost("/api/import/preview", { text: els.importInput.value });
-      renderPreview(data.results || []);
-    }
-
-    async function saveImport() {
-      setBusy(true);
-      try {
-        const data = await apiPost("/api/import/save", {
-          text: els.importInput.value,
-          activate_single: els.activateSingleToggle.checked
-        });
-        renderPreview(data.results || []);
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-      } catch (error) {
-        els.lastActionMessage.textContent = `Ошибка импорта: ${error.message}`;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function setRuntimePreference(mode) {
-      setBusy(true);
-      try {
-        const data = await apiPost("/api/runtime/preference", { mode });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-      } catch (error) {
-        els.lastActionMessage.textContent = `Ошибка переключения runtime: ${error.message}`;
-        throw error;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function addSubscription() {
-      setBusy(true);
-      try {
-        const data = await apiPost("/api/subscriptions/add", {
-          name: els.subscriptionName.value,
-          url: els.subscriptionUrl.value
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        if (data.focus_profile_id) {
-          state.selectedProfileId = data.focus_profile_id;
-          if (data.store) applyStore(data.store);
-        }
-
-        const refresh = data.refresh || null;
-        if (refresh) {
-          const imported = refresh.valid || 0;
-          const uniqueNodes = refresh.unique_nodes || 0;
-          const invalid = refresh.invalid || 0;
-          const duplicates = refresh.duplicate_lines || 0;
-          setFeedback({
-            tone: "success",
-            title: "Подписка добавлена",
-            copy: `Источник сохранён. Получено валидных строк: ${imported}. Сохранено уникальных узлов: ${uniqueNodes}.${duplicates ? ` Дублей схлопнуто: ${duplicates}.` : ""}${invalid ? ` Невалидных строк: ${invalid}.` : ""}`,
-            badges: [
-              badge(`профиль ${data.subscription?.name || "создан"}`, "accent"),
-              refresh ? badge(`строк ${imported}`, "success") : "",
-              refresh ? badge(`узлов ${uniqueNodes}`, "accent") : "",
-              duplicates ? badge(`дублей ${duplicates}`, "accent") : "",
-              invalid ? badge(`невалидных ${invalid}`, "danger") : "",
-              data.status?.runtime?.preference === "builtin"
-                ? badge("runtime остаётся на builtin до ручного переключения", "accent")
-                : "",
-            ].filter(Boolean),
-          });
-        } else {
-          setFeedback({
-            tone: data.ok ? "success" : "danger",
-            title: data.ok ? "Подписка добавлена" : "Ошибка подписки",
-            copy: data.message || "Результат операции получен.",
-          });
-        }
-
-        if (data.ok) {
-          els.subscriptionName.value = "";
-          els.subscriptionUrl.value = "";
-        }
-      } catch (error) {
-        setFeedback({
-          tone: "danger",
-          title: "Не удалось добавить подписку",
-          copy: error.message,
-        });
-        els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function refreshAllSubscriptions() {
-      setBusy(true);
-      try {
-        const data = await apiPost("/api/subscriptions/refresh-all", {});
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        setFeedback({
-          tone: data.refresh_all?.error ? "danger" : "success",
-          title: "Обновление подписок завершено",
-          copy: `Успешно: ${data.refresh_all?.ok || 0}. Ошибок: ${data.refresh_all?.error || 0}.`,
-        });
-      } catch (error) {
-        setFeedback({
-          tone: "danger",
-          title: "Не удалось обновить подписки",
-          copy: error.message,
-        });
-        els.lastActionMessage.textContent = `Ошибка обновления подписок: ${error.message}`;
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    async function handleSubscriptionAction(button) {
-      const { action, subscriptionId, profileId, name, enabled } = button.dataset;
-      if (action === "open-subscription-profile") {
-        state.selectedProfileId = profileId;
-        if (state.storePayload) applyStore(state.storePayload);
-        return;
-      }
-
-      if (action === "refresh-subscription") {
-        const data = await apiPost("/api/subscriptions/refresh", { subscription_id: subscriptionId });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        const uniqueNodes = data.refresh?.unique_nodes || 0;
-        const duplicateLines = data.refresh?.duplicate_lines || 0;
-        setFeedback({
-          tone: "success",
-          title: "Подписка обновлена",
-          copy: `Валидных строк: ${data.refresh?.valid || 0}. Сохранено уникальных узлов: ${uniqueNodes}.${duplicateLines ? ` Дублей схлопнуто: ${duplicateLines}.` : ""} Невалидных строк: ${data.refresh?.invalid || 0}.`,
-          badges: [
-            badge(`формат ${data.refresh?.format || "—"}`, "accent"),
-            badge(`строк ${data.refresh?.valid || 0}`, "success"),
-            badge(`узлов ${uniqueNodes}`, "accent"),
-            duplicateLines ? badge(`дублей ${duplicateLines}`, "accent") : "",
-            (data.refresh?.invalid || 0) ? badge(`невалидных ${data.refresh?.invalid || 0}`, "danger") : "",
-          ].filter(Boolean),
-        });
-        return;
-      }
-
-      if (action === "toggle-subscription") {
-        const data = await apiPost("/api/subscriptions/update", {
-          subscription_id: subscriptionId,
-          enabled: enabled !== "true"
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        setFeedback({
-          tone: "accent",
-          title: "Состояние подписки изменено",
-          copy: data.message || "Настройки подписки сохранены.",
-        });
-        return;
-      }
-
-      if (action === "rename-subscription") {
-        const nextName = window.prompt("Новое имя подписки:", name || "");
-        if (!nextName) return;
-        const data = await apiPost("/api/subscriptions/update", {
-          subscription_id: subscriptionId,
-          name: nextName
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        setFeedback({
-          tone: "accent",
-          title: "Имя подписки обновлено",
-          copy: `Новое имя: ${nextName}.`,
-        });
-        return;
-      }
-
-      if (action === "delete-subscription") {
-        if (!window.confirm(`Удалить подписку '${name || "без имени"}' и связанный профиль?`)) return;
-        const data = await apiPost("/api/subscriptions/delete", { subscription_id: subscriptionId });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        setFeedback({
-          tone: "danger",
-          title: "Подписка удалена",
-          copy: `Источник '${name || "без имени"}' и связанный профиль удалены.`,
-        });
-      }
-    }
-
-    async function handleProfileAction(button) {
-      const { action, profileId, name, enabled } = button.dataset;
-      if (action === "select-profile") {
-        state.selectedProfileId = profileId;
-        if (state.storePayload) {
-          applyStore(state.storePayload);
-        }
-        return;
-      }
-
-      if (action === "rename-profile") {
-        const nextName = window.prompt("Новое имя профиля:", name || "");
-        if (!nextName) return;
-        const data = await apiPost("/api/profiles/update", { profile_id: profileId, name: nextName });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        return;
-      }
-
-      if (action === "toggle-profile") {
-        const data = await apiPost("/api/profiles/update", {
-          profile_id: profileId,
-          enabled: enabled !== "true"
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        return;
-      }
-
-      if (action === "delete-profile") {
-        if (!window.confirm(`Удалить профиль '${name || "без имени"}'?`)) return;
-        const data = await apiPost("/api/profiles/delete", { profile_id: profileId });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-      }
-    }
-
-    async function handleNodeAction(button) {
-      const { action, profileId, nodeId, name, enabled } = button.dataset;
-      if (action === "activate-node") {
-        const data = await apiPost("/api/selection/activate", { profile_id: profileId, node_id: nodeId });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        return;
-      }
-
-      if (action === "rename-node") {
-        const nextName = window.prompt("Новое имя узла:", name || "");
-        if (!nextName) return;
-        const data = await apiPost("/api/nodes/update", {
-          profile_id: profileId,
-          node_id: nodeId,
-          name: nextName
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        return;
-      }
-
-      if (action === "toggle-node") {
-        const data = await apiPost("/api/nodes/update", {
-          profile_id: profileId,
-          node_id: nodeId,
-          enabled: enabled !== "true"
-        });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-        return;
-      }
-
-      if (action === "delete-node") {
-        if (!window.confirm(`Удалить узел '${name || "без имени"}'?`)) return;
-        const data = await apiPost("/api/nodes/delete", { profile_id: profileId, node_id: nodeId });
-        if (data.status) applyStatus(data.status);
-        if (data.store) applyStore(data.store);
-      }
-    }
-
-    els.startButton.addEventListener("click", () => runAction("/api/start"));
-    els.stopButton.addEventListener("click", () => runAction("/api/stop"));
-    els.diagButton.addEventListener("click", () => runAction("/api/diagnostics"));
-    els.loggingToggle.addEventListener("change", saveLoggingSetting);
-    els.previewButton.addEventListener("click", () => previewImport().catch((error) => {
-      els.lastActionMessage.textContent = `Ошибка предпросмотра: ${error.message}`;
-    }));
-    els.saveImportButton.addEventListener("click", saveImport);
-    els.addSubscriptionButton.addEventListener("click", addSubscription);
-    els.refreshAllButton.addEventListener("click", refreshAllSubscriptions);
-    for (const button of runtimeModeButtons) {
-      button.addEventListener("click", () => {
-        setRuntimePreference(button.dataset.runtimeMode).catch(() => {});
-      });
-    }
-    els.importFile.addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      els.importInput.value = await file.text();
-    });
-    els.subscriptionList.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-action]");
-      if (!button) return;
-      handleSubscriptionAction(button).catch((error) => {
-        setFeedback({
-          tone: "danger",
-          title: "Ошибка операции по подписке",
-          copy: error.message,
-        });
-        els.lastActionMessage.textContent = `Ошибка подписки: ${error.message}`;
-      });
-    });
-    els.profileList.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-action]");
-      if (!button) return;
-      handleProfileAction(button).catch((error) => {
-        els.lastActionMessage.textContent = `Ошибка профиля: ${error.message}`;
-      });
-    });
-    els.nodeList.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-action]");
-      if (!button) return;
-      handleNodeAction(button).catch((error) => {
-        els.lastActionMessage.textContent = `Ошибка узла: ${error.message}`;
-      });
-    });
-
-    clearFeedback();
-    loadStore().catch((error) => {
-      els.lastActionMessage.textContent = `Не удалось получить состояние: ${error.message}`;
-    });
-
-    state.polling = window.setInterval(() => {
-      if (!state.busy) {
-        loadStore().catch(() => {});
-      }
-    }, 4000);
-  </script>
-</body>
-</html>
-"""
-
+# Основной web-интерфейс хранится только в одном asset-файле.
+INDEX_HTML = load_gui_asset(REVIEW_GUI_ASSET)
 
 @dataclass
 class CommandResult:
@@ -2125,7 +156,7 @@ def iso_now() -> str:
 
 
 def load_settings() -> dict[str, Any]:
-    return read_or_migrate_gui_settings(APP_PATHS, uid=REAL_UID, gid=REAL_GID)
+    return read_gui_settings(APP_PATHS, uid=REAL_UID, gid=REAL_GID)
 
 
 def save_settings(file_logs_enabled: bool) -> None:
@@ -2164,8 +195,60 @@ def read_resolv_conf_nameservers() -> list[str]:
     return servers
 
 
-def load_singbox_config() -> dict[str, Any]:
-    return read_json_config(SINGBOX_CONFIG_PATH)
+def read_interface_addresses(interface_name: str) -> str:
+    if not interface_name:
+        return "—"
+
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "addr", "show", "dev", interface_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return "—"
+
+    addresses: list[str] = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4:
+            addresses.append(parts[3])
+
+    return ", ".join(addresses) if addresses else "—"
+
+
+def describe_stack_status(
+    *,
+    xray_alive: bool,
+    tun_present: bool,
+    tun_interface: str,
+) -> dict[str, str]:
+    tun_label = tun_interface or "tun0"
+
+    if xray_alive and tun_present:
+        return {
+            "state": "running",
+            "label": "Подключение активно",
+            "description": f"Xray и {tun_label} активны.",
+            "stack_line": "Xray core",
+            "stack_subline": "Единый TUN-runtime проекта",
+        }
+    if xray_alive or tun_present:
+        return {
+            "state": "degraded",
+            "label": "Состояние частичное",
+            "description": f"Часть runtime активна, стоит снять диагностику. Интерфейс: {tun_label}.",
+            "stack_line": "Xray core",
+            "stack_subline": "Единый TUN-runtime проекта",
+        }
+    return {
+        "state": "stopped",
+        "label": "Runtime остановлен",
+        "description": f"Процессы остановлены, {tun_label} не поднят.",
+        "stack_line": "Xray core",
+        "stack_subline": "Единый TUN-runtime проекта",
+    }
 
 
 def find_latest_diagnostic() -> Path | None:
@@ -2248,18 +331,7 @@ def resolve_active_xray_config_path(
         if candidate.is_absolute() and candidate.exists():
             return candidate
 
-    runtime_preference = get_runtime_preference(store)
-    selection = store.get("active_selection", {})
-    has_generated_candidate = (
-        runtime_preference == "store"
-        and selection.get("profile_id")
-        and selection.get("node_id")
-        and APP_PATHS.generated_xray_config_file.exists()
-    )
-    if has_generated_candidate:
-        return APP_PATHS.generated_xray_config_file
-
-    return XRAY_TEMPLATE_PATH
+    return APP_PATHS.generated_xray_config_file
 
 
 def describe_runtime_state(
@@ -2270,53 +342,49 @@ def describe_runtime_state(
     active_profile: dict[str, Any] | None,
     active_node: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    runtime_preference = get_runtime_preference(store)
-    builtin_config = read_json_config(XRAY_TEMPLATE_PATH)
-    builtin_has_placeholders = bool(builtin_config) and config_has_placeholders(builtin_config)
-    store_candidate_ready = bool(
+    start_ready = bool(
         active_profile
         and active_profile.get("enabled", True)
         and node_can_render_runtime(active_node)
         and APP_PATHS.generated_xray_config_file.exists()
     )
 
-    next_start_source = "store" if runtime_preference == "store" and store_candidate_ready else "builtin"
-    if runtime_preference == "builtin":
-        next_start_reason = "Выбран явный ручной режим: при следующем старте будет использован operator-managed xray-tun-subvost.json."
-    elif store_candidate_ready:
-        next_start_reason = "При следующем старте bundle возьмёт сгенерированный config из выбранного узла."
+    if start_ready:
+        next_start_source = "store"
+        next_start_reason = "При следующем старте bundle возьмёт сгенерированный config активного узла."
     else:
-        next_start_reason = "Режим выбранного узла включён, но готового узла нет: до появления валидного узла bundle использует встроенный config."
+        next_start_source = "blocked"
+        next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
 
     live_source = None
     if stack_is_live:
         live_source = str(state.get("XRAY_CONFIG_SOURCE") or "").strip().lower() or None
-        if live_source not in {"store", "builtin", "custom"}:
+        if live_source not in {"store", "custom"}:
             live_source = None
 
     return {
-        "preference": runtime_preference,
-        "preference_label": runtime_source_label(runtime_preference),
+        "selection_required": True,
+        "start_ready": start_ready,
         "live_source": live_source,
         "live_source_label": runtime_source_label(live_source) if live_source else None,
         "next_start_source": next_start_source,
         "next_start_source_label": runtime_source_label(next_start_source),
         "next_start_reason": next_start_reason,
-        "store_candidate_ready": store_candidate_ready,
-        "builtin_has_placeholders": builtin_has_placeholders,
-        "builtin_ready": bool(builtin_config) and not builtin_has_placeholders,
-        "builtin_path": str(XRAY_TEMPLATE_PATH),
         "generated_path": str(APP_PATHS.generated_xray_config_file),
     }
 
 
-def parse_connection_info(xray: dict[str, Any], singbox: dict[str, Any], active_node: dict[str, Any] | None) -> dict[str, str]:
+def parse_connection_info(
+    xray: dict[str, Any],
+    active_node: dict[str, Any] | None,
+    *,
+    tun_interface: str,
+) -> dict[str, str]:
 
     remote_endpoint = "—"
     remote_sni = "—"
     socks_port = "127.0.0.1:10808"
-    mixed_port = "127.0.0.1:7897"
-    tun_address = "—"
+    tun_address = read_interface_addresses(tun_interface)
     protocol_label = "—"
     active_name = active_node.get("name", "—") if active_node else "—"
     active_origin = active_node.get("origin", {}).get("kind", "—") if active_node else "—"
@@ -2353,32 +421,21 @@ def parse_connection_info(xray: dict[str, Any], singbox: dict[str, Any], active_
     except StopIteration:
         pass
 
-    try:
-        mixed_in = next(item for item in singbox.get("inbounds", []) if item.get("tag") == "mixed-in")
-        mixed_port = f"{mixed_in.get('listen', '127.0.0.1')}:{mixed_in.get('listen_port', 7897)}"
-    except StopIteration:
-        pass
-
-    try:
-        tun_in = next(item for item in singbox.get("inbounds", []) if item.get("tag") == "tun-in")
-        addresses = tun_in.get("address", [])
-        if addresses:
-            tun_address = ", ".join(addresses)
-    except StopIteration:
-        pass
-
-    dns_servers = [
-        f"{server.get('server')}:{server.get('server_port', 53)}"
-        for server in singbox.get("dns", {}).get("servers", [])
-        if server.get("server")
-    ]
+    dns_servers = []
+    for server in xray.get("dns", {}).get("servers", []) or []:
+        if isinstance(server, str):
+            dns_servers.append(server)
+            continue
+        address = server.get("address")
+        if address:
+            dns_servers.append(address)
 
     return {
         "remote_endpoint": remote_endpoint,
         "remote_sni": remote_sni,
-        "local_ports": f"SOCKS {socks_port} | MIXED {mixed_port}",
+        "local_ports": f"SOCKS {socks_port}",
         "tun_address": tun_address,
-        "tun_interface": "tun0",
+        "tun_interface": tun_interface or "tun0",
         "dns_servers": ", ".join(dns_servers) if dns_servers else "—",
         "protocol_label": protocol_label,
         "active_name": active_name,
@@ -2391,28 +448,24 @@ def collect_status() -> dict[str, Any]:
     store = ensure_store_ready()
     state = load_state_file()
     active_profile, active_node = get_active_node(store)
+    runtime_impl = str(state.get("RUNTIME_IMPL") or "xray").strip().lower() or "xray"
+    if runtime_impl != "xray":
+        runtime_impl = "xray"
+    tun_interface = str(state.get("TUN_INTERFACE") or "tun0").strip() or "tun0"
     xray_pid = state.get("XRAY_PID")
-    singbox_pid = state.get("SINGBOX_PID")
     xray_alive = is_pid_alive(xray_pid)
-    singbox_alive = is_pid_alive(singbox_pid)
-    tun_present = Path("/sys/class/net/tun0").exists()
-    stack_is_live = xray_alive or singbox_alive or tun_present
+    tun_present = Path("/sys/class/net").joinpath(tun_interface).exists()
+    stack_is_live = xray_alive or tun_present
     active_xray_config_path = resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
     xray = read_json_config(active_xray_config_path)
-    singbox = load_singbox_config()
-
-    if xray_alive and singbox_alive and tun_present:
-        state_key = "running"
-        state_label = "Подключение активно"
-        description = "Xray, sing-box и tun0 активны."
-    elif xray_alive or singbox_alive or tun_present:
-        state_key = "degraded"
-        state_label = "Состояние частичное"
-        description = "Часть стека активна, стоит снять диагностику."
-    else:
-        state_key = "stopped"
-        state_label = "Стек остановлен"
-        description = "Процессы остановлены, tun0 не поднят."
+    stack_status = describe_stack_status(
+        xray_alive=xray_alive,
+        tun_present=tun_present,
+        tun_interface=tun_interface,
+    )
+    state_key = stack_status["state"]
+    state_label = stack_status["label"]
+    description = stack_status["description"]
 
     dns_runtime = ", ".join(read_resolv_conf_nameservers()) or "DNS не прочитан"
     latest_diag = find_latest_diagnostic()
@@ -2424,7 +477,7 @@ def collect_status() -> dict[str, Any]:
     )
 
     log_files = []
-    for candidate in [LOG_DIR / "xray-subvost.log", LOG_DIR / "singbox-subvost.log"]:
+    for candidate in [LOG_DIR / "xray-subvost.log"]:
         if candidate.exists():
             log_files.append(str(candidate))
 
@@ -2438,44 +491,47 @@ def collect_status() -> dict[str, Any]:
     )
     if active_xray_config_path == APP_PATHS.active_runtime_xray_config_file:
         config_origin = "snapshot"
-    elif active_xray_config_path == APP_PATHS.generated_xray_config_file:
-        config_origin = "generated"
     else:
-        config_origin = "builtin"
+        config_origin = "generated"
 
     return {
         "summary": {
             "state": state_key,
             "label": state_label,
             "description": description,
-            "stack_line": "Xray + sing-box",
-            "stack_subline": "Через существующие bundle-скрипты",
-            "tun_line": "tun0 готов" if tun_present else "tun0 отсутствует",
+            "stack_line": stack_status["stack_line"],
+            "stack_subline": stack_status["stack_subline"],
+            "tun_line": f"{tun_interface} готов" if tun_present else f"{tun_interface} отсутствует",
             "dns_line": dns_runtime,
             "logs_line": "Файловые логи включены" if settings["file_logs_enabled"] else "Файловые логи выключены",
             "logs_subline": "Применяется при следующем старте",
             "badges": [
                 state_label,
-                "tun0 найден" if tun_present else "tun0 не найден",
+                f"{tun_interface} найден" if tun_present else f"{tun_interface} не найден",
                 "логирование включено" if settings["file_logs_enabled"] else "логирование выключено",
             ],
         },
         "settings": settings,
         "processes": {
+            "runtime_impl": runtime_impl,
             "xray_pid": xray_pid if xray_alive else None,
-            "singbox_pid": singbox_pid if singbox_alive else None,
             "xray_alive": xray_alive,
-            "singbox_alive": singbox_alive,
             "tun_present": tun_present,
+            "tun_interface": tun_interface,
         },
         "connection": {
-            **parse_connection_info(xray, singbox, active_node),
+            **parse_connection_info(
+                xray,
+                active_node,
+                tun_interface=tun_interface,
+            ),
             "dns_servers": dns_runtime,
         },
         "runtime": {
             "mode": runtime_mode,
             "mode_label": runtime_label,
             "requires_terminal_sudo_hint": os.geteuid() != 0,
+            "impl": runtime_impl,
             "config_origin": config_origin,
             "active_xray_config": str(active_xray_config_path),
             **runtime_state,
@@ -2505,7 +561,15 @@ def collect_status() -> dict[str, Any]:
 
 
 def handle_start() -> dict[str, Any]:
-    ensure_store_ready()
+    store = ensure_store_ready()
+    active_profile, active_node = get_active_node(store)
+    if not (
+        active_profile
+        and active_profile.get("enabled", True)
+        and node_can_render_runtime(active_node)
+        and APP_PATHS.generated_xray_config_file.exists()
+    ):
+        raise ValueError("Старт невозможен: сначала выбери и активируй валидный узел.")
     settings = load_settings()
     env = {"ENABLE_FILE_LOGS": "1" if settings["file_logs_enabled"] else "0"}
     result = run_shell_action("Старт", RUN_SCRIPT, env)
@@ -2568,20 +632,6 @@ def store_response(
     return payload
 
 
-def rollback_subscription_failure(
-    store: dict[str, Any],
-    *,
-    delete_subscription_id: str | None = None,
-) -> None:
-    if delete_subscription_id:
-        try:
-            delete_subscription(store, delete_subscription_id)
-        except ValueError:
-            pass
-    set_runtime_preference(store, "builtin")
-    persist_store(store)
-
-
 def handle_store_snapshot() -> dict[str, Any]:
     store = ensure_store_ready()
     return {
@@ -2637,10 +687,12 @@ def handle_subscription_add(payload: dict[str, Any]) -> dict[str, Any]:
             f"Сохранено уникальных узлов: {refresh_result['unique_nodes']}."
         )
     except ValueError as exc:
-        rollback_subscription_failure(store, delete_subscription_id=subscription["id"])
-        raise ValueError(
-            f"Подписка не добавлена: {exc}. Bundle переведён в режим встроенного config."
-        ) from exc
+        try:
+            delete_subscription(store, subscription["id"])
+        except ValueError:
+            pass
+        persist_store(store)
+        raise ValueError(f"Подписка не добавлена: {exc}.") from exc
 
     return store_response(
         store,
@@ -2670,10 +722,8 @@ def handle_subscription_refresh(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         result = refresh_subscription(store, subscription_id)
     except ValueError as exc:
-        rollback_subscription_failure(store)
-        raise ValueError(
-            f"Подписка не обновлена: {exc}. Сохранена предыдущая версия, bundle переведён в режим встроенного config."
-        ) from exc
+        persist_store(store)
+        raise ValueError(f"Подписка не обновлена: {exc}. Сохранена предыдущая версия.") from exc
     return store_response(
         store,
         name="Обновление подписки",
@@ -2688,9 +738,7 @@ def handle_subscription_refresh_all() -> dict[str, Any]:
     store = ensure_store_ready()
     result = refresh_all_subscriptions(store)
     ok = result["error"] == 0
-    if not ok:
-        set_runtime_preference(store, "builtin")
-    message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась. Bundle переведён в режим встроенного config."
+    message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась."
     return store_response(
         store,
         name="Обновить все подписки",
@@ -2732,25 +780,6 @@ def handle_subscription_delete(payload: dict[str, Any]) -> dict[str, Any]:
         message="Подписка и связанный профиль удалены.",
         details=json.dumps({"subscription_id": subscription_id}, ensure_ascii=False),
     )
-
-
-def handle_runtime_preference_update(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
-    preference = set_runtime_preference(store, str(payload.get("mode", "")))
-    message = (
-        "Следующий старт будет использовать встроенный config."
-        if preference == "builtin"
-        else "Следующий старт будет использовать выбранный узел, если он готов."
-    )
-    return store_response(
-        store,
-        name="Источник runtime",
-        ok=True,
-        message=message,
-        details=f"runtime_preference={preference}",
-        extra={"runtime_preference": preference},
-    )
-
 
 def handle_selection_activate(payload: dict[str, Any]) -> dict[str, Any]:
     store = ensure_store_ready()
@@ -2892,15 +921,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(load_binary_asset(FAVICON_PATH), "image/svg+xml; charset=utf-8")
             return
 
-        if request_path in ROOT_GUI_PATHS:
-            self.send_html(INDEX_HTML)
-            return
-
-        if request_path in REVIEW_GUI_PATHS:
-            self.send_html(load_gui_asset(REVIEW_GUI_ASSET))
-            return
-
-        if request_path in LEGACY_GUI_PATHS:
+        if request_path in ROOT_GUI_PATHS or request_path in REVIEW_GUI_PATHS or request_path in LEGACY_GUI_PATHS:
             self.send_html(INDEX_HTML)
             return
 
@@ -2937,7 +958,6 @@ class Handler(BaseHTTPRequestHandler):
             "/api/stop",
             "/api/diagnostics",
             "/api/import/save",
-            "/api/runtime/preference",
             "/api/subscriptions/add",
             "/api/subscriptions/refresh",
             "/api/subscriptions/refresh-all",
@@ -2973,8 +993,6 @@ class Handler(BaseHTTPRequestHandler):
                 response = {"ok": True, "status": handle_diagnostics()}
             elif self.path == "/api/import/save":
                 response = handle_import_save(payload)
-            elif self.path == "/api/runtime/preference":
-                response = handle_runtime_preference_update(payload)
             elif self.path == "/api/subscriptions/add":
                 response = handle_subscription_add(payload)
             elif self.path == "/api/subscriptions/refresh":
