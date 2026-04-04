@@ -53,3 +53,4 @@
 | `TASK-2026-0035` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0035-proxy-client-reference-ui/` | Редизайн review-экрана по референсам proxy-клиентов |
 | `TASK-2026-0036` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0036-xray-core-only-runtime/` | Альтернативный TUN-runtime только на `xray-core` без обязательного `sing-box` |
 | `TASK-2026-0037` | `—` | `на проверке` | `высокий` | `—` | `knowledge/tasks/TASK-2026-0037-pure-xray-repo/` | Полная миграция репозитория на чистый `xray`, с одной рабочей web-GUI и сохранением импорта подписок по URL |
+| `TASK-2026-0037.1` | `TASK-2026-0037` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0037-pure-xray-repo/subtasks/TASK-2026-0037.1-sidebar-navigation-fix/` | Упростить sidebar основной web-GUI и вернуть рабочую навигацию по пунктам меню |
