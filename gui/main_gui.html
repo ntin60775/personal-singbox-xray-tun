@@ -309,7 +309,17 @@
       overflow-wrap: anywhere;
     }
 
-    .action-row,
+    .action-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(342px, 396px);
+      gap: 12px;
+      align-self: end;
+      align-items: stretch;
+      position: relative;
+      z-index: 1;
+    }
+
+    .action-buttons,
     .filter-row,
     .inline-actions {
       display: flex;
@@ -317,17 +327,19 @@
       gap: 8px;
     }
 
-    .action-row {
-      justify-content: flex-end;
-      align-self: end;
-      position: relative;
-      z-index: 1;
+    .action-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: stretch;
     }
 
     .action-button,
     .ghost-button,
     .tiny-button,
     .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       min-height: 38px;
       padding: 0 14px;
       border-radius: 999px;
@@ -345,6 +357,13 @@
         box-shadow 160ms ease;
     }
 
+    .action-button {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 16px;
+      font-size: 0.84rem;
+    }
+
     .action-button.primary {
       background: linear-gradient(135deg, rgba(115, 172, 255, 0.92), rgba(65, 114, 204, 0.92));
       border-color: rgba(142, 191, 255, 0.32);
@@ -359,6 +378,54 @@
       padding: 0 12px;
       color: #c5d6ea;
       background: linear-gradient(180deg, rgba(20, 28, 40, 0.86), rgba(13, 18, 26, 0.94));
+    }
+
+    .connection-chip {
+      min-width: 0;
+      min-height: 46px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.14);
+      background: linear-gradient(180deg, rgba(17, 24, 34, 0.94), rgba(12, 18, 26, 0.92));
+      display: grid;
+      gap: 4px;
+      align-content: center;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .connection-chip span {
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .connection-chip strong {
+      font-size: 0.92rem;
+      line-height: 1.2;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      word-break: break-word;
+    }
+
+    .connection-chip[data-state="running"] {
+      border-color: rgba(55, 198, 128, 0.22);
+      background: linear-gradient(180deg, rgba(18, 40, 34, 0.82), rgba(14, 24, 22, 0.92));
+    }
+
+    .connection-chip[data-state="degraded"] {
+      border-color: rgba(240, 178, 74, 0.24);
+      background: linear-gradient(180deg, rgba(54, 41, 24, 0.84), rgba(22, 18, 12, 0.92));
+    }
+
+    .connection-chip[data-state="running"] strong {
+      color: #d8ffea;
+    }
+
+    .connection-chip[data-state="degraded"] strong {
+      color: #ffe7bf;
     }
 
     .tiny-button {
@@ -750,7 +817,9 @@
 
     .error-banner {
       display: grid;
-      gap: 4px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
       padding: 12px 13px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(255, 121, 121, 0.22);
@@ -761,6 +830,12 @@
       display: none;
     }
 
+    .error-banner-content {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
     .error-banner strong {
       font-size: 0.82rem;
     }
@@ -769,6 +844,16 @@
       color: #ffd0d0;
       font-size: 0.8rem;
       line-height: 1.45;
+    }
+
+    .banner-dismiss {
+      min-width: 34px;
+      width: 34px;
+      min-height: 34px;
+      padding: 0;
+      color: #ffd0d0;
+      border-color: rgba(255, 121, 121, 0.2);
+      background: rgba(22, 12, 15, 0.42);
     }
 
     .log-entry {
@@ -884,13 +969,12 @@
         grid-row: auto;
       }
 
-      .metric-strip,
-      .action-row {
-        justify-content: flex-start;
-      }
-
       .metric-strip {
         grid-template-columns: repeat(3, minmax(200px, 1fr));
+      }
+
+      .action-row {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -901,6 +985,10 @@
 
       .metric-strip {
         grid-template-columns: 1fr;
+      }
+
+      .action-buttons {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
 
@@ -940,6 +1028,15 @@
       .subscription-actions,
       .subscription-badges {
         justify-content: flex-start;
+      }
+
+      .action-buttons,
+      .error-banner {
+        grid-template-columns: 1fr;
+      }
+
+      .banner-dismiss {
+        justify-self: end;
       }
     }
   </style>
@@ -1000,9 +1097,15 @@
         </div>
 
         <div class="action-row" aria-label="Основные действия">
-          <button class="action-button primary" id="start-button" type="button">Старт</button>
-          <button class="action-button" id="stop-button" type="button">Стоп</button>
-          <button class="action-button" id="diag-button" type="button">Диагностика</button>
+          <div class="connection-chip" id="connection-chip" data-state="stopped">
+            <span id="connection-label">Время подключения</span>
+            <strong class="mono" id="connection-value">не активно</strong>
+          </div>
+          <div class="action-buttons">
+            <button class="action-button primary" id="start-button" type="button">Старт</button>
+            <button class="action-button" id="stop-button" type="button">Стоп</button>
+            <button class="action-button" id="diag-button" type="button">Диагностика</button>
+          </div>
         </div>
       </header>
 
@@ -1090,8 +1193,17 @@
         </div>
 
         <div class="error-banner" id="error-banner" hidden>
-          <strong>Последняя ошибка</strong>
-          <span id="error-banner-text">Ошибок пока нет.</span>
+          <div class="error-banner-content">
+            <strong>Последняя ошибка</strong>
+            <span id="error-banner-text">Ошибок пока нет.</span>
+          </div>
+          <button
+            class="ghost-button icon-button banner-dismiss"
+            id="error-banner-dismiss"
+            type="button"
+            aria-label="Скрыть последнюю ошибку"
+            title="Скрыть ошибку"
+          >×</button>
         </div>
 
         <div class="log-scroll">
@@ -1104,11 +1216,13 @@
   <script>
     const state = {
       polling: null,
+      clock: null,
       busy: false,
       selectedSubscriptionId: null,
       statusPayload: null,
       storePayload: null,
       logFilter: "all",
+      dismissedErrorSignature: null,
       renderCache: {
         subscriptions: "",
         nodes: "",
@@ -1124,6 +1238,9 @@
       subscriptionIndicator: document.getElementById("subscription-indicator"),
       speedIndicator: document.getElementById("speed-indicator"),
       trafficIndicator: document.getElementById("traffic-indicator"),
+      connectionChip: document.getElementById("connection-chip"),
+      connectionLabel: document.getElementById("connection-label"),
+      connectionValue: document.getElementById("connection-value"),
       startButton: document.getElementById("start-button"),
       stopButton: document.getElementById("stop-button"),
       diagButton: document.getElementById("diag-button"),
@@ -1145,6 +1262,7 @@
       logFilterRow: document.getElementById("log-filter-row"),
       errorBanner: document.getElementById("error-banner"),
       errorBannerText: document.getElementById("error-banner-text"),
+      errorBannerDismiss: document.getElementById("error-banner-dismiss"),
       logList: document.getElementById("log-list"),
     };
 
@@ -1166,6 +1284,20 @@
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
       return date.toLocaleString("ru-RU");
+    }
+
+    function formatDuration(totalSeconds) {
+      const normalized = Math.max(0, Math.floor(totalSeconds || 0));
+      const days = Math.floor(normalized / 86400);
+      const hours = Math.floor((normalized % 86400) / 3600);
+      const minutes = Math.floor((normalized % 3600) / 60);
+      const seconds = normalized % 60;
+      const hh = String(hours).padStart(2, "0");
+      const mm = String(minutes).padStart(2, "0");
+      const ss = String(seconds).padStart(2, "0");
+      if (days > 0) return `${days}д ${hh}:${mm}:${ss}`;
+      if (hours > 0) return `${hours}:${mm}:${ss}`;
+      return `${mm}:${ss}`;
     }
 
     function normalizeDataAttrName(name) {
@@ -1284,6 +1416,51 @@
       return state.statusPayload?.ping?.cache?.[pingKey(profileId, nodeId)] || null;
     }
 
+    function errorSignature(error) {
+      if (!error) return "";
+      return [error.timestamp || "", error.name || "", error.message || ""].join("|");
+    }
+
+    function showErrorBanner(message, signature = "") {
+      els.errorBanner.hidden = false;
+      els.errorBanner.dataset.signature = signature;
+      setTextIfChanged(els.errorBannerText, message || "Ошибка без текста.");
+    }
+
+    function hideErrorBanner() {
+      els.errorBanner.hidden = true;
+      els.errorBanner.dataset.signature = "";
+      setTextIfChanged(els.errorBannerText, "Ошибок пока нет.");
+    }
+
+    function renderConnectionTimer() {
+      const summaryState = state.statusPayload?.summary?.state || "unknown";
+      const connectedSince = state.statusPayload?.runtime?.connected_since || null;
+      const startedAt = connectedSince ? new Date(connectedSince) : null;
+      const timerReady = startedAt instanceof Date && !Number.isNaN(startedAt.getTime());
+
+      setDataAttrIfChanged(els.connectionChip, "state", summaryState);
+      setTextIfChanged(els.connectionLabel, timerReady ? "Время подключения" : "Подключение");
+
+      if (timerReady && (summaryState === "running" || summaryState === "degraded")) {
+        const elapsedSeconds = Math.floor((Date.now() - startedAt.getTime()) / 1000);
+        setTextIfChanged(els.connectionValue, formatDuration(elapsedSeconds));
+        return;
+      }
+
+      if (summaryState === "degraded") {
+        setTextIfChanged(els.connectionValue, "частично активно");
+        return;
+      }
+
+      if (summaryState === "running") {
+        setTextIfChanged(els.connectionValue, "активно");
+        return;
+      }
+
+      setTextIfChanged(els.connectionValue, "не активно");
+    }
+
     function renderHeader() {
       const subscriptions = subscriptionsFromStore();
       const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
@@ -1303,6 +1480,7 @@
         : "нет подписок");
       setHtmlIfChanged(els.speedIndicator, metricSplitMarkup(traffic.rx_rate_label || "—", traffic.tx_rate_label || "—"));
       setHtmlIfChanged(els.trafficIndicator, metricSplitMarkup(traffic.rx_total_label || "—", traffic.tx_total_label || "—"));
+      renderConnectionTimer();
     }
 
     function renderSubscriptions() {
@@ -1430,13 +1608,17 @@
       const filtered = state.logFilter === "error"
         ? entries.filter((entry) => entry.level === "error")
         : entries;
+      const latestErrorSig = errorSignature(latestError);
 
       if (latestError) {
-        els.errorBanner.hidden = false;
-        setTextIfChanged(els.errorBannerText, latestError.message || "Ошибка без текста.");
+        if (latestErrorSig !== state.dismissedErrorSignature) {
+          showErrorBanner(latestError.message || "Ошибка без текста.", latestErrorSig);
+        } else {
+          hideErrorBanner();
+        }
       } else {
-        els.errorBanner.hidden = true;
-        setTextIfChanged(els.errorBannerText, "Ошибок пока нет.");
+        state.dismissedErrorSignature = null;
+        hideErrorBanner();
       }
 
       if (!filtered.length) {
@@ -1510,8 +1692,8 @@
       setHtmlIfChanged(els.trafficIndicator, metricSplitMarkup("—", "—"));
       setTextIfChanged(els.activeSubscription, "Подписка: —");
       setTextIfChanged(els.activeNode, "Узел: —");
-      els.errorBanner.hidden = false;
-      setTextIfChanged(els.errorBannerText, `Не удалось получить состояние: ${error.message}`);
+      const signature = `client:${new Date().toISOString()}:${error.message}`;
+      showErrorBanner(`Не удалось получить состояние: ${error.message}`, signature);
       const markup = `
         <div class="log-entry" data-level="error">
           <div class="log-meta">
@@ -1683,6 +1865,10 @@
       els.logHelpToggle.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
       els.logHelpPanel.hidden = !nextExpanded;
     });
+    els.errorBannerDismiss.addEventListener("click", () => {
+      state.dismissedErrorSignature = els.errorBanner.dataset.signature || "__manual__";
+      hideErrorBanner();
+    });
 
     els.subscriptionList.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-action]");
@@ -1717,6 +1903,7 @@
 
     refreshActionButtons();
     updateFilterButtons();
+    renderConnectionTimer();
     loadStore().catch(reportLoadError);
 
     state.polling = window.setInterval(() => {
@@ -1724,6 +1911,9 @@
         loadStore().catch(() => {});
       }
     }, 4000);
+    state.clock = window.setInterval(() => {
+      renderConnectionTimer();
+    }, 1000);
   </script>
 </body>
 </html>

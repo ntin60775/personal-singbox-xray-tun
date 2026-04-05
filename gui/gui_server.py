@@ -166,6 +166,18 @@ def iso_now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def normalize_iso_timestamp(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        return datetime.fromisoformat(candidate).isoformat(timespec="seconds")
+    except ValueError:
+        return None
+
+
 def humanize_bytes(value: int | None) -> str:
     if value is None or value < 0:
         return "—"
@@ -690,6 +702,9 @@ def collect_status() -> dict[str, Any]:
     )
     traffic = collect_traffic_metrics(tun_interface)
     logs_payload = collect_log_payload()
+    connected_since = normalize_iso_timestamp(state.get("STARTED_AT"))
+    if not stack_is_live:
+        connected_since = None
 
     log_files = []
     for candidate in [LOG_DIR / "xray-subvost.log"]:
@@ -749,6 +764,7 @@ def collect_status() -> dict[str, Any]:
             "impl": runtime_impl,
             "config_origin": config_origin,
             "active_xray_config": str(active_xray_config_path),
+            "connected_since": connected_since,
             **runtime_state,
         },
         "traffic": traffic,

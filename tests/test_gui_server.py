@@ -67,10 +67,14 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('id="panel-log"', html)
         self.assertIn('id="panel-subscriptions"', html)
         self.assertIn('id="panel-nodes"', html)
+        self.assertIn('id="connection-chip"', html)
+        self.assertIn('id="connection-value"', html)
         self.assertIn('id="node-help-toggle"', html)
         self.assertIn('id="log-help-toggle"', html)
+        self.assertIn('id="error-banner-dismiss"', html)
         self.assertIn("Клик по плитке сразу активирует узел.", html)
         self.assertIn("Ошибки всегда видны явно.", html)
+        self.assertIn("Время подключения", html)
         self.assertIn('fetch("/api/store"', html)
         self.assertIn('"/api/nodes/ping"', html)
         self.assertIn('rel="icon"', html)
@@ -193,6 +197,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertEqual(status["state"], "degraded")
         self.assertEqual(status["stack_line"], "Xray core")
         self.assertIn("Часть runtime активна", status["description"])
+
+    def test_normalize_iso_timestamp_preserves_valid_values(self) -> None:
+        self.assertEqual(
+            gui_server.normalize_iso_timestamp("2026-04-05T10:11:12+02:00"),
+            "2026-04-05T10:11:12+02:00",
+        )
+        self.assertEqual(
+            gui_server.normalize_iso_timestamp("2026-04-05T08:11:12Z"),
+            "2026-04-05T08:11:12+00:00",
+        )
+        self.assertIsNone(gui_server.normalize_iso_timestamp("not-a-date"))
 
     def test_collect_traffic_metrics_computes_rates_from_interface_counters(self) -> None:
         previous_sample = gui_server.LAST_TRAFFIC_SAMPLE.copy()
