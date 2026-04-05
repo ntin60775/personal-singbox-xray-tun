@@ -79,6 +79,35 @@ ensure_python3_available() {
   fi
 }
 
+sync_generated_runtime_snapshot_from_store() {
+  local config_home
+
+  config_home="$(subvost_resolve_real_config_home "$REAL_HOME")"
+  python3 - \
+    "$REAL_HOME" \
+    "$config_home" \
+    "$SUBVOST_PROJECT_ROOT" \
+    "$REAL_UID" \
+    "$REAL_GID" <<'PY'
+import sys
+from pathlib import Path
+
+real_home = Path(sys.argv[1])
+config_home = sys.argv[2]
+project_root = Path(sys.argv[3])
+uid = int(sys.argv[4])
+gid = int(sys.argv[5])
+
+sys.path.insert(0, str(project_root / "gui"))
+
+from subvost_paths import build_app_paths  # noqa: E402
+from subvost_store import ensure_store_initialized  # noqa: E402
+
+paths = build_app_paths(real_home, config_home)
+ensure_store_initialized(paths, project_root, uid=uid, gid=gid)
+PY
+}
+
 ensure_tun_device_available() {
   if [[ ! -e /dev/net/tun ]]; then
     echo "Не найден /dev/net/tun. Без него xray-core не сможет поднять TUN-интерфейс." >&2
@@ -344,6 +373,10 @@ DEFAULT_IPV4_INTERFACE=""
 XRAY_CONFIG_SOURCE="store"
 
 ensure_python3_available
+
+if [[ -f "$STORE_FILE_DEFAULT" ]]; then
+  sync_generated_runtime_snapshot_from_store
+fi
 
 mkdir -p "$LOG_DIR"
 ensure_absolute_path "$STATE_FILE" "STATE_FILE"
