@@ -72,7 +72,6 @@
 
 ### Что остаётся на ручную проверку
 
-- push актуального состояния в `origin/main`;
 - финальный human-review README, issue templates и public positioning;
 - перевод репозитория в публичный режим на стороне GitHub.
 
@@ -93,6 +92,7 @@
 - Локальные `refs/heads/*` переписаны через `git-filter-repo` с `--replace-text` и `--path-rename`; backup исходной локальной истории сохранён в `/tmp/public-rewrite-backup-WoCoGg/repo.git`.
 - По `git grep $(git rev-list --branches)` и `rg` целевые private-маркеры больше не находятся в `HEAD` и истории локальных веток.
 - По решению пользователя выбрана лицензия `MIT`, добавлены `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/*` и `.github/pull_request_template.md`.
+- Public-facing пакет закоммичен как `66f83ce` (`docs: add public repo hygiene`) и отправлен в `origin/main`.
 - Пройдены shell/Python/unit-проверки и адресный `markdown-localization-guard`.
 
 ## Критерии завершения

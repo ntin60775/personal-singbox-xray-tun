@@ -78,7 +78,7 @@
 
 Локальная очистка и public-facing polish завершены: рабочее дерево санитизировано, локальные `refs/heads/*` уже были переписаны через `git-filter-repo`, а целевые private-маркеры больше не находятся ни в `HEAD`, ни в истории локальных веток. Поверх этого собран минимально полноценный публичный слой репозитория: `LICENSE` c лицензией `MIT`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, GitHub issue templates и PR template, а `README.md` переписан под внешний сценарий чтения.
 
-Задача остаётся в состоянии `ждёт пользователя`, потому что следующий шаг уже внешний: после локального commit/push проверить финальное позиционирование на GitHub и перевести репозиторий в публичный режим на стороне hosting-площадки.
+Локальные изменения уже закоммичены и отправлены в `origin/main` commit-ом `66f83ce` (`docs: add public repo hygiene`). Задача остаётся в состоянии `ждёт пользователя`, потому что следующий шаг уже внешний: проверить финальное позиционирование на GitHub и перевести репозиторий в публичный режим на стороне hosting-площадки.
 
 ## Стратегия проверки
 
@@ -94,7 +94,6 @@
 
 ### Остаётся на ручную проверку
 
-- push актуального состояния в `origin/main`;
 - финальный human-review README и public-facing файлов уже на конкретной площадке публикации;
 - перевод репозитория в публичный режим на стороне GitHub.
 
@@ -115,4 +114,4 @@
 
 Локально пройдены: `git grep` по `$(git rev-list --branches)`, `rg` по рабочему дереву, `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`, `python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview`, `python3 -m json.tool xray-tun-subvost.json` и адресные прогоны `markdown-localization-guard`.
 
-Остаточные действия и риски: локальный репозиторий и `origin/main` на момент подготовки синхронизированы, поэтому следующий технический шаг — обычный commit/push с public-facing polish. После этого пользователь должен вручную перевести репозиторий в публичный режим на стороне GitHub и проверить, как README, issue templates и policy-файлы выглядят уже на выбранной Git-hosting площадке.
+Остаточные действия и риски: локальный репозиторий и `origin/main` синхронизированы, public-facing polish уже отправлен в удалённый `main`. Пользователь должен вручную перевести репозиторий в публичный режим на стороне GitHub и проверить, как README, issue templates и policy-файлы выглядят уже на выбранной Git-hosting площадке.
