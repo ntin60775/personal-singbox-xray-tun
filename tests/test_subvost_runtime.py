@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -53,6 +54,10 @@ TEMPLATE_CONFIG = {
 
 
 class SubvostRuntimeTests(unittest.TestCase):
+    def test_repo_template_keeps_ip_literal_default_doh_fallback(self) -> None:
+        template = json.loads((REPO_ROOT / "xray-tun-subvost.json").read_text(encoding="utf-8"))
+        self.assertEqual(template["dns"]["servers"][1], "https://8.8.8.8/dns-query")
+
     def test_render_runtime_replaces_only_proxy_outbound(self) -> None:
         normalized_node = {
             "enabled": True,
