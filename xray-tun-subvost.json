@@ -3,10 +3,7 @@
     "loglevel": "info"
   },
   "dns": {
-    "hosts": {
-      "host-a.example.com": "213.24.64.175",
-      "host-b.example.com": "213.24.64.181"
-    },
+    "hosts": {},
     "servers": [
       {
         "address": "https://dns.google/dns-query",
@@ -17,7 +14,7 @@
         ],
         "skipFallback": true
       },
-      "https://8.8.8.8/dns-query"
+      "https://dns.google/dns-query"
     ],
     "queryStrategy": "UseIPv4",
     "disableFallbackIfMatch": true,
@@ -59,7 +56,7 @@
       "settings": {
         "vnext": [
           {
-            "address": "203.0.113.10",
+            "address": "edge.example.com",
             "port": 443,
             "users": [
               {
