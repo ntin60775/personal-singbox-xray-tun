@@ -14,7 +14,7 @@
         ],
         "skipFallback": true
       },
-      "https://dns.google/dns-query"
+      "https://8.8.8.8/dns-query"
     ],
     "queryStrategy": "UseIPv4",
     "disableFallbackIfMatch": true,
