@@ -1,18 +1,42 @@
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="256" height="256" rx="56" fill="#0F172A"/>
-  <rect x="18" y="18" width="220" height="220" rx="42" fill="url(#bgGlow)"/>
-  <path d="M74 78C74 69.1634 81.1634 62 90 62H166C174.837 62 182 69.1634 182 78V98C182 106.837 174.837 114 166 114H90C81.1634 114 74 106.837 74 98V78Z" fill="#2563EB"/>
-  <path d="M74 158C74 149.163 81.1634 142 90 142H166C174.837 142 182 149.163 182 158V178C182 186.837 174.837 194 166 194H90C81.1634 194 74 186.837 74 178V158Z" fill="#EA580C"/>
-  <path d="M128 88V168" stroke="white" stroke-width="22" stroke-linecap="round"/>
-  <circle cx="128" cy="128" r="34" fill="#F8FAFC"/>
-  <path d="M110 128H146" stroke="#0F172A" stroke-width="14" stroke-linecap="round"/>
-  <circle cx="102" cy="88" r="10" fill="#F8FAFC"/>
-  <circle cx="154" cy="168" r="10" fill="#F8FAFC"/>
-  <rect x="54" y="54" width="148" height="148" rx="34" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="4"/>
+  <rect width="256" height="256" rx="56" fill="#08111F"/>
+  <rect x="18" y="18" width="220" height="220" rx="42" fill="url(#panel)"/>
+  <circle cx="128" cy="128" r="76" fill="url(#coreGlow)"/>
+  <circle cx="128" cy="128" r="72" stroke="#E2E8F0" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M128 54C146 67 167 75 190 78C188 139 170 181 128 204C86 181 68 139 66 78C89 75 110 67 128 54Z" fill="url(#shieldFill)"/>
+  <path d="M128 54C146 67 167 75 190 78C188 139 170 181 128 204C86 181 68 139 66 78C89 75 110 67 128 54Z" stroke="url(#shieldStroke)" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M128 94V162" stroke="url(#routeStroke)" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="128" cy="94" r="12" fill="#22D3EE"/>
+  <circle cx="128" cy="128" r="10" fill="#E2E8F0"/>
+  <circle cx="128" cy="162" r="12" fill="#FB7185"/>
+  <path d="M90 102H108" stroke="#22D3EE" stroke-width="6" stroke-linecap="round" stroke-opacity="0.9"/>
+  <path d="M148 154H166" stroke="#FB7185" stroke-width="6" stroke-linecap="round" stroke-opacity="0.9"/>
+  <rect x="54" y="54" width="148" height="148" rx="40" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="4"/>
+
   <defs>
-    <linearGradient id="bgGlow" x1="42" y1="28" x2="212" y2="230" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#111C34"/>
-      <stop offset="1" stop-color="#0B1224"/>
+    <linearGradient id="panel" x1="28" y1="24" x2="228" y2="238" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F1B33"/>
+      <stop offset="0.58" stop-color="#091426"/>
+      <stop offset="1" stop-color="#060D19"/>
+    </linearGradient>
+    <radialGradient id="coreGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(128 116) rotate(90) scale(90)">
+      <stop stop-color="#172554"/>
+      <stop offset="0.68" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#08111F"/>
+    </radialGradient>
+    <linearGradient id="shieldFill" x1="82" y1="62" x2="176" y2="196" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12233F"/>
+      <stop offset="1" stop-color="#0A162C"/>
+    </linearGradient>
+    <linearGradient id="shieldStroke" x1="76" y1="70" x2="182" y2="190" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="0.55" stop-color="#E2E8F0"/>
+      <stop offset="1" stop-color="#FB7185"/>
+    </linearGradient>
+    <linearGradient id="routeStroke" x1="128" y1="94" x2="128" y2="162" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#E2E8F0"/>
+      <stop offset="1" stop-color="#FB7185"/>
     </linearGradient>
   </defs>
 </svg>
