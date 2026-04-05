@@ -76,9 +76,9 @@
 
 ## Текущий этап
 
-Первичный аудит подтверждён повторно: в рабочем дереве уже есть незакоммиченные public-facing правки по README, tracked-шаблону, desktop-артефактам и knowledge-контру, но reachable history ещё не очищена полностью. Поиск по `git grep $(git rev-list --all)` всё ещё находит приватный маркер `private-rdp` в цепочке `main` и связанных topic-веток, поэтому переписывание истории остаётся незавершённым.
+Локальная очистка завершена: рабочее дерево чистое, локальные `refs/heads/*` переписаны через `git-filter-repo`, а целевые private-маркеры больше не находятся ни в `HEAD`, ни в истории локальных веток. Перед rewrite изменения были разнесены по двум topic-веткам через `git-janitor`, после чего слиты обратно в `main`.
 
-Следующий шаг зависит от решения пользователя по безопасному контуру rewrite на фоне грязного worktree: либо готовить отдельную публичную ветку/клон для force-push, либо переписывать refs прямо в текущем репозитории с временным сохранением незакоммиченных изменений.
+Задача ждёт пользователя только на финальном внешнем шаге: нужно force-push-ить переписанный `main` в удалённый `origin` и затем обновить remote-tracking refs через `git fetch origin --prune`, чтобы локальный `origin/main` тоже перестал ссылаться на старую удалённую историю.
 
 ## Стратегия проверки
 
@@ -93,9 +93,9 @@
 
 ### Остаётся на ручную проверку
 
-- выбор безопасного контура history rewrite при текущем грязном worktree;
 - решение по лицензии и публичному positioning репозитория;
-- force-push переписанной истории в удалённый origin после локальной проверки.
+- force-push переписанной истории в удалённый `origin`;
+- `git fetch origin --prune` после force-push, чтобы локальный `origin/main` синхронизировался с уже очищённой удалённой веткой.
 
 ## Критерии готовности
 
@@ -104,10 +104,12 @@
 - README и публичные шаблоны описывают generic/public workflow;
 - task-артефакты отражают фактические изменения и остаточные риски.
 
-## Промежуточный итог
+## Итог
 
-В рабочем дереве уже собраны релевантные public-facing изменения: санитизированы публичные конфигурационные и desktop-артефакты, ослаблены provider-specific значения в tracked-шаблоне и обновлены knowledge-артефакты под generic-публичную форму.
+Локальный public-cleanup завершён в два этапа. Сначала текущее рабочее состояние было разнесено через `git-janitor` на две topic-ветки: одна для runtime/UI follow-up по `TASK-2026-0037.4`, вторая для public-packaging, новых task-records и task-контура подготовки к публикации. После атомарных коммитов обе ветки слиты обратно в `main`, а рабочее дерево приведено к чистому состоянию.
 
-Повторная проверка показала, что история Git ещё не доведена до целевого состояния: reachable commits в `main` и topic-ветках по-прежнему содержат приватный маркер `private-rdp`, а прежняя запись в task-контуре о полностью завершённом rewrite была некорректной и исправлена.
+Затем локальные `refs/heads/*` были переписаны через `git-filter-repo` с backup-репозиторием в `/tmp/public-rewrite-backup-WoCoGg/repo.git`. В rewrite вошли path-rename для legacy task/plan-путей и text replacements для старых private-host/site-маркеров, абсолютных пользовательских путей и legacy desktop-label/filename. В результате локальная branch-history больше не содержит `private-rdp`, `public-service`, `/home/user`, `Subvost Xray TUN GUI` и `subvost-xray-tun.desktop`.
 
-Остаточные действия и риски: нужно выбрать безопасный сценарий rewrite при текущем грязном worktree, затем фактически переписать историю, заново прогнать поисковые проверки по всем refs и только после этого переходить к force-push и отдельному решению по лицензии.
+Локально пройдены: `git grep` по `$(git rev-list --branches)`, `rg` по рабочему дереву, `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`, `python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview`, `python3 -m json.tool xray-tun-subvost.json` и адресные прогоны `markdown-localization-guard`.
+
+Остаточные действия и риски: локальный `origin/main` всё ещё указывает на старую удалённую историю и потому поиск по `$(git rev-list --all)` до синхронизации продолжает находить старые маркеры не из локальных веток. Для завершения публикационного контура пользователь должен force-push-ить переписанный `main` в `origin` и затем обновить remote-tracking refs через `git fetch origin --prune`. Юридическая лицензия в этой сессии не выбиралась.
