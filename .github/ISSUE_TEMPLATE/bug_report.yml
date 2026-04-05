@@ -1,0 +1,71 @@
+name: "Баг-репорт"
+description: "Сообщить о воспроизводимой проблеме в runtime, GUI или installer-ах"
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за репорт.
+
+        Пожалуйста, не публикуйте реальные subscription URL, секреты, UUID, `publicKey`, `shortId` и полные чувствительные логи.
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Подсистема"
+      description: "Где проявляется проблема?"
+      options:
+        - "runtime / TUN / маршрутизация"
+        - "GUI / webview / backend"
+        - "installer / desktop entry"
+        - "документация"
+        - "другое"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: "Окружение"
+      description: "ОС, дистрибутив, версия Python, версия xray при наличии"
+      placeholder: "Ubuntu 24.04, Python 3.13, xray 25.x"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Шаги воспроизведения"
+      description: "Перечисли минимальную последовательность шагов"
+      placeholder: |
+        1. Запустить ...
+        2. Импортировать ...
+        3. Нажать ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Ожидаемое поведение"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Фактическое поведение"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Логи и артефакты"
+      description: "Только санитизированные фрагменты"
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: "Проверки"
+      options:
+        - label: "Я проверил проблему на актуальном `main` или максимально близком состоянии"
+          required: true
+        - label: "Я не включил в issue секреты, реальные URL и чувствительные runtime-данные"
+          required: true

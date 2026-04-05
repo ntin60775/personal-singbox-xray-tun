@@ -1,0 +1,46 @@
+name: "Запрос на изменение"
+description: "Предложить новую возможность или улучшение"
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Для крупных идей лучше сначала описать проблему, а не сразу предлагать большой рефакторинг.
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Какую проблему решаем"
+      description: "Какой пользовательский или операционный сценарий сейчас неудобен?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Предлагаемое изменение"
+      description: "Опиши желаемое поведение без лишней реализации"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Альтернативы и обходные пути"
+      description: "Что уже пробовали или почему текущие варианты не подходят?"
+  - type: dropdown
+    id: impact
+    attributes:
+      label: "Затрагиваемая зона"
+      options:
+        - "runtime / TUN / DNS"
+        - "GUI / UX"
+        - "installer / deployment"
+        - "документация"
+        - "другое"
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: "Риски и ограничения"
+      description: "Что может сломаться или почему решение спорное?"

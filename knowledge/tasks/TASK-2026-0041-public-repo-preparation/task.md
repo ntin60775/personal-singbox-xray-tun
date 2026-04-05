@@ -19,7 +19,7 @@
 
 ## Цель
 
-Подготовить репозиторий к публичной публикации: убрать из текущего дерева и из истории Git приватные пути, персональные deployment-ссылки, operator-specific runtime-данные и другие сведения, которые не должны попадать в открытый доступ.
+Подготовить репозиторий к публичной публикации как first-class public repo: убрать из текущего дерева и из истории Git приватные пути, персональные deployment-ссылки, operator-specific runtime-данные и добавить публичный repo-hygiene слой с лицензией, процессом вклада и базовыми community-policy файлами.
 
 ## Подсказка по статусу
 
@@ -41,12 +41,12 @@
 - аудит текущего `HEAD` и всей истории Git на предмет приватных артефактов;
 - санитизация публичной документации, шаблонов конфигурации и desktop-артефактов;
 - переписывание истории Git для удаления уже закоммиченных приватных данных;
+- добавление public-facing файлов репозитория: лицензия, правила вклада, security policy, issue/PR templates;
 - фиксация остаточных рисков и проверки результата.
 
 ### Не входит
 
 - публикация репозитория на конкретной Git-hosting площадке;
-- выбор юридической лицензии без явного решения пользователя;
 - ручной сетевой smoke реального VPN-подключения после обезличивания шаблонов.
 
 ## Контекст
@@ -64,7 +64,7 @@
 | Конфигурация / схема данных / именуемые сущности | Трacked-шаблон `xray` и публичные примеры станут provider-agnostic |
 | Интерфейсы / формы / страницы | GUI не меняется функционально |
 | Интеграции / обмены | Из документации и истории убираются личные subscription URL и operator-specific endpoints |
-| Документация | README, knowledge-артефакты и реестр задач санитизируются под публичную публикацию |
+| Документация | README, public-facing process-файлы, knowledge-артефакты и реестр задач синхронизируются под публичную публикацию |
 
 ## Связанные материалы
 
@@ -76,9 +76,9 @@
 
 ## Текущий этап
 
-Локальная очистка завершена: рабочее дерево чистое, локальные `refs/heads/*` переписаны через `git-filter-repo`, а целевые private-маркеры больше не находятся ни в `HEAD`, ни в истории локальных веток. Перед rewrite изменения были разнесены по двум topic-веткам через `git-janitor`, после чего слиты обратно в `main`.
+Локальная очистка и public-facing polish завершены: рабочее дерево санитизировано, локальные `refs/heads/*` уже были переписаны через `git-filter-repo`, а целевые private-маркеры больше не находятся ни в `HEAD`, ни в истории локальных веток. Поверх этого собран минимально полноценный публичный слой репозитория: `LICENSE` c лицензией `MIT`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, GitHub issue templates и PR template, а `README.md` переписан под внешний сценарий чтения.
 
-Задача ждёт пользователя только на финальном внешнем шаге: нужно force-push-ить переписанный `main` в удалённый `origin` и затем обновить remote-tracking refs через `git fetch origin --prune`, чтобы локальный `origin/main` тоже перестал ссылаться на старую удалённую историю.
+Задача остаётся в состоянии `ждёт пользователя`, потому что следующий шаг уже внешний: после локального commit/push проверить финальное позиционирование на GitHub и перевести репозиторий в публичный режим на стороне hosting-площадки.
 
 ## Стратегия проверки
 
@@ -90,18 +90,19 @@
 - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`
 - `python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview`
 - поисковые проверки по `git grep` и `rg` на приватные маркеры в `HEAD` и истории
+- `python3 ~/.agents/skills/markdown-localization-guard/scripts/markdown_localization_guard.py README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md .github/pull_request_template.md knowledge/tasks/TASK-2026-0041-public-repo-preparation/task.md knowledge/tasks/TASK-2026-0041-public-repo-preparation/plan.md knowledge/tasks/registry.md`
 
 ### Остаётся на ручную проверку
 
-- решение по лицензии и публичному positioning репозитория;
-- force-push переписанной истории в удалённый `origin`;
-- `git fetch origin --prune` после force-push, чтобы локальный `origin/main` синхронизировался с уже очищённой удалённой веткой.
+- push актуального состояния в `origin/main`;
+- финальный human-review README и public-facing файлов уже на конкретной площадке публикации;
+- перевод репозитория в публичный режим на стороне GitHub.
 
 ## Критерии готовности
 
 - в текущем `HEAD` нет приватных путей, личных subscription URL и operator-specific runtime-данных;
 - история Git очищена от тех же маркеров;
-- README и публичные шаблоны описывают generic/public workflow;
+- README и public-facing repo-файлы описывают generic/public workflow;
 - task-артефакты отражают фактические изменения и остаточные риски.
 
 ## Итог
@@ -110,6 +111,8 @@
 
 Затем локальные `refs/heads/*` были переписаны через `git-filter-repo` с backup-репозиторием в `/tmp/public-rewrite-backup-WoCoGg/repo.git`. В rewrite вошли path-rename для legacy task/plan-путей и text replacements для старых private-host/site-маркеров, абсолютных пользовательских путей и legacy desktop-label/filename. В результате локальная branch-history очищена от целевого audit-набора приватных маркеров этой задачи.
 
+После этого репозиторий доведён до публичного public-facing состояния: по явному решению пользователя выбрана лицензия `MIT`, добавлены `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.github/ISSUE_TEMPLATE/*`, `.github/pull_request_template.md`, а `README.md` усилен под внешний читательский сценарий, публичные ожидания по вкладу и security-disclosure.
+
 Локально пройдены: `git grep` по `$(git rev-list --branches)`, `rg` по рабочему дереву, `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`, `python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview`, `python3 -m json.tool xray-tun-subvost.json` и адресные прогоны `markdown-localization-guard`.
 
-Остаточные действия и риски: локальный `origin/main` всё ещё указывает на старую удалённую историю и потому поиск по `$(git rev-list --all)` до синхронизации продолжает находить старые маркеры не из локальных веток. Для завершения публикационного контура пользователь должен force-push-ить переписанный `main` в `origin` и затем обновить remote-tracking refs через `git fetch origin --prune`. Юридическая лицензия в этой сессии не выбиралась.
+Остаточные действия и риски: локальный репозиторий и `origin/main` на момент подготовки синхронизированы, поэтому следующий технический шаг — обычный commit/push с public-facing polish. После этого пользователь должен вручную перевести репозиторий в публичный режим на стороне GitHub и проверить, как README, issue templates и policy-файлы выглядят уже на выбранной Git-hosting площадке.
