@@ -61,3 +61,5 @@
 | `TASK-2026-0039` | `—` | `завершена` | `высокий` | `—` | `knowledge/tasks/TASK-2026-0039-production-bundle-sync-script/` | Добавить поддерживаемый deploy-скрипт для установки или обновления bundle-каталога и обновить production-копию |
 | `TASK-2026-0040` | `—` | `завершена` | `средний` | `—` | `knowledge/tasks/TASK-2026-0040-anime-tech-icon/` | Обновить иконку bundle на простую техно-эмблему в логике типовых VPN-образов без смены текущего SVG-пути |
 | `TASK-2026-0041` | `—` | `ждёт пользователя` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0041-public-repo-preparation/` | Подготовить репозиторий к публичной публикации, очистить Git от приватных артефактов и собрать public-facing repo hygiene |
+| `TASK-2026-0042` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0042-webview-nvidia-software-fallback/` | Аппаратно-независимый software-rendering fallback для embedded webview вместо хрупкого GPU/GBM-пути |
+| `TASK-2026-0043` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0043-gui-user-backend-pkexec-actions/` | Запуск GUI без раннего root-запроса и перенос root-действий GUI на `pkexec` |
