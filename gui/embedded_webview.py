@@ -18,6 +18,12 @@ STARTUP_HORIZONTAL_MARGIN = 28
 STARTUP_VERTICAL_RESERVE = 56
 MIN_WINDOW_WIDTH = 720
 MIN_WINDOW_HEIGHT = 540
+SOFTWARE_RENDERING_ENV_DEFAULTS = {
+    "WEBKIT_DISABLE_DMABUF_RENDERER": "1",
+    "WEBKIT_DMABUF_RENDERER_FORCE_SHM": "1",
+    "WEBKIT_WEBGL_DISABLE_GBM": "1",
+    "WEBKIT_SKIA_ENABLE_CPU_RENDERING": "1",
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,13 @@ RUNTIME_CANDIDATES = (
 
 class WebViewUnavailableError(RuntimeError):
     pass
+
+
+def apply_software_rendering_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
+    env = os.environ if environ is None else environ
+    for key, value in SOFTWARE_RENDERING_ENV_DEFAULTS.items():
+        env.setdefault(key, value)
+    return env
 
 
 def has_graphical_session(environ: dict[str, str] | None = None) -> bool:
@@ -137,6 +150,32 @@ def compute_startup_window_size(
     return target_width, target_height
 
 
+def build_software_rendering_settings(webkit_module) -> dict[str, object]:
+    settings: dict[str, object] = {
+        "enable-webgl": False,
+        "enable-2d-canvas-acceleration": False,
+    }
+    policy = getattr(getattr(webkit_module, "HardwareAccelerationPolicy", None), "NEVER", None)
+    if policy is not None:
+        settings["hardware-acceleration-policy"] = policy
+    return settings
+
+
+def apply_webview_software_rendering_settings(webview, webkit_module) -> dict[str, object]:
+    settings = webview.get_settings()
+    if settings is None:
+        return {}
+
+    applied: dict[str, object] = {}
+    for name, value in build_software_rendering_settings(webkit_module).items():
+        try:
+            settings.set_property(name, value)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        applied[name] = value
+    return applied
+
+
 class EmbeddedWebViewApp:
     def __init__(self, candidate: RuntimeCandidate, args: argparse.Namespace) -> None:
         self.candidate = candidate
@@ -171,6 +210,7 @@ class EmbeddedWebViewApp:
 
     def build_webview(self):
         webview = self.WebKit.WebView()
+        apply_webview_software_rendering_settings(webview, self.WebKit)
         webview.connect("notify::title", self.on_title_changed)
         return webview
 
@@ -287,6 +327,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+    apply_software_rendering_environment()
 
     try:
         candidate = resolve_runtime_candidate()

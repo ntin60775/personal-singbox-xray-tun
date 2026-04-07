@@ -122,6 +122,21 @@ apt_package_exists() {
   apt-cache show "$1" >/dev/null 2>&1
 }
 
+collect_pkexec_dependency_package() {
+  if apt_package_exists "pkexec"; then
+    printf '%s\n' "pkexec"
+    return 0
+  fi
+
+  if apt_package_exists "policykit-1"; then
+    printf '%s\n' "policykit-1"
+    return 0
+  fi
+
+  echo "Не найден apt-пакет для pkexec: ожидается pkexec или policykit-1." >&2
+  exit 1
+}
+
 collect_gui_dependency_packages() {
   local packages=("python3-gi")
 
@@ -141,12 +156,13 @@ collect_gui_dependency_packages() {
 ensure_real_home_detected
 echo "[1/4] Проверка базовых системных утилит"
 if command -v apt-get >/dev/null 2>&1; then
-  mapfile -t GUI_PACKAGES < <(collect_gui_dependency_packages)
   run_root apt-get update
-  run_root apt-get install -y ca-certificates curl iproute2 python3 sudo unzip "${GUI_PACKAGES[@]}"
+  mapfile -t GUI_PACKAGES < <(collect_gui_dependency_packages)
+  PKEXEC_PACKAGE="$(collect_pkexec_dependency_package)"
+  run_root apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 sudo unzip "${GUI_PACKAGES[@]}"
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
-  echo "Установи зависимости вручную: curl, unzip, iproute2, python3, sudo, xray." >&2
+  echo "Установи зависимости вручную: curl, unzip, iproute2, pkexec или policykit-1, python3, sudo, xray." >&2
   exit 1
 fi
 

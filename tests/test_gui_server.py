@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import inspect
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,7 +42,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
-        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-04-subscription-hwid-fix-v1")
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-07-user-backend-pkexec-actions-v1")
 
     def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
         self.assertEqual(gui_server.INDEX_HTML, self.main_html())
@@ -118,7 +119,85 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("SUBVOST_GUI_LAUNCH_MODE", launcher)
         self.assertIn("embedded_webview.py", launcher)
         self.assertIn("open_embedded_webview", launcher)
+        self.assertIn("WEBKIT_DISABLE_DMABUF_RENDERER", launcher)
+        self.assertIn("WEBKIT_DMABUF_RENDERER_FORCE_SHM", launcher)
+        self.assertIn("WEBKIT_WEBGL_DISABLE_GBM", launcher)
+        self.assertIn("WEBKIT_SKIA_ENABLE_CPU_RENDERING", launcher)
+        self.assertIn("gui_server.py", launcher)
+        self.assertIn("BACKEND_PID_FILE", launcher)
+        self.assertNotIn("pkexec env", launcher)
+        self.assertNotIn("start-gui-backend-root.sh", launcher)
         self.assertNotIn('CURRENT_GUI_VERSION="2026-', launcher)
+
+    def test_desktop_launcher_does_not_force_backend_restart(self) -> None:
+        desktop_entry = (REPO_ROOT / "subvost-xray-tun.desktop").read_text(encoding="utf-8")
+        menu_installer = (REPO_ROOT / "libexec" / "install-subvost-gui-menu-entry.sh").read_text(encoding="utf-8")
+
+        self.assertIn("open-subvost-gui.sh", desktop_entry)
+        self.assertIn("Icon=network-vpn", desktop_entry)
+        self.assertNotIn("--force-restart-backend", desktop_entry)
+        self.assertNotIn(str(REPO_ROOT), desktop_entry)
+        self.assertNotIn("--force-restart-backend", menu_installer)
+
+    def test_install_on_new_pc_selects_pkexec_package_with_policykit_fallback(self) -> None:
+        installer = (REPO_ROOT / "libexec" / "install-on-new-pc.sh").read_text(encoding="utf-8")
+
+        self.assertIn("collect_pkexec_dependency_package()", installer)
+        self.assertIn('apt_package_exists "pkexec"', installer)
+        self.assertIn('apt_package_exists "policykit-1"', installer)
+        self.assertIn('PKEXEC_PACKAGE="$(collect_pkexec_dependency_package)"', installer)
+        self.assertIn('"$PKEXEC_PACKAGE"', installer)
+        self.assertNotIn("apt-get install -y ca-certificates curl iproute2 pkexec", installer)
+
+    def test_stop_button_is_not_disabled_by_stopped_runtime_state(self) -> None:
+        html = self.main_html()
+        self.assertIn("els.stopButton.disabled = state.busy;", html)
+        self.assertNotIn('els.stopButton.disabled = state.busy || summaryState === "stopped";', html)
+
+    def test_user_backend_shell_action_uses_pkexec_not_sudo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            script = root / "run-xray-tun-subvost.sh"
+            script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="ok\n",
+                stderr="",
+            )
+
+            with (
+                patch.object(gui_server, "PROJECT_ROOT", root),
+                patch.object(gui_server, "REAL_USER", "tester"),
+                patch.object(gui_server, "REAL_HOME", real_home),
+                patch.object(gui_server, "APP_PATHS", paths),
+                patch("gui_server.os.geteuid", return_value=1000),
+                patch("gui_server.subprocess.run", return_value=completed) as run_mock,
+            ):
+                result = gui_server.run_shell_action("Старт", script, {"ENABLE_FILE_LOGS": "1"})
+
+            self.assertTrue(result.ok)
+            command = run_mock.call_args.args[0]
+            self.assertEqual(command[:2], ["pkexec", "env"])
+            self.assertIn("SUDO_USER=tester", command)
+            self.assertIn(f"HOME={real_home}", command)
+            self.assertIn(f"SUBVOST_PROJECT_ROOT={root}", command)
+            self.assertIn("ENABLE_FILE_LOGS=1", command)
+            self.assertIn("/usr/bin/env", command)
+            self.assertIn("bash", command)
+            self.assertEqual(command[-1], str(script))
+            self.assertNotIn("sudo", command)
+
+    def test_root_backend_shell_action_runs_script_directly(self) -> None:
+        script = Path("/tmp/run-xray-tun-subvost.sh")
+        with patch("gui_server.os.geteuid", return_value=0):
+            command = gui_server.build_shell_action_command(script, {"SUDO_USER": "tester"})
+
+        self.assertEqual(command, [str(script)])
 
     def test_resolve_active_xray_config_prefers_snapshot_only_for_live_stack(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

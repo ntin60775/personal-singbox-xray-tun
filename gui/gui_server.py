@@ -468,32 +468,52 @@ def remember_action(name: str, ok: bool | None, message: str, details: str) -> N
     )
 
 
+def build_shell_action_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
+    action_env = {
+        "SUDO_USER": REAL_USER,
+        "USER": REAL_USER,
+        "LOGNAME": REAL_USER,
+        "HOME": str(REAL_HOME),
+        "SUBVOST_PROJECT_ROOT": str(PROJECT_ROOT),
+        "SUBVOST_REAL_USER": REAL_USER,
+        "SUBVOST_REAL_HOME": str(REAL_HOME),
+        "SUBVOST_REAL_XDG_CONFIG_HOME": str(APP_PATHS.config_home),
+    }
+    action_env.update(extra_env or {})
+    return action_env
+
+
+def build_shell_action_command(script: Path, action_env: dict[str, str]) -> list[str]:
+    if os.geteuid() == 0:
+        return [str(script)]
+
+    pkexec_env = [f"{key}={value}" for key, value in action_env.items()]
+    return ["pkexec", "env", *pkexec_env, "/usr/bin/env", "bash", str(script)]
+
+
 def run_shell_action(name: str, script: Path, extra_env: dict[str, str] | None = None) -> CommandResult:
     env = os.environ.copy()
-    env.update(
-        {
-            "SUDO_USER": REAL_USER,
-            "USER": REAL_USER,
-            "LOGNAME": REAL_USER,
-            "HOME": str(REAL_HOME),
-            "SUBVOST_REAL_XDG_CONFIG_HOME": str(APP_PATHS.config_home),
-        }
-    )
-    env.update(extra_env or {})
+    action_env = build_shell_action_env(extra_env)
+    env.update(action_env)
+    command = build_shell_action_command(script, action_env)
 
-    if os.geteuid() != 0:
-        command = ["sudo", str(script)]
-    else:
-        command = [str(script)]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+    except OSError as exc:
+        return CommandResult(
+            name=name,
+            ok=False,
+            returncode=127,
+            output=f"Не удалось выполнить действие '{name}': {exc}",
+        )
 
-    completed = subprocess.run(
-        command,
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-    )
     output = "\n".join(part for part in [completed.stdout.strip(), completed.stderr.strip()] if part).strip()
     ok = completed.returncode == 0
     return CommandResult(name=name, ok=ok, returncode=completed.returncode, output=output)
@@ -698,7 +718,7 @@ def collect_status() -> dict[str, Any]:
     runtime_label = (
         "Root-backend через pkexec."
         if os.geteuid() == 0
-        else "Пользовательский backend; возможен запрос sudo в терминале."
+        else "Пользовательский backend; root-действия запускаются через pkexec."
     )
     traffic = collect_traffic_metrics(tun_interface)
     logs_payload = collect_log_payload()
@@ -760,7 +780,8 @@ def collect_status() -> dict[str, Any]:
         "runtime": {
             "mode": runtime_mode,
             "mode_label": runtime_label,
-            "requires_terminal_sudo_hint": os.geteuid() != 0,
+            "requires_terminal_sudo_hint": False,
+            "requires_pkexec_actions": os.geteuid() != 0,
             "impl": runtime_impl,
             "config_origin": config_origin,
             "active_xray_config": str(active_xray_config_path),
