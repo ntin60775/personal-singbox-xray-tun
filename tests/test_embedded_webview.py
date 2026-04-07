@@ -12,6 +12,17 @@ import embedded_webview  # noqa: E402
 
 
 class EmbeddedWebViewTests(unittest.TestCase):
+    def test_apply_software_rendering_environment_sets_defaults(self) -> None:
+        env = {"DISPLAY": ":0", "WEBKIT_DISABLE_DMABUF_RENDERER": "0"}
+
+        applied = embedded_webview.apply_software_rendering_environment(env)
+
+        self.assertIs(applied, env)
+        self.assertEqual(applied["WEBKIT_DISABLE_DMABUF_RENDERER"], "0")
+        self.assertEqual(applied["WEBKIT_DMABUF_RENDERER_FORCE_SHM"], "1")
+        self.assertEqual(applied["WEBKIT_WEBGL_DISABLE_GBM"], "1")
+        self.assertEqual(applied["WEBKIT_SKIA_ENABLE_CPU_RENDERING"], "1")
+
     def test_has_graphical_session_accepts_display(self) -> None:
         self.assertTrue(embedded_webview.has_graphical_session({"DISPLAY": ":0"}))
         self.assertTrue(embedded_webview.has_graphical_session({"WAYLAND_DISPLAY": "wayland-0"}))
@@ -61,6 +72,60 @@ class EmbeddedWebViewTests(unittest.TestCase):
         width, height = embedded_webview.compute_startup_window_size(1440, 960, 1280, 900)
         self.assertEqual(width, 1224)
         self.assertEqual(height, 844)
+
+    def test_build_software_rendering_settings_prefers_never_acceleration(self) -> None:
+        class Policy:
+            NEVER = "never"
+
+        class WebKitModule:
+            HardwareAccelerationPolicy = Policy
+
+        settings = embedded_webview.build_software_rendering_settings(WebKitModule)
+
+        self.assertEqual(settings["hardware-acceleration-policy"], "never")
+        self.assertFalse(settings["enable-webgl"])
+        self.assertFalse(settings["enable-2d-canvas-acceleration"])
+
+    def test_apply_webview_software_rendering_settings_skips_unsupported_properties(self) -> None:
+        class FakeSettings:
+            def __init__(self) -> None:
+                self.values: dict[str, object] = {}
+
+            def set_property(self, name: str, value: object) -> None:
+                if name == "hardware-acceleration-policy":
+                    raise TypeError("unsupported")
+                self.values[name] = value
+
+        class FakeWebView:
+            def __init__(self) -> None:
+                self.settings = FakeSettings()
+
+            def get_settings(self) -> FakeSettings:
+                return self.settings
+
+        class Policy:
+            NEVER = "never"
+
+        class WebKitModule:
+            HardwareAccelerationPolicy = Policy
+
+        webview = FakeWebView()
+        applied = embedded_webview.apply_webview_software_rendering_settings(webview, WebKitModule)
+
+        self.assertEqual(
+            applied,
+            {
+                "enable-webgl": False,
+                "enable-2d-canvas-acceleration": False,
+            },
+        )
+        self.assertEqual(
+            webview.settings.values,
+            {
+                "enable-webgl": False,
+                "enable-2d-canvas-acceleration": False,
+            },
+        )
 
 
 if __name__ == "__main__":

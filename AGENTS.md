@@ -23,7 +23,7 @@
 - `sudo ./run-xray-tun-subvost.sh` — поднять основной `xray` runtime из активного узла, настроить DNS и сохранить state.
 - `./stop-xray-tun-subvost.sh` — корректно остановить runtime и восстановить `resolv.conf`.
 - `sudo ./capture-xray-tun-state.sh` — снять полный диагностический дамп в `logs/`.
-- `./open-subvost-gui.sh` — запустить GUI launcher с `pkexec`.
+- `./open-subvost-gui.sh` — запустить GUI launcher без раннего root-запроса; действия `Старт`, `Стоп` и `Диагностика` внутри GUI запрашивают root через `pkexec`.
 - `bash ./install-on-new-pc.sh` — поставить системные зависимости на Debian/Ubuntu.
 - `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py` — минимальная локальная проверка перед коммитом.
 
@@ -61,7 +61,7 @@ Legacy-артефакты, перенесённые в `knowledge/tasks/*/artifa
 
 ## Правила проверки
 
-Автотестов сейчас нет, поэтому обязательна ручная smoke-проверка. Минимум: успешный старт через `run-xray-tun-subvost.sh`, наличие `tun0`, корректная остановка через `stop-xray-tun-subvost.sh`, и при изменениях GUI — открытие `http://127.0.0.1:8421` и выполнение команд `Старт`/`Стоп`/`Снять диагностику`. GUI backend считается внутренним компонентом и запускается через `open-subvost-gui.sh` или `subvost-xray-tun.desktop`, а не прямым пользовательским вызовом `libexec/start-gui-backend-root.sh`. Если меняете конфиги, приложите пример ошибки или лог из `logs/` при регрессии.
+Автотестов сейчас нет, поэтому обязательна ручная smoke-проверка. Минимум: успешный старт через `run-xray-tun-subvost.sh`, наличие `tun0`, корректная остановка через `stop-xray-tun-subvost.sh`, и при изменениях GUI — открытие `http://127.0.0.1:8421` или `subvost-xray-tun.desktop` и выполнение команд `Старт`/`Стоп`/`Снять диагностику`. Открытие GUI не должно вызывать `pkexec`; root-запрос должен появляться только на действиях runtime. GUI backend считается внутренним компонентом и запускается через `open-subvost-gui.sh` или `subvost-xray-tun.desktop`, а не прямым пользовательским вызовом `libexec/start-gui-backend-root.sh`. Если меняете конфиги, приложите пример ошибки или лог из `logs/` при регрессии.
 
 Если задача меняет preflight, DNS-логику, маршрутизацию или диагностику, дополнительно проверяйте негативные сценарии: отсутствие `tun`, конфликт DNS-менеджера, неполный старт `xray` runtime, корректность восстановления `resolv.conf`.
 

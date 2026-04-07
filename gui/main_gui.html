@@ -1669,7 +1669,7 @@
       const summaryState = state.statusPayload?.summary?.state || "unknown";
       const startReady = Boolean(state.statusPayload?.runtime?.start_ready);
       els.startButton.disabled = state.busy || summaryState === "running" || !startReady;
-      els.stopButton.disabled = state.busy || summaryState === "stopped";
+      els.stopButton.disabled = state.busy;
       els.diagButton.disabled = state.busy;
       els.addSubscriptionButton.disabled = state.busy;
       els.refreshAllButton.disabled = state.busy;
