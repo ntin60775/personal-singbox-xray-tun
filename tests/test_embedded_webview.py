@@ -64,12 +64,12 @@ class EmbeddedWebViewTests(unittest.TestCase):
             embedded_webview.select_runtime(fake_require_version, versions_by_namespace={"Gtk": {"4.0", "3.0"}})
 
     def test_compute_startup_window_size_uses_full_available_height(self) -> None:
-        width, height = embedded_webview.compute_startup_window_size(1440, 960, 1920, 1080)
-        self.assertEqual(width, 1440)
+        width, height = embedded_webview.compute_startup_window_size(1280, 960, 1920, 1080)
+        self.assertEqual(width, 1280)
         self.assertEqual(height, 1024)
 
     def test_compute_startup_window_size_caps_width_on_small_monitor(self) -> None:
-        width, height = embedded_webview.compute_startup_window_size(1440, 960, 1280, 900)
+        width, height = embedded_webview.compute_startup_window_size(1280, 960, 1280, 900)
         self.assertEqual(width, 1224)
         self.assertEqual(height, 844)
 

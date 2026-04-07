@@ -63,3 +63,4 @@
 | `TASK-2026-0041` | `—` | `ждёт пользователя` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0041-public-repo-preparation/` | Подготовить репозиторий к публичной публикации, очистить Git от приватных артефактов и собрать public-facing repo hygiene |
 | `TASK-2026-0042` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0042-webview-nvidia-software-fallback/` | Аппаратно-независимый software-rendering fallback для embedded webview вместо хрупкого GPU/GBM-пути |
 | `TASK-2026-0043` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0043-gui-user-backend-pkexec-actions/` | Запуск GUI без раннего root-запроса и перенос root-действий GUI на `pkexec` |
+| `TASK-2026-0044` | `—` | `на проверке` | `средний` | `main` | `knowledge/tasks/TASK-2026-0044-main-window-width-reduction/` | Уменьшить стартовую ширину главного окна до `1280` px и синхронно сузить основной web-интерфейс |
