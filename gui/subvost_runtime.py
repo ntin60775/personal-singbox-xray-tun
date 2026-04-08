@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from subvost_routing import apply_routing_profile_to_config
+
 
 def read_json_config(path: Path) -> dict[str, Any]:
     try:
@@ -165,7 +167,11 @@ def build_proxy_outbound(normalized: dict[str, Any], template_outbound: dict[str
     return outbound
 
 
-def render_runtime_config(template_config: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+def render_runtime_config(
+    template_config: dict[str, Any],
+    node: dict[str, Any],
+    routing_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not node_can_render_runtime(node):
         raise ValueError("Активный узел не может быть материализован в runtime-конфиг.")
 
@@ -180,6 +186,8 @@ def render_runtime_config(template_config: dict[str, Any], node: dict[str, Any])
             break
     if not replaced:
         raise ValueError("В шаблоне xray не найден outbound с tag=proxy.")
+    if routing_profile:
+        config = apply_routing_profile_to_config(config, routing_profile)
     return config
 
 

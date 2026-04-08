@@ -33,6 +33,7 @@ EMBEDDED_SURFACE_HEX = "#091019"
 WINDOW_BACKGROUND_CSS_CLASS = "subvost-embedded-window"
 ROOT_CONTAINER_CSS_CLASS = "subvost-embedded-root"
 APP_TERMINATE_ROUTE = "/api/app/terminate"
+APP_GUI_SHUTDOWN_ROUTE = "/api/app/shutdown-gui"
 APP_TERMINATE_TIMEOUT_SECS = 180.0
 
 
@@ -304,6 +305,10 @@ def build_app_terminate_url(base_url: str) -> str:
     return f"{base_url.rstrip('/')}{APP_TERMINATE_ROUTE}"
 
 
+def build_app_gui_shutdown_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}{APP_GUI_SHUTDOWN_ROUTE}"
+
+
 def request_application_shutdown(
     base_url: str,
     *,
@@ -342,6 +347,47 @@ def request_application_shutdown(
 
     if not response_payload.get("ok"):
         raise RuntimeError(str(response_payload.get("message") or "GUI backend отклонил завершение приложения."))
+    return response_payload
+
+
+def request_gui_backend_shutdown(
+    base_url: str,
+    *,
+    source: str = "window-close",
+    timeout: float = APP_TERMINATE_TIMEOUT_SECS,
+    urlopen=urllib.request.urlopen,
+) -> dict[str, object]:
+    payload = json.dumps({"source": source}).encode("utf-8")
+    request = urllib.request.Request(
+        build_app_gui_shutdown_url(base_url),
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw_body = response.read()
+    except urllib.error.HTTPError as exc:
+        message = f"HTTP {exc.code}"
+        try:
+            error_payload = json.loads(exc.read().decode("utf-8") or "{}")
+        except Exception:
+            error_payload = {}
+        if error_payload.get("message"):
+            message = str(error_payload["message"])
+        raise RuntimeError(message) from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"Не удалось связаться с GUI backend: {reason}") from exc
+
+    try:
+        response_payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except Exception as exc:
+        raise RuntimeError("GUI backend вернул некорректный ответ при завершении окна.") from exc
+
+    if not response_payload.get("ok"):
+        raise RuntimeError(str(response_payload.get("message") or "GUI backend отклонил завершение окна."))
     return response_payload
 
 
@@ -437,7 +483,7 @@ class EmbeddedWebViewApp:
             return True
 
         try:
-            self.request_full_shutdown()
+            self.request_gui_shutdown()
         except RuntimeError as exc:
             self.show_shutdown_error(str(exc))
             return False
@@ -448,6 +494,9 @@ class EmbeddedWebViewApp:
 
     def request_full_shutdown(self) -> dict[str, object]:
         return request_application_shutdown(self.args.url, source="window-close")
+
+    def request_gui_shutdown(self) -> dict[str, object]:
+        return request_gui_backend_shutdown(self.args.url, source="window-close")
 
     def show_shutdown_error(self, message: str) -> None:
         dialog_text = "Не удалось полностью закрыть приложение.\n" + (message or "Неизвестная ошибка.")

@@ -127,6 +127,64 @@ class SubvostRuntimeTests(unittest.TestCase):
             {"headers": {}, "xPaddingBytes": "100-1000"},
         )
 
+    def test_render_runtime_applies_routing_profile_overlay(self) -> None:
+        template = copy.deepcopy(TEMPLATE_CONFIG)
+        template["routing"] = {
+            "domainStrategy": "AsIs",
+            "rules": [
+                {"type": "field", "inboundTag": ["tun-in"], "port": "53", "outboundTag": "dns-out"},
+                {"type": "field", "inboundTag": ["tun-in"], "network": "tcp,udp", "outboundTag": "proxy"},
+            ],
+        }
+        normalized_node = {
+            "enabled": True,
+            "parse_error": "",
+            "normalized": {
+                "protocol": "vless",
+                "address": "edge.example.com",
+                "port": 443,
+                "uuid": "11111111-1111-1111-1111-111111111111",
+                "encryption": "none",
+                "flow": "",
+                "network": "tcp",
+                "security": "none",
+                "host": "",
+                "path": "",
+                "server_name": "",
+                "service_name": "",
+                "grpc_authority": "",
+                "fingerprint": "",
+                "public_key": "",
+                "short_id": "",
+                "spider_x": "/",
+                "mode": "auto",
+                "xhttp_extra": {},
+                "alpn": [],
+                "allow_insecure": False,
+            },
+        }
+        routing_profile = {
+            "global_proxy": False,
+            "domain_strategy": "IPIfNonMatch",
+            "route_order": ["block", "direct", "proxy"],
+            "block_sites": ["geosite:category-ads"],
+            "block_ip": [],
+            "direct_sites": ["geosite:private"],
+            "direct_ip": ["geoip:private"],
+            "proxy_sites": ["geosite:youtube"],
+            "proxy_ip": [],
+        }
+
+        rendered = render_runtime_config(template, normalized_node, routing_profile=routing_profile)
+        routing_rules = rendered["routing"]["rules"]
+
+        self.assertEqual(rendered["routing"]["domainStrategy"], "IPIfNonMatch")
+        self.assertEqual(routing_rules[0]["outboundTag"], "dns-out")
+        self.assertEqual(routing_rules[1]["outboundTag"], "block")
+        self.assertEqual(routing_rules[2]["outboundTag"], "direct")
+        self.assertEqual(routing_rules[3]["outboundTag"], "proxy")
+        self.assertEqual(routing_rules[-1]["outboundTag"], "direct")
+
     def test_apply_transport_hints_updates_proxy_and_direct_outbounds(self) -> None:
         active_config = copy.deepcopy(TEMPLATE_CONFIG)
         rendered = apply_transport_hints_to_runtime_config(

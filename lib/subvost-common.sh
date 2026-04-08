@@ -244,6 +244,30 @@ subvost_resolve_active_runtime_xray_config_for_home() {
   printf '%s\n' "${store_dir}/active-runtime-xray-config.json"
 }
 
+subvost_resolve_xray_asset_dir_for_home() {
+  local real_home="$1"
+  local store_dir
+
+  store_dir="$(subvost_resolve_store_dir_for_home "$real_home")"
+  printf '%s\n' "${store_dir}/xray-assets"
+}
+
+subvost_resolve_geoip_asset_for_home() {
+  local real_home="$1"
+  local asset_dir
+
+  asset_dir="$(subvost_resolve_xray_asset_dir_for_home "$real_home")"
+  printf '%s\n' "${asset_dir}/geoip.dat"
+}
+
+subvost_resolve_geosite_asset_for_home() {
+  local real_home="$1"
+  local asset_dir
+
+  asset_dir="$(subvost_resolve_xray_asset_dir_for_home "$real_home")"
+  printf '%s\n' "${asset_dir}/geosite.dat"
+}
+
 subvost_store_has_active_selection() {
   local store_file="$1"
 

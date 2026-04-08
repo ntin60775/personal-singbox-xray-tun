@@ -20,6 +20,7 @@ fi
 
 ACTIVE_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_xray_config_for_home "$REAL_HOME")"
 ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT="$(subvost_resolve_active_runtime_xray_config_for_home "$REAL_HOME")"
+XRAY_ASSET_DIR_DEFAULT="$(subvost_resolve_xray_asset_dir_for_home "$REAL_HOME")"
 STORE_FILE_DEFAULT="$(subvost_resolve_store_file_for_home "$REAL_HOME")"
 
 ensure_absolute_path() {
@@ -372,6 +373,7 @@ XRAY_BIN_DEFAULT="$(
 XRAY_BIN="${XRAY_BIN:-${XRAY_BIN_DEFAULT:-${HOME}/.local/bin/xray}}"
 XRAY_CONFIG="${ACTIVE_XRAY_CONFIG_DEFAULT}"
 XRAY_RUNTIME_CONFIG="${XRAY_RUNTIME_CONFIG:-${ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT}}"
+XRAY_ASSET_DIR="${XRAY_ASSET_DIR:-${XRAY_ASSET_DIR_DEFAULT}}"
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
 RUNTIME_DNS_SERVERS="${RUNTIME_DNS_SERVERS:-8.8.8.8 1.1.1.1}"
@@ -402,6 +404,7 @@ ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
 ensure_absolute_path "$XRAY_LOG" "XRAY_LOG"
 ensure_absolute_path "$XRAY_RUNTIME_CONFIG" "XRAY_RUNTIME_CONFIG"
 ensure_absolute_path "$XRAY_CONFIG" "XRAY_CONFIG"
+ensure_absolute_path "$XRAY_ASSET_DIR" "XRAY_ASSET_DIR"
 
 echo "[0/8] Режим: Xray core TUN"
 echo "Поднимается основной runtime проекта без дополнительных прокси-движков."
@@ -481,14 +484,14 @@ fi
 echo "[3/8] Materialize runtime-конфига"
 materialize_runtime_config
 
-if ! "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
+if ! XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
   echo "Xray config check завершился ошибкой. Смотри лог: $XRAY_CHECK_LOG" >&2
   exit 1
 fi
 
 echo "[4/8] Запуск Xray core"
 sudo -v
-sudo "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_RUN_TARGET" 2>&1 &
+sudo XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_RUN_TARGET" 2>&1 &
 XRAY_PID=$!
 sleep 2
 
@@ -497,7 +500,7 @@ if ! kill -0 "$XRAY_PID" 2>/dev/null; then
     echo "Xray завершился сразу после старта. Смотри лог: $XRAY_LOG" >&2
   else
     XRAY_FAIL_LOG="$(make_temp_log xray-start-fail)"
-    capture_start_failure "$XRAY_FAIL_LOG" "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG"
+    capture_start_failure "$XRAY_FAIL_LOG" env XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -c "$XRAY_RUNTIME_CONFIG"
     fail_start_with_rollback "Xray завершился сразу после старта. Диагностика команды сохранена в: $XRAY_FAIL_LOG"
   fi
   fail_start_with_rollback "Xray завершился сразу после старта. Смотри лог: $XRAY_LOG"

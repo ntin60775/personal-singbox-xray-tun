@@ -42,7 +42,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
-        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-08-main-gui-live-asset-v1")
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-08-main-gui-sidebar-v1")
 
     def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
         html = self.main_html()
@@ -69,11 +69,24 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('id="subscription-url"', html)
         self.assertIn('id="subscription-list"', html)
         self.assertIn('id="node-list"', html)
+        self.assertIn('id="routing-form"', html)
+        self.assertIn('id="routing-profile-list"', html)
+        self.assertIn('id="routing-toggle-button"', html)
         self.assertIn('id="log-list"', html)
         self.assertIn('id="refresh-all-button"', html)
         self.assertIn('id="panel-log"', html)
         self.assertIn('id="panel-subscriptions"', html)
         self.assertIn('id="panel-nodes"', html)
+        self.assertIn('id="view-stack"', html)
+        self.assertIn('id="view-connection"', html)
+        self.assertIn('id="view-routing"', html)
+        self.assertIn('id="view-logs"', html)
+        self.assertIn('data-view-nav="connection"', html)
+        self.assertIn('data-view-nav="routing"', html)
+        self.assertIn('data-view-nav="logs"', html)
+        self.assertIn('id="view-title"', html)
+        self.assertIn('id="nav-routing-meta"', html)
+        self.assertIn('id="nav-logs-meta"', html)
         self.assertIn('id="connection-chip"', html)
         self.assertIn('id="connection-value"', html)
         self.assertIn('id="node-help-toggle"', html)
@@ -86,7 +99,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('"/api/nodes/ping"', html)
         self.assertIn('rel="icon"', html)
         self.assertIn('/assets/subvost-xray-tun-icon.svg', html)
-        self.assertNotIn('id="sidebar-nav"', html)
+        self.assertIn('id="sidebar-nav"', html)
         self.assertNotIn('id="profile-list"', html)
         self.assertNotIn('id="logging-toggle"', html)
         self.assertNotIn('id="command-output"', html)
@@ -98,7 +111,13 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         html = self.main_html()
         self.assertIn("width: 100%;", html)
         self.assertIn("max-width: 1280px;", html)
+        self.assertIn("grid-template-columns: 248px minmax(0, 1fr);", html)
+        self.assertIn("grid-template-rows: auto auto minmax(0, 1fr);", html)
+        self.assertIn("grid-template-columns: minmax(292px, 348px) minmax(0, 1fr);", html)
         self.assertNotIn("width: min(100%, 1200px);", html)
+        self.assertNotIn("grid-template-rows: auto minmax(0, 1fr) minmax(180px, 24dvh);", html)
+        self.assertNotIn("grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(300px, 360px);", html)
+        self.assertNotIn('class="workspace-main"', html)
 
     def test_main_gui_skips_full_rerender_when_poll_payload_is_visibly_unchanged(self) -> None:
         html = self.main_html()
@@ -116,6 +135,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertNotIn("Bundle стартует только из активного узла.", html)
         self.assertIn("Подписка:", html)
         self.assertIn("Узел:", html)
+        self.assertIn("Маршрутизация:", html)
 
     def test_root_route_is_only_gui_entrypoint(self) -> None:
         self.assertEqual(gui_server.ROOT_GUI_PATHS, ["/", "/index.html"])
@@ -131,7 +151,10 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         do_post_source = inspect.getsource(gui_server.Handler.do_POST)
         self.assertIn('"/api/app/terminate"', do_post_source)
+        self.assertIn('"/api/app/shutdown-gui"', do_post_source)
         self.assertIn('"/api/nodes/ping"', do_post_source)
+        self.assertIn('"/api/routing/import"', do_post_source)
+        self.assertIn('"/api/routing/toggle"', do_post_source)
         self.assertIn("schedule_server_shutdown(self.server)", do_post_source)
 
     def test_launcher_reads_gui_version_from_shared_contract_module(self) -> None:
@@ -161,9 +184,13 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("open-subvost-gui.sh", desktop_entry)
         self.assertIn(f"Icon={expected_icon_name}", desktop_entry)
         self.assertNotIn("/assets/subvost-xray-tun-icon.svg", desktop_entry)
+        self.assertIn("SUBVOST_GUI_LAUNCH_MODE", desktop_entry)
+        self.assertIn("'browser'", desktop_entry)
         self.assertIn('ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"', menu_installer)
         self.assertIn("Icon=${ICON_NAME}", menu_installer)
         self.assertIn("subvost_sync_desktop_launcher_icon", menu_installer)
+        self.assertIn("SUBVOST_GUI_LAUNCH_MODE", menu_installer)
+        self.assertIn("'browser'", menu_installer)
         self.assertIn('SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"', common_shell)
         self.assertIn('ln -sfn -- "$icon_path" "$icon_link_path"', common_shell)
         self.assertNotIn("--force-restart-backend", desktop_entry)
@@ -201,13 +228,12 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         html = self.main_html()
         self.assertNotIn("@media (max-width: 1280px) {\n      .topbar {", html)
         self.assertIn("@media (max-width: 1120px)", html)
-        self.assertIn("grid-template-columns: minmax(280px, 0.94fr) minmax(0, 1.12fr);", html)
-        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(312px, 372px);", html)
-        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", html)
-        self.assertIn("grid-template-rows: auto auto auto;", html)
-        self.assertIn(".topbar-primary {\n        grid-row: 1;", html)
-        self.assertIn(".metric-strip {\n        grid-row: 2;", html)
-        self.assertIn(".action-row {\n        grid-row: 3;\n        grid-template-columns: 1fr;\n        align-self: stretch;", html)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(288px, 360px);", html)
+        self.assertIn(".app-shell {\n        grid-template-columns: 1fr;", html)
+        self.assertIn(".sidebar-menu,\n      .sidebar-context {\n        grid-template-columns: repeat(3, minmax(0, 1fr));", html)
+        self.assertIn(".topbar {\n        grid-template-columns: 1fr;", html)
+        self.assertIn("@media (max-width: 920px)", html)
+        self.assertIn(".sidebar-menu,\n      .sidebar-context,\n      .workspace {\n        grid-template-columns: 1fr;", html)
 
     def test_user_backend_shell_action_uses_pkexec_not_sudo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -369,6 +395,22 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["vpn_stop_requested"])
         self.assertIn("другого bundle", payload["message"])
+        run_mock.assert_not_called()
+        remember_mock.assert_called_once()
+
+    def test_handle_gui_shutdown_does_not_stop_runtime(self) -> None:
+        with (
+            patch("gui_server.inspect_runtime_state") as inspect_mock,
+            patch("gui_server.run_shell_action") as run_mock,
+            patch("gui_server.remember_action") as remember_mock,
+            patch("gui_server.collect_status", return_value={"summary": {"state": "running"}}),
+        ):
+            payload = gui_server.handle_gui_shutdown({"source": "window-close"})
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["vpn_stop_requested"])
+        self.assertIn("без остановки VPN", payload["message"])
+        inspect_mock.assert_not_called()
         run_mock.assert_not_called()
         remember_mock.assert_called_once()
 
@@ -687,6 +729,79 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(ValueError, "сначала выбери и активируй валидный узел"):
+                    gui_server.handle_start()
+
+    def test_handle_start_rejects_not_ready_routing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            template = root / "xray-tun-subvost.json"
+            template.write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, root)
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "SubVostVPN",
+                    "name_key": "subvostvpn",
+                    "enabled": True,
+                    "source_format": "json",
+                    "raw_payload": {"name": "SubVostVPN"},
+                    "global_proxy": True,
+                    "domain_strategy": "AsIs",
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                    "direct_sites": [],
+                    "direct_ip": [],
+                    "proxy_sites": [],
+                    "proxy_ip": [],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "dns_hosts": {},
+                    "domestic_dns_domain": "",
+                    "domestic_dns_ip": "",
+                    "domestic_dns_type": "",
+                    "remote_dns_domain": "",
+                    "remote_dns_ip": "",
+                    "remote_dns_type": "",
+                    "fake_dns": False,
+                    "route_order": ["block", "direct", "proxy"],
+                    "last_updated": "",
+                    "supported_entry_count": 0,
+                    "stored_only_fields": [],
+                    "ignored_fields": [],
+                    "unknown_fields": [],
+                    "created_at": "2026-04-08T00:00:00+00:00",
+                    "updated_at": "2026-04-08T00:00:00+00:00",
+                }
+            )
+            store["routing"]["active_profile_id"] = "routing-1"
+            store["routing"]["enabled"] = True
+            store["routing"]["runtime_ready"] = False
+            store["routing"]["runtime_error"] = "geodata отсутствует"
+            save_store(paths, store)
+
+            with (
+                patch.object(gui_server, "APP_PATHS", paths),
+                patch.object(gui_server, "PROJECT_ROOT", root),
+                patch(
+                    "gui_server.inspect_runtime_state",
+                    return_value={
+                        "has_state": False,
+                        "ownership": "unknown",
+                        "ownership_label": "Источник не подтверждён",
+                        "state_bundle_project_root": None,
+                        "tun_interface": "tun0",
+                        "xray_pid": None,
+                        "xray_alive": False,
+                        "tun_present": False,
+                        "stack_is_live": False,
+                        "owned_stack_is_live": False,
+                    },
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "geodata|маршрутизации"):
                     gui_server.handle_start()
 
 

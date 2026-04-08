@@ -21,6 +21,12 @@ class EmbeddedWebViewTests(unittest.TestCase):
             "http://127.0.0.1:8421/api/app/terminate",
         )
 
+    def test_build_app_gui_shutdown_url_appends_gui_only_shutdown_route(self) -> None:
+        self.assertEqual(
+            embedded_webview.build_app_gui_shutdown_url("http://127.0.0.1:8421/"),
+            "http://127.0.0.1:8421/api/app/shutdown-gui",
+        )
+
     def test_apply_software_rendering_environment_sets_defaults(self) -> None:
         env = {"DISPLAY": ":0", "WEBKIT_DISABLE_DMABUF_RENDERER": "0"}
 
@@ -330,6 +336,30 @@ class EmbeddedWebViewTests(unittest.TestCase):
         self.assertEqual(seen["headers"]["content-type"], "application/json")
         self.assertEqual(seen["body"], {"source": "window-close"})
 
+    def test_request_gui_backend_shutdown_posts_to_gui_only_route(self) -> None:
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["headers"] = {key.lower(): value for key, value in request.header_items()}
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse({"ok": True, "message": "gui closing", "vpn_stop_requested": False})
+
+        payload = embedded_webview.request_gui_backend_shutdown(
+            "http://127.0.0.1:8421",
+            source="window-close",
+            timeout=17,
+            urlopen=fake_urlopen,
+        )
+
+        self.assertEqual(payload["message"], "gui closing")
+        self.assertFalse(payload["vpn_stop_requested"])
+        self.assertEqual(seen["url"], "http://127.0.0.1:8421/api/app/shutdown-gui")
+        self.assertEqual(seen["timeout"], 17)
+        self.assertEqual(seen["headers"]["content-type"], "application/json")
+        self.assertEqual(seen["body"], {"source": "window-close"})
+
     def test_request_application_shutdown_raises_backend_message_from_http_error(self) -> None:
         error = urllib.error.HTTPError(
             "http://127.0.0.1:8421/api/app/terminate",
@@ -345,7 +375,7 @@ class EmbeddedWebViewTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "stop failed"):
             embedded_webview.request_application_shutdown("http://127.0.0.1:8421", urlopen=fake_urlopen)
 
-    def test_close_application_quits_only_after_successful_full_shutdown(self) -> None:
+    def test_close_application_quits_after_successful_gui_shutdown(self) -> None:
         class FakeApp:
             def __init__(self) -> None:
                 self.quit_calls = 0
@@ -356,7 +386,7 @@ class EmbeddedWebViewTests(unittest.TestCase):
         app = object.__new__(embedded_webview.EmbeddedWebViewApp)
         app.app = FakeApp()
         app.shutting_down = False
-        app.request_full_shutdown = lambda: {"ok": True}
+        app.request_gui_shutdown = lambda: {"ok": True, "vpn_stop_requested": False}
         app.show_shutdown_error = lambda _message: self.fail("Диалог ошибки не должен открываться")
 
         closed = embedded_webview.EmbeddedWebViewApp.close_application(app)
@@ -381,7 +411,7 @@ class EmbeddedWebViewTests(unittest.TestCase):
         def fail_shutdown():
             raise RuntimeError("stop failed")
 
-        app.request_full_shutdown = fail_shutdown
+        app.request_gui_shutdown = fail_shutdown
         app.show_shutdown_error = shown_errors.append
 
         closed = embedded_webview.EmbeddedWebViewApp.close_application(app)

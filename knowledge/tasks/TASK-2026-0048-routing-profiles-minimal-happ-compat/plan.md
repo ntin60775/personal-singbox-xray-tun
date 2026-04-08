@@ -1,0 +1,103 @@
+# План задачи TASK-2026-0048
+
+## Правило
+
+Для задачи существует только один файл плана: `plan.md`.
+Если задача декомпозируется, каждая подзадача получает свой собственный `plan.md` внутри своей папки.
+
+## Паспорт плана
+
+| Поле | Значение |
+|------|----------|
+| ID задачи | `TASK-2026-0048` |
+| Parent ID | `—` |
+| Версия плана | `1` |
+| Дата обновления | `2026-04-08` |
+
+## Цель
+
+Реализовать минимально достаточный routing-контур по модели Happ: импорт профиля, один активный профиль, глобальный toggle маршрутизации, обязательная geodata и применение правил в `Xray`-runtime.
+
+## Границы
+
+### Входит
+
+- import-first поддержка routing-профилей;
+- geodata download/cache и интеграция с `Xray`;
+- backend API и web UI для просмотра и переключения routing-профилей;
+- tolerant parsing mixed subscription payload, если там есть `happ://routing/...`;
+- оформление отдельной подзадачи на auto-fetch.
+
+### Не входит
+
+- автоматическое извлечение routing-профиля из `refresh` подписки;
+- редактирование профилей вручную;
+- удаление routing-профилей;
+- применение DNS-части профиля в текущем runtime.
+
+## Планируемые изменения
+
+### Код
+
+- добавить отдельный модуль routing-парсинга, normalizer, geodata manager и builder overlay для `Xray`;
+- расширить `subvost_store` новой секцией `routing`, логикой импорта и переключения профилей;
+- расширить `subvost_runtime`, `gui_server`, `main_gui.html` и shell runtime для geodata и routing status;
+- сделать tolerant parsing mixed subscription payload без auto-fetch.
+
+### Конфигурация / схема данных / именуемые сущности
+
+- повысить версию store и добавить `routing.enabled`, `routing.active_profile_id`, `routing.profiles`, `routing.runtime_ready`, `routing.geodata`;
+- добавить пути к `geoip.dat` и `geosite.dat` в user config-home;
+- подключить `XRAY_LOCATION_ASSET` к запуску и валидации `Xray`.
+
+### Документация
+
+- создать `task.md` и `plan.md` основной задачи;
+- создать подзадачу `TASK-2026-0048.1` как следующий этап auto-fetch;
+- обновить `knowledge/tasks/registry.md`.
+
+## Риски и зависимости
+
+- без geodata routing с `geosite:` и `geoip:` должен считаться неготовым и блокировать следующий старт;
+- импорт routing-профиля должен быть совместим и с JSON, и с `happ://routing/...`, иначе пользовательский workflow будет лишне хрупким;
+- маршрутный overlay нельзя строить поверх template правил так, чтобы сломать обязательные internal-исключения bundle;
+- ручной smoke c `pkexec`, `tun0` и сетевым трафиком остаётся обязательным после кодовой реализации.
+
+## Проверки
+
+### Что можно проверить кодом или тестами
+
+- `python3 -m unittest tests.test_subvost_parser tests.test_subvost_runtime tests.test_subvost_store tests.test_gui_server`
+- `bash -n *.sh`
+- `bash -n libexec/*.sh`
+- `bash -n lib/*.sh`
+- `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_paths.py`
+
+### Что остаётся на ручную проверку
+
+- импорт routing-профиля через GUI;
+- `Старт` / `Стоп` при включённой маршрутизации и готовой geodata;
+- проверка фактической маршрутизации трафика в целевой Linux-среде.
+
+## Шаги
+
+- [x] Открыть task-контур и подзадачу auto-fetch
+- [x] Добавить routing parser, normalizer и geodata manager
+- [x] Расширить store/runtime и shell runtime
+- [x] Добавить backend API и web UI
+- [x] Обновить тесты и прогнать проверки
+
+## Критерии завершения
+
+- основной import-first сценарий работает end-to-end;
+- routing не ломает текущий выбор активного узла и старт bundle без него;
+- auto-fetch вынесен в отдельную подзадачу, а не смешан с основной реализацией;
+- все knowledge-артефакты и статические проверки синхронизированы.
+
+## Итог
+
+Import-first реализация завершена: добавлены routing parser/normalizer, geodata manager, store-schema с routing-профилями, runtime overlay для `Xray`, shell-интеграция `XRAY_LOCATION_ASSET`, backend API и UI-панель маршрутизации.
+
+Тестовый контур расширен unit-проверками parser/runtime/store/backend и прошёл без ошибок. Auto-fetch из подписки по `routing` metadata оставлен как отдельная подзадача `TASK-2026-0048.1`.
+
+Отдельно остаётся ручная production-проверка с реальным `pkexec`, `tun0` и фактическим трафиком.

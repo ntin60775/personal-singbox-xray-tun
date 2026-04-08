@@ -15,13 +15,18 @@ sys.path.insert(0, str(REPO_ROOT / "gui"))
 from subvost_paths import build_app_paths  # noqa: E402
 from subvost_store import (  # noqa: E402
     MANUAL_PROFILE_ID,
+    activate_routing_profile,
     add_subscription,
     default_subscription_hwid,
+    ensure_store_structure,
     ensure_store_initialized,
+    import_routing_profile,
     refresh_subscription,
     save_manual_import_results,
     save_store,
+    set_routing_enabled,
     sync_generated_runtime,
+    update_routing_profile_enabled,
     update_profile,
 )
 
@@ -169,6 +174,163 @@ class SubvostStoreTests(unittest.TestCase):
             sync_generated_runtime(store, paths, project_root)
             self.assertEqual(store["active_selection"]["profile_id"], MANUAL_PROFILE_ID)
             self.assertTrue(paths.generated_xray_config_file.exists())
+
+    def test_routing_profile_import_and_enable_generates_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(
+                json.dumps(
+                    {
+                        "outbounds": [
+                            {"tag": "proxy", "protocol": "vless", "settings": {"vnext": [{"address": "template", "port": 443, "users": [{"id": "uuid", "encryption": "none"}]}]}, "streamSettings": {"network": "tcp", "security": "none"}},
+                            {"tag": "direct", "protocol": "freedom"},
+                            {"tag": "block", "protocol": "blackhole"},
+                        ],
+                        "routing": {
+                            "domainStrategy": "AsIs",
+                            "rules": [
+                                {"type": "field", "inboundTag": ["tun-in"], "port": "53", "outboundTag": "dns-out"},
+                                {"type": "field", "inboundTag": ["tun-in"], "network": "tcp,udp", "outboundTag": "proxy"},
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            store = ensure_store_initialized(paths, project_root)
+            manual_profile = next(profile for profile in store["profiles"] if profile["id"] == MANUAL_PROFILE_ID)
+            manual_profile["nodes"].append(
+                {
+                    "id": "node-1",
+                    "fingerprint": "fingerprint-1",
+                    "name": "Node-1",
+                    "protocol": "vless",
+                    "raw_uri": "vless://...",
+                    "origin": {"kind": "manual", "subscription_id": None},
+                    "enabled": True,
+                    "user_renamed": False,
+                    "parse_error": "",
+                    "normalized": {
+                        "fingerprint_hash": "fingerprint-1",
+                        "protocol": "vless",
+                        "address": "example.com",
+                        "port": 443,
+                        "uuid": "11111111-1111-1111-1111-111111111111",
+                        "encryption": "none",
+                        "flow": "",
+                        "network": "tcp",
+                        "security": "none",
+                        "host": "",
+                        "path": "",
+                        "server_name": "",
+                        "service_name": "",
+                        "grpc_authority": "",
+                        "fingerprint": "",
+                        "public_key": "",
+                        "short_id": "",
+                        "spider_x": "/",
+                        "mode": "auto",
+                        "xhttp_extra": {},
+                        "alpn": [],
+                        "allow_insecure": False,
+                        "display_name": "Node-1",
+                        "raw_uri": "vless://...",
+                    },
+                    "created_at": "2026-04-08T00:00:00+00:00",
+                    "updated_at": "2026-04-08T00:00:00+00:00",
+                }
+            )
+            store["active_selection"] = {
+                "profile_id": MANUAL_PROFILE_ID,
+                "node_id": "node-1",
+                "activated_at": "2026-04-08T00:00:00+00:00",
+                "source": "test",
+            }
+
+            routing_json = json.dumps(
+                {
+                    "name": "SubVostVPN",
+                    "globalproxy": False,
+                    "domainstrategy": "IPIfNonMatch",
+                    "directsites": ["geosite:private"],
+                    "directip": ["geoip:private"],
+                    "proxysites": ["geosite:youtube"],
+                    "proxyip": [],
+                    "blocksites": ["geosite:category-ads"],
+                    "blockip": [],
+                    "geoipurl": "https://example.com/geoip.dat",
+                    "geositeurl": "https://example.com/geosite.dat",
+                }
+            )
+
+            with patch(
+                "subvost_routing.urllib.request.urlopen",
+                side_effect=[FakeResponse(b"geoip"), FakeResponse(b"geosite")],
+            ):
+                result = import_routing_profile(store, paths, routing_json)
+                activate_routing_profile(store, paths, result["profile"]["id"])
+                set_routing_enabled(store, paths, True)
+
+            sync_generated_runtime(store, paths, project_root)
+            rendered = json.loads(paths.generated_xray_config_file.read_text(encoding="utf-8"))
+
+            self.assertTrue(store["routing"]["enabled"])
+            self.assertTrue(store["routing"]["geodata"]["ready"])
+            self.assertEqual(rendered["routing"]["domainStrategy"], "IPIfNonMatch")
+            self.assertEqual(rendered["routing"]["rules"][-1]["outboundTag"], "direct")
+
+    def test_disabling_active_routing_profile_clears_master_toggle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = build_app_paths(Path(temp_dir) / "home", str(Path(temp_dir) / "home" / ".config"))
+            (Path(temp_dir) / "home").mkdir()
+            store = ensure_store_structure({})
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "SubVostVPN",
+                    "name_key": "subvostvpn",
+                    "enabled": True,
+                    "source_format": "json",
+                    "raw_payload": {"name": "SubVostVPN"},
+                    "global_proxy": True,
+                    "domain_strategy": "AsIs",
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                    "direct_sites": [],
+                    "direct_ip": [],
+                    "proxy_sites": [],
+                    "proxy_ip": [],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "dns_hosts": {},
+                    "domestic_dns_domain": "",
+                    "domestic_dns_ip": "",
+                    "domestic_dns_type": "",
+                    "remote_dns_domain": "",
+                    "remote_dns_ip": "",
+                    "remote_dns_type": "",
+                    "fake_dns": False,
+                    "route_order": ["block", "direct", "proxy"],
+                    "last_updated": "",
+                    "supported_entry_count": 0,
+                    "stored_only_fields": [],
+                    "ignored_fields": [],
+                    "unknown_fields": [],
+                    "created_at": "2026-04-08T00:00:00+00:00",
+                    "updated_at": "2026-04-08T00:00:00+00:00",
+                }
+            )
+            store["routing"]["active_profile_id"] = "routing-1"
+            store["routing"]["enabled"] = True
+
+            update_routing_profile_enabled(store, paths, "routing-1", enabled=False)
+
+            self.assertFalse(store["routing"]["enabled"])
+            self.assertIsNone(store["routing"]["active_profile_id"])
 
     def test_refresh_subscription_preserves_user_renamed_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

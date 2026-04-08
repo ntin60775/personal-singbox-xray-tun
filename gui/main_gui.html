@@ -64,7 +64,8 @@
     }
 
     button,
-    input {
+    input,
+    textarea {
       font: inherit;
     }
 
@@ -90,7 +91,7 @@
       width: 100%;
       max-width: 1280px;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) minmax(180px, 24dvh);
+      grid-template-columns: 248px minmax(0, 1fr);
       gap: 14px;
       padding: 16px;
       border: 1px solid rgba(164, 184, 207, 0.14);
@@ -113,6 +114,7 @@
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
+    .sidebar,
     .topbar,
     .panel {
       min-height: 0;
@@ -128,13 +130,141 @@
         var(--panel-shadow);
     }
 
+    .sidebar {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 14px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sidebar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at top left, rgba(103, 166, 255, 0.12), transparent 42%),
+        linear-gradient(160deg, rgba(255, 255, 255, 0.02), transparent 34%);
+    }
+
+    .content-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .sidebar-brand,
+    .sidebar-menu,
+    .sidebar-context,
+    .sidebar-footer {
+      position: relative;
+      z-index: 1;
+    }
+
+    .sidebar-brand {
+      display: grid;
+      gap: 10px;
+    }
+
+    .sidebar-copy {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.81rem;
+      line-height: 1.5;
+    }
+
+    .sidebar-menu {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav-button {
+      display: grid;
+      gap: 4px;
+      justify-items: start;
+      min-height: 64px;
+      padding: 14px 15px;
+      border-radius: 16px;
+      border: 1px solid rgba(164, 184, 207, 0.12);
+      background: linear-gradient(180deg, rgba(18, 25, 35, 0.9), rgba(12, 18, 26, 0.96));
+      color: var(--text);
+      text-align: left;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition:
+        transform 160ms ease,
+        border-color 160ms ease,
+        background-color 160ms ease,
+        box-shadow 160ms ease;
+    }
+
+    .nav-button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(164, 184, 207, 0.2);
+    }
+
+    .nav-button[data-active="true"] {
+      border-color: rgba(103, 166, 255, 0.28);
+      background: linear-gradient(180deg, rgba(35, 50, 74, 0.94), rgba(20, 30, 44, 0.98));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 14px 32px rgba(5, 11, 18, 0.18);
+    }
+
+    .nav-button[data-alert="true"] {
+      border-color: rgba(255, 121, 121, 0.22);
+    }
+
+    .nav-label {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .nav-meta {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+
+    .sidebar-context {
+      min-height: 0;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .sidebar .context-pill {
+      width: 100%;
+      max-width: none;
+      min-height: 46px;
+      justify-content: flex-start;
+      padding: 10px 12px;
+      border-radius: 16px;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: unset;
+    }
+
+    .sidebar-footer {
+      display: flex;
+      align-items: stretch;
+    }
+
+    .sidebar-footer .ghost-button {
+      width: 100%;
+      min-height: 42px;
+    }
+
     .topbar {
       display: grid;
-      grid-template-columns: minmax(280px, 0.94fr) minmax(0, 1.12fr);
-      grid-template-rows: auto auto;
-      gap: 14px 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(288px, 360px);
+      grid-template-rows: auto;
+      gap: 16px;
       padding: 16px 18px;
-      align-items: start;
+      align-items: stretch;
       position: relative;
       overflow: hidden;
     }
@@ -153,9 +283,9 @@
       display: grid;
       gap: 12px;
       min-width: 0;
-      grid-row: 1 / span 2;
       position: relative;
       z-index: 1;
+      align-content: start;
     }
 
     .eyebrow {
@@ -170,8 +300,24 @@
 
     .headline-row {
       display: grid;
-      gap: 8px;
+      gap: 10px;
       justify-items: start;
+    }
+
+    .view-title {
+      margin: 0;
+      font-family: var(--sans-display);
+      font-size: clamp(1.62rem, 2vw, 2.16rem);
+      line-height: 1.02;
+      letter-spacing: -0.04em;
+    }
+
+    .view-copy {
+      margin: 0;
+      max-width: 58ch;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.55;
     }
 
     .status-pill,
@@ -312,9 +458,9 @@
 
     .action-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(312px, 372px);
+      grid-template-columns: 1fr;
       gap: 12px;
-      align-self: end;
+      align-self: stretch;
       align-items: stretch;
       position: relative;
       z-index: 1;
@@ -330,7 +476,7 @@
 
     .action-buttons {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: stretch;
     }
 
@@ -479,7 +625,8 @@
     .ghost-button:disabled,
     .tiny-button:disabled,
     .filter-chip:disabled,
-    .url-input:disabled {
+    .url-input:disabled,
+    .routing-input:disabled {
       cursor: not-allowed;
       opacity: 0.5;
       transform: none;
@@ -488,8 +635,25 @@
     .workspace {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(410px, 500px) minmax(0, 1fr);
+      grid-template-columns: minmax(292px, 348px) minmax(0, 1fr);
       gap: 14px;
+    }
+
+    .view-stack,
+    .view-pane {
+      min-height: 0;
+      display: grid;
+    }
+
+    .view-pane[hidden] {
+      display: none;
+    }
+
+    .routing-grid {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
     }
 
     .panel {
@@ -504,9 +668,19 @@
       grid-template-rows: auto auto minmax(0, 1fr);
     }
 
+    .routing-panel {
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
     .log-panel {
       display: grid;
       grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .routing-profiles-panel {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr);
     }
 
     .panel-head {
@@ -594,6 +768,50 @@
       border-color: rgba(103, 166, 255, 0.42);
       box-shadow: var(--focus-ring);
       background: rgba(9, 14, 22, 0.76);
+    }
+
+    .routing-form {
+      display: grid;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 18px;
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(12, 18, 26, 0.7), rgba(18, 26, 38, 0.54));
+    }
+
+    .routing-status-grid {
+      display: grid;
+      gap: 6px;
+    }
+
+    .routing-input {
+      width: 100%;
+      min-height: 132px;
+      padding: 12px 14px;
+      resize: vertical;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.16);
+      background: rgba(8, 12, 18, 0.52);
+      color: var(--text);
+      transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+    }
+
+    .routing-input::placeholder {
+      color: rgba(149, 166, 188, 0.72);
+    }
+
+    .routing-input:focus {
+      outline: none;
+      border-color: rgba(103, 166, 255, 0.42);
+      box-shadow: var(--focus-ring);
+      background: rgba(9, 14, 22, 0.76);
+    }
+
+    .routing-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: stretch;
     }
 
     .list-scroll,
@@ -690,6 +908,15 @@
 
     .subscription-row .row-side {
       min-width: 136px;
+      align-content: start;
+    }
+
+    .routing-row {
+      align-items: start;
+    }
+
+    .routing-row .row-side {
+      min-width: 164px;
       align-content: start;
     }
 
@@ -961,30 +1188,41 @@
     }
 
     @media (max-width: 1120px) {
-      .topbar {
+      .app-shell {
         grid-template-columns: 1fr;
-        grid-template-rows: auto auto auto;
       }
 
-      .topbar-primary {
-        grid-row: 1;
+      .sidebar {
+        grid-template-rows: auto auto auto auto;
+      }
+
+      .sidebar-menu,
+      .sidebar-context {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
       }
 
       .metric-strip {
-        grid-row: 2;
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .action-row {
-        grid-row: 3;
-        grid-template-columns: 1fr;
         align-self: stretch;
       }
     }
 
     @media (max-width: 920px) {
+      .sidebar-menu,
+      .sidebar-context,
       .workspace {
-        grid-template-columns: minmax(330px, 400px) minmax(0, 1fr);
+        grid-template-columns: 1fr;
+      }
+
+      .routing-grid {
+        grid-template-columns: 1fr;
       }
 
       .metric-strip {
@@ -992,7 +1230,7 @@
       }
 
       .action-buttons {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -1005,11 +1243,17 @@
         padding: 12px;
       }
 
+      .sidebar-menu,
+      .sidebar-context,
       .workspace {
         grid-template-columns: 1fr;
       }
 
       .subscription-form {
+        grid-template-columns: 1fr;
+      }
+
+      .routing-actions {
         grid-template-columns: 1fr;
       }
 
@@ -1048,20 +1292,65 @@
 <body>
   <main class="page">
     <section class="app-shell" id="main-gui-shell">
-      <header class="topbar">
-        <div class="topbar-primary">
+      <aside class="sidebar" id="sidebar-nav">
+        <div class="sidebar-brand">
           <p class="eyebrow">Subvost Xray TUN</p>
-          <div class="headline-row">
-            <div class="status-pill" id="status-pill" data-state="unknown">
-              <span class="status-dot" aria-hidden="true"></span>
-              <span id="status-text">Проверяю состояние</span>
-            </div>
-            <span class="context-pill" id="active-subscription">Подписка: —</span>
-            <span class="context-pill" id="active-node">Узел: —</span>
-          </div>
+          <p class="sidebar-copy">Главный экран держит только подключение и узлы. Служебные разделы открываются отдельно через меню.</p>
         </div>
 
-        <div class="metric-strip">
+        <nav class="sidebar-menu" aria-label="Разделы интерфейса">
+          <button class="nav-button" data-view-nav="connection" data-active="true" data-alert="false" type="button">
+            <span class="nav-label">Подключение</span>
+            <span class="nav-meta" id="nav-connection-meta">Подписки и узлы</span>
+          </button>
+          <button class="nav-button" data-view-nav="routing" data-active="false" data-alert="false" type="button">
+            <span class="nav-label">Маршрутизация</span>
+            <span class="nav-meta" id="nav-routing-meta">Служебный раздел</span>
+          </button>
+          <button class="nav-button" data-view-nav="logs" data-active="false" data-alert="false" type="button">
+            <span class="nav-label">Лог</span>
+            <span class="nav-meta" id="nav-logs-meta">Ошибок пока нет</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-context">
+          <span class="context-pill" id="active-subscription">Подписка: —</span>
+          <span class="context-pill" id="active-node">Узел: —</span>
+          <span class="context-pill" id="active-routing">Маршрутизация: —</span>
+        </div>
+
+        <div class="sidebar-footer">
+          <button class="ghost-button" id="diag-button" type="button">Диагностика</button>
+        </div>
+      </aside>
+
+      <section class="content-shell">
+        <header class="topbar">
+          <div class="topbar-primary">
+            <p class="eyebrow" id="view-eyebrow">Основной экран</p>
+            <div class="headline-row">
+              <div class="status-pill" id="status-pill" data-state="unknown">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="status-text">Проверяю состояние</span>
+              </div>
+              <h1 class="view-title" id="view-title">Подключение</h1>
+              <p class="view-copy" id="view-copy">Главный экран показывает только состояние, подписки и доступные узлы без служебного шума.</p>
+            </div>
+          </div>
+
+          <div class="action-row" aria-label="Основные действия">
+            <div class="connection-chip" id="connection-chip" data-state="stopped">
+              <span id="connection-label">Время подключения</span>
+              <strong class="mono" id="connection-value">не активно</strong>
+            </div>
+            <div class="action-buttons">
+              <button class="action-button primary" id="start-button" type="button">Старт</button>
+              <button class="action-button" id="stop-button" type="button">Стоп</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="metric-strip" aria-label="Сводка состояния">
           <div class="metric-chip">
             <span>Подписки</span>
             <strong id="subscription-indicator">Ожидание</strong>
@@ -1098,121 +1387,157 @@
               </span>
             </strong>
           </div>
-        </div>
-
-        <div class="action-row" aria-label="Основные действия">
-          <div class="connection-chip" id="connection-chip" data-state="stopped">
-            <span id="connection-label">Время подключения</span>
-            <strong class="mono" id="connection-value">не активно</strong>
-          </div>
-          <div class="action-buttons">
-            <button class="action-button primary" id="start-button" type="button">Старт</button>
-            <button class="action-button" id="stop-button" type="button">Стоп</button>
-            <button class="action-button" id="diag-button" type="button">Диагностика</button>
-          </div>
-        </div>
-      </header>
-
-      <section class="workspace">
-        <aside class="panel subscriptions-panel" id="panel-subscriptions">
-          <div class="panel-head">
-            <div>
-              <h2>Подписки</h2>
-              <p id="subscription-copy">Добавление по URL, обновление и удаление без лишних форм.</p>
-            </div>
-            <button class="ghost-button" id="refresh-all-button" type="button">Обновить все</button>
-          </div>
-
-          <form class="subscription-form" id="subscription-form">
-            <input
-              class="url-input mono"
-              id="subscription-url"
-              type="url"
-              placeholder="https://example.com/subscription"
-              autocomplete="off"
-            >
-            <button class="action-button primary" id="add-subscription-button" type="submit">Добавить</button>
-          </form>
-
-          <div class="list-scroll">
-            <div class="list-grid" id="subscription-list"></div>
-          </div>
-        </aside>
-
-        <section class="panel nodes-panel" id="panel-nodes">
-          <div class="panel-head">
-            <div>
-              <div class="panel-title-row">
-                <h2 id="node-panel-title">Узлы</h2>
-                <button
-                  class="ghost-button icon-button"
-                  id="node-help-toggle"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="node-help-panel"
-                  aria-label="Показать подсказки по узлам"
-                  title="Подсказка"
-                >?</button>
-              </div>
-            </div>
-            <span class="panel-badge" id="node-panel-badge">Ожидание</span>
-          </div>
-
-          <div class="help-card" id="node-help-panel" hidden>
-            <p id="node-panel-copy">Клик по плитке сразу активирует узел.</p>
-            <p id="node-selection-copy">Для проверки доступен отдельный ping без смены активного узла.</p>
-          </div>
-
-          <div class="list-scroll">
-            <div class="list-grid" id="node-list"></div>
-          </div>
         </section>
-      </section>
 
-      <section class="panel log-panel" id="panel-log">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title-row">
-              <h2>Лог</h2>
-              <button
-                class="ghost-button icon-button"
-                id="log-help-toggle"
-                type="button"
-                aria-expanded="false"
-                aria-controls="log-help-panel"
-                aria-label="Показать подсказки по логу"
-                title="Подсказка"
-              >?</button>
-            </div>
-          </div>
-          <div class="filter-row" id="log-filter-row">
-            <button class="filter-chip" data-log-filter="all" data-active="true" type="button">Все</button>
-            <button class="filter-chip" data-log-filter="error" data-active="false" type="button">Ошибки</button>
-          </div>
-        </div>
+        <section class="view-stack" id="view-stack">
+          <section class="view-pane" id="view-connection" data-view="connection" data-active="true">
+            <section class="workspace">
+              <aside class="panel subscriptions-panel" id="panel-subscriptions">
+                <div class="panel-head">
+                  <div>
+                    <h2>Подписки</h2>
+                    <p id="subscription-copy">Добавление по URL, обновление и удаление без лишних форм.</p>
+                  </div>
+                  <button class="ghost-button" id="refresh-all-button" type="button">Обновить все</button>
+                </div>
 
-        <div class="help-card" id="log-help-panel" hidden>
-          <p>Последние действия backend и хвост `xray`-лога.</p>
-          <p>Ошибки всегда видны явно.</p>
-        </div>
+                <form class="subscription-form" id="subscription-form">
+                  <input
+                    class="url-input mono"
+                    id="subscription-url"
+                    type="url"
+                    placeholder="https://example.com/subscription"
+                    autocomplete="off"
+                  >
+                  <button class="action-button primary" id="add-subscription-button" type="submit">Добавить</button>
+                </form>
 
-        <div class="error-banner" id="error-banner" hidden>
-          <div class="error-banner-content">
-            <strong>Последняя ошибка</strong>
-            <span id="error-banner-text">Ошибок пока нет.</span>
-          </div>
-          <button
-            class="ghost-button icon-button banner-dismiss"
-            id="error-banner-dismiss"
-            type="button"
-            aria-label="Скрыть последнюю ошибку"
-            title="Скрыть ошибку"
-          >×</button>
-        </div>
+                <div class="list-scroll">
+                  <div class="list-grid" id="subscription-list"></div>
+                </div>
+              </aside>
 
-        <div class="log-scroll">
-          <div class="log-list" id="log-list"></div>
-        </div>
+              <section class="panel nodes-panel" id="panel-nodes">
+                <div class="panel-head">
+                  <div>
+                    <div class="panel-title-row">
+                      <h2 id="node-panel-title">Узлы</h2>
+                      <button
+                        class="ghost-button icon-button"
+                        id="node-help-toggle"
+                        type="button"
+                        aria-expanded="false"
+                        aria-controls="node-help-panel"
+                        aria-label="Показать подсказки по узлам"
+                        title="Подсказка"
+                      >?</button>
+                    </div>
+                  </div>
+                  <span class="panel-badge" id="node-panel-badge">Ожидание</span>
+                </div>
+
+                <div class="help-card" id="node-help-panel" hidden>
+                  <p id="node-panel-copy">Клик по плитке сразу активирует узел.</p>
+                  <p id="node-selection-copy">Для проверки доступен отдельный ping без смены активного узла.</p>
+                </div>
+
+                <div class="list-scroll">
+                  <div class="list-grid" id="node-list"></div>
+                </div>
+              </section>
+            </section>
+          </section>
+
+          <section class="view-pane" id="view-routing" data-view="routing" data-active="false" hidden>
+            <section class="panel routing-panel" id="panel-routing">
+              <div class="panel-head">
+                <div>
+                  <h2>Маршрутизация</h2>
+                  <p id="routing-copy">Импортируйте JSON или вставьте `happ://routing/...`, затем выберите активный профиль и включите маршрутизацию.</p>
+                </div>
+                <span class="panel-badge" id="routing-panel-badge">Ожидание</span>
+              </div>
+
+              <div class="help-card">
+                <p id="routing-status-line">Профиль маршрутизации ещё не импортирован.</p>
+                <p id="routing-geodata-line">Geodata пока не подготовлена.</p>
+              </div>
+
+              <div class="routing-grid">
+                <form class="routing-form" id="routing-form">
+                  <div class="routing-status-grid">
+                    <span class="row-badge" data-tone="accent">Поддерживается JSON и `happ://routing/...`</span>
+                  </div>
+                  <textarea
+                    class="routing-input mono"
+                    id="routing-import-text"
+                    placeholder='Вставьте JSON routing-профиля или `happ://routing/add/...`'
+                    autocomplete="off"
+                  ></textarea>
+                  <div class="routing-actions">
+                    <button class="action-button primary" id="routing-import-button" type="submit">Импортировать</button>
+                    <button class="ghost-button" id="routing-toggle-button" type="button">Включить routing</button>
+                    <button class="ghost-button" id="routing-clear-button" type="button">Снять активный</button>
+                  </div>
+                </form>
+
+                <div class="routing-profiles-panel">
+                  <div class="list-scroll">
+                    <div class="list-grid" id="routing-profile-list"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section class="view-pane" id="view-logs" data-view="logs" data-active="false" hidden>
+            <section class="panel log-panel" id="panel-log">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-title-row">
+                    <h2>Лог</h2>
+                    <button
+                      class="ghost-button icon-button"
+                      id="log-help-toggle"
+                      type="button"
+                      aria-expanded="false"
+                      aria-controls="log-help-panel"
+                      aria-label="Показать подсказки по логу"
+                      title="Подсказка"
+                    >?</button>
+                  </div>
+                </div>
+                <div class="filter-row" id="log-filter-row">
+                  <button class="filter-chip" data-log-filter="all" data-active="true" type="button">Все</button>
+                  <button class="filter-chip" data-log-filter="error" data-active="false" type="button">Ошибки</button>
+                </div>
+              </div>
+
+              <div class="help-card" id="log-help-panel" hidden>
+                <p>Последние действия backend и хвост `xray`-лога.</p>
+                <p>Ошибки всегда видны явно.</p>
+              </div>
+
+              <div class="error-banner" id="error-banner" hidden>
+                <div class="error-banner-content">
+                  <strong>Последняя ошибка</strong>
+                  <span id="error-banner-text">Ошибок пока нет.</span>
+                </div>
+                <button
+                  class="ghost-button icon-button banner-dismiss"
+                  id="error-banner-dismiss"
+                  type="button"
+                  aria-label="Скрыть последнюю ошибку"
+                  title="Скрыть ошибку"
+                >×</button>
+              </div>
+
+              <div class="log-scroll">
+                <div class="log-list" id="log-list"></div>
+              </div>
+            </section>
+          </section>
+        </section>
       </section>
     </section>
   </main>
@@ -1222,6 +1547,7 @@
       polling: null,
       clock: null,
       busy: false,
+      currentView: "connection",
       selectedSubscriptionId: null,
       statusPayload: null,
       storePayload: null,
@@ -1231,15 +1557,28 @@
       renderCache: {
         subscriptions: "",
         nodes: "",
+        routing: "",
         logs: "",
       },
     };
 
     const els = {
+      sidebarNav: document.getElementById("sidebar-nav"),
+      viewStack: document.getElementById("view-stack"),
+      viewEyebrow: document.getElementById("view-eyebrow"),
+      viewTitle: document.getElementById("view-title"),
+      viewCopy: document.getElementById("view-copy"),
+      navConnectionButton: document.querySelector('[data-view-nav="connection"]'),
+      navRoutingButton: document.querySelector('[data-view-nav="routing"]'),
+      navLogsButton: document.querySelector('[data-view-nav="logs"]'),
+      navConnectionMeta: document.getElementById("nav-connection-meta"),
+      navRoutingMeta: document.getElementById("nav-routing-meta"),
+      navLogsMeta: document.getElementById("nav-logs-meta"),
       statusPill: document.getElementById("status-pill"),
       statusText: document.getElementById("status-text"),
       activeSubscription: document.getElementById("active-subscription"),
       activeNode: document.getElementById("active-node"),
+      activeRouting: document.getElementById("active-routing"),
       subscriptionIndicator: document.getElementById("subscription-indicator"),
       speedIndicator: document.getElementById("speed-indicator"),
       trafficIndicator: document.getElementById("traffic-indicator"),
@@ -1262,6 +1601,16 @@
       nodePanelBadge: document.getElementById("node-panel-badge"),
       nodeSelectionCopy: document.getElementById("node-selection-copy"),
       nodeList: document.getElementById("node-list"),
+      routingPanelBadge: document.getElementById("routing-panel-badge"),
+      routingCopy: document.getElementById("routing-copy"),
+      routingStatusLine: document.getElementById("routing-status-line"),
+      routingGeodataLine: document.getElementById("routing-geodata-line"),
+      routingForm: document.getElementById("routing-form"),
+      routingImportText: document.getElementById("routing-import-text"),
+      routingImportButton: document.getElementById("routing-import-button"),
+      routingToggleButton: document.getElementById("routing-toggle-button"),
+      routingClearButton: document.getElementById("routing-clear-button"),
+      routingProfileList: document.getElementById("routing-profile-list"),
       logHelpToggle: document.getElementById("log-help-toggle"),
       logHelpPanel: document.getElementById("log-help-panel"),
       logFilterRow: document.getElementById("log-filter-row"),
@@ -1269,6 +1618,24 @@
       errorBannerText: document.getElementById("error-banner-text"),
       errorBannerDismiss: document.getElementById("error-banner-dismiss"),
       logList: document.getElementById("log-list"),
+    };
+
+    const VIEW_CONTENT = {
+      connection: {
+        eyebrow: "Основной экран",
+        title: "Подключение",
+        copy: "Главный экран показывает состояние, подписки и узлы без routing и лога на одном полотне.",
+      },
+      routing: {
+        eyebrow: "Служебный раздел",
+        title: "Маршрутизация",
+        copy: "Импортируйте, включайте и проверяйте routing-профили отдельно от рабочего экрана подключения.",
+      },
+      logs: {
+        eyebrow: "Служебный раздел",
+        title: "Лог и ошибки",
+        copy: "Последние действия backend, ошибки и диагностические сообщения собраны в отдельном разделе.",
+      },
     };
 
     function escapeHtml(value) {
@@ -1414,6 +1781,20 @@
       return state.storePayload?.active_node || null;
     }
 
+    function routingState() {
+      const store = state.storePayload?.store || {};
+      return store.routing || { enabled: false, active_profile_id: null, profiles: [], geodata: {} };
+    }
+
+    function routingProfiles() {
+      const routing = routingState();
+      return Array.isArray(routing.profiles) ? routing.profiles : [];
+    }
+
+    function activeRoutingProfile() {
+      return state.storePayload?.active_routing_profile || null;
+    }
+
     function ensureSelectedSubscription() {
       const subscriptions = subscriptionsFromStore();
       const activeSubscriptionId = activeProfile()?.source_subscription_id || null;
@@ -1465,6 +1846,26 @@
       setTextIfChanged(els.errorBannerText, "Ошибок пока нет.");
     }
 
+    function renderViewShell() {
+      const currentView = VIEW_CONTENT[state.currentView] ? state.currentView : "connection";
+      const viewContent = VIEW_CONTENT[currentView];
+
+      setTextIfChanged(els.viewEyebrow, viewContent.eyebrow);
+      setTextIfChanged(els.viewTitle, viewContent.title);
+      setTextIfChanged(els.viewCopy, viewContent.copy);
+
+      for (const button of els.sidebarNav.querySelectorAll("[data-view-nav]")) {
+        const active = button.dataset.viewNav === currentView;
+        setDataAttrIfChanged(button, "active", active ? "true" : "false");
+      }
+
+      for (const pane of els.viewStack.querySelectorAll("[data-view]")) {
+        const active = pane.dataset.view === currentView;
+        pane.hidden = !active;
+        setDataAttrIfChanged(pane, "active", active ? "true" : "false");
+      }
+    }
+
     function renderConnectionTimer() {
       const summaryState = state.statusPayload?.summary?.state || "unknown";
       const connectedSince = state.statusPayload?.runtime?.connected_since || null;
@@ -1498,15 +1899,29 @@
       const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
       const statusSummary = state.statusPayload?.summary || {};
       const traffic = state.statusPayload?.traffic || {};
+      const routing = routingState();
+      const currentRoutingProfile = activeRoutingProfile();
       const activeSubscriptionName = activeProfile()?.source_subscription_id
         ? (subscriptions.find((item) => item.id === activeProfile()?.source_subscription_id)?.name || "—")
         : "—";
       const activeNodeName = activeNode()?.name || "—";
+      const activeRoutingName = currentRoutingProfile
+        ? routing.enabled
+          ? `${currentRoutingProfile.name} · вкл`
+          : `${currentRoutingProfile.name} · выкл`
+        : "—";
 
       setDataAttrIfChanged(els.statusPill, "state", statusSummary.state || "unknown");
       setTextIfChanged(els.statusText, statusSummary.label || "Нет данных");
       setTextIfChanged(els.activeSubscription, `Подписка: ${activeSubscriptionName}`);
       setTextIfChanged(els.activeNode, `Узел: ${activeNodeName}`);
+      setTextIfChanged(els.activeRouting, `Маршрутизация: ${activeRoutingName}`);
+      setTextIfChanged(
+        els.navConnectionMeta,
+        activeNodeName !== "—"
+          ? `${statusSummary.label || "Нет данных"} · ${activeNodeName}`
+          : (statusSummary.label || "Подписки и узлы")
+      );
       setTextIfChanged(els.subscriptionIndicator, subscriptions.length
         ? `${freshSubscriptions}/${subscriptions.length} актуальны`
         : "нет подписок");
@@ -1633,6 +2048,111 @@
       setHtmlIfChanged(els.nodeList, markup, "nodes");
     }
 
+    function renderRouting() {
+      const routing = routingState();
+      const profiles = routingProfiles();
+      const active = activeRoutingProfile();
+      const geodata = routing.geodata || {};
+      const enabled = Boolean(routing.enabled);
+      const ready = Boolean(routing.runtime_ready);
+      const geodataStatus = geodata.ready
+        ? "готова"
+        : geodata.status === "error"
+          ? "ошибка"
+          : "отсутствует";
+
+      if (enabled && active && ready) {
+        setTextIfChanged(els.routingPanelBadge, "Включена");
+      } else if (enabled) {
+        setTextIfChanged(els.routingPanelBadge, "Ошибка");
+      } else if (active) {
+        setTextIfChanged(els.routingPanelBadge, "Выключена");
+      } else {
+        setTextIfChanged(els.routingPanelBadge, "Нет профиля");
+      }
+
+      setTextIfChanged(
+        els.routingCopy,
+        profiles.length
+          ? `${profiles.length} routing-профил${profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"} в store.`
+          : "Импортируйте первый routing-профиль."
+      );
+
+      if (active) {
+        const modeLabel = active.global_proxy ? "global proxy" : "direct fallback";
+        setTextIfChanged(
+          els.routingStatusLine,
+          enabled && ready
+            ? `Активен профиль '${active.name}', применяется ${active.supported_entry_count || 0} правил, режим ${modeLabel}.`
+            : `Выбран профиль '${active.name}', правил ${active.supported_entry_count || 0}, режим ${modeLabel}.`
+        );
+      } else {
+        setTextIfChanged(els.routingStatusLine, "Профиль маршрутизации ещё не выбран.");
+      }
+
+      const geodataMessage = geodata.ready
+        ? `Geodata готова: geoip.dat и geosite.dat доступны в ${geodata.asset_dir || "asset-dir"}.`
+        : geodata.status === "error"
+          ? `Geodata не готова: ${geodata.error || "ошибка загрузки"}.`
+          : "Geodata пока не подготовлена.";
+      setTextIfChanged(els.routingGeodataLine, geodataMessage);
+      setTextIfChanged(els.routingToggleButton, enabled ? "Выключить routing" : "Включить routing");
+      setTextIfChanged(
+        els.navRoutingMeta,
+        active
+          ? `${active.name} · ${enabled ? (ready ? "включена" : "требует проверки") : "выключена"}`
+          : (profiles.length ? `${profiles.length} профилей в store` : "Профиля нет")
+      );
+      setDataAttrIfChanged(els.navRoutingButton, "alert", enabled && !ready ? "true" : "false");
+
+      if (!profiles.length) {
+        setHtmlIfChanged(els.routingProfileList, emptyState("Routing-профилей пока нет."), "routing");
+        return;
+      }
+
+      const markup = profiles.map((profile) => {
+        const isActive = active?.id === profile.id;
+        const disabled = profile.enabled === false;
+        const stateLabel = isActive
+          ? enabled && ready
+            ? "применяется"
+            : "выбран"
+          : disabled
+            ? "отключён"
+            : "готов";
+        const stateTone = isActive ? "accent" : disabled ? "danger" : "success";
+        const meta = [
+          `правил ${profile.supported_entry_count || 0}`,
+          profile.global_proxy ? "global proxy" : "direct fallback",
+          `источник ${profile.source_format || "json"}`,
+        ].join(" · ");
+        const extra = [
+          (profile.stored_only_fields || []).length ? `dns-полей сохранено ${profile.stored_only_fields.length}` : "",
+          (profile.unknown_fields || []).length ? `неизвестных полей ${profile.unknown_fields.length}` : "",
+        ].filter(Boolean).join(" · ");
+
+        return `
+          <div class="list-row routing-row" data-routing-profile-id="${escapeAttr(profile.id)}" data-selected="${isActive ? "true" : "false"}" data-disabled="${disabled ? "true" : "false"}">
+            <div class="row-main">
+              <strong>${escapeHtml(profile.name || "Без имени")}</strong>
+              <div class="row-meta">${escapeHtml(meta)}</div>
+              <div class="row-meta">${escapeHtml(extra || "Дополнительных полей нет.")}</div>
+            </div>
+            <div class="row-side">
+              <div class="subscription-badges">
+                <span class="row-badge" data-tone="${stateTone}">${escapeHtml(stateLabel)}</span>
+              </div>
+              <div class="inline-actions subscription-actions">
+                ${!disabled ? tinyButton(isActive ? "Текущий" : "Сделать текущим", "activate-routing-profile", { profileId: profile.id }, "accent") : ""}
+                ${tinyButton(disabled ? "Включить профиль" : "Отключить профиль", "toggle-routing-profile", { profileId: profile.id, enabled: disabled ? "true" : "false" }, disabled ? "accent" : "danger")}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+      setHtmlIfChanged(els.routingProfileList, markup, "routing");
+    }
+
     function renderLogs() {
       const logPayload = state.statusPayload?.logs || {};
       const latestError = logPayload.latest_error || null;
@@ -1652,6 +2172,16 @@
         state.dismissedErrorSignature = null;
         hideErrorBanner();
       }
+
+      setTextIfChanged(
+        els.navLogsMeta,
+        latestError
+          ? "Есть ошибка"
+          : filtered.length
+            ? `Событий ${filtered.length}`
+            : "Ошибок пока нет"
+      );
+      setDataAttrIfChanged(els.navLogsButton, "alert", latestError ? "true" : "false");
 
       if (!filtered.length) {
         setHtmlIfChanged(els.logList, emptyState(state.logFilter === "error" ? "Ошибок пока нет." : "Лог пока пуст."), "logs");
@@ -1686,7 +2216,9 @@
       renderHeader();
       renderSubscriptions();
       renderNodes();
+      renderRouting();
       renderLogs();
+      renderViewShell();
       refreshActionButtons();
       updateFilterButtons();
     }
@@ -1703,6 +2235,8 @@
       const startBlocked = Boolean(state.statusPayload?.runtime?.start_blocked);
       const stopAllowed = Boolean(state.statusPayload?.runtime?.stop_allowed ?? true);
       const nextStartReason = state.statusPayload?.runtime?.next_start_reason || "";
+      const routing = routingState();
+      const currentRoutingProfile = activeRoutingProfile();
       els.startButton.disabled = state.busy || summaryState === "running" || startBlocked;
       els.startButton.title = !state.busy && (startBlocked || (summaryState !== "running" && !startReady)) ? nextStartReason : "";
       setDataAttrIfChanged(els.startButton, "ready", startReady ? "true" : "false");
@@ -1711,6 +2245,10 @@
       els.addSubscriptionButton.disabled = state.busy;
       els.refreshAllButton.disabled = state.busy;
       els.subscriptionUrl.disabled = state.busy;
+      els.routingImportButton.disabled = state.busy;
+      els.routingImportText.disabled = state.busy;
+      els.routingToggleButton.disabled = state.busy || (!currentRoutingProfile && !routing.enabled);
+      els.routingClearButton.disabled = state.busy || !currentRoutingProfile;
     }
 
     function setBusy(busy) {
@@ -1729,6 +2267,10 @@
       setHtmlIfChanged(els.trafficIndicator, metricSplitMarkup("—", "—"));
       setTextIfChanged(els.activeSubscription, "Подписка: —");
       setTextIfChanged(els.activeNode, "Узел: —");
+      setTextIfChanged(els.activeRouting, "Маршрутизация: —");
+      setTextIfChanged(els.navConnectionMeta, "Нет связи с backend");
+      setTextIfChanged(els.navLogsMeta, "Ошибка backend");
+      setDataAttrIfChanged(els.navLogsButton, "alert", "true");
       const signature = `client:${new Date().toISOString()}:${error.message}`;
       showErrorBanner(`Не удалось получить состояние: ${error.message}`, signature);
       const markup = `
@@ -1864,6 +2406,78 @@
       }
     }
 
+    async function importRoutingProfile(event) {
+      event.preventDefault();
+      const text = els.routingImportText.value.trim();
+      if (!text) {
+        reportLoadError(new Error("Вставьте routing-профиль для импорта."));
+        return;
+      }
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/routing/import", { text });
+        els.routingImportText.value = "";
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function toggleRoutingMaster() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/routing/toggle", { enabled: !Boolean(routingState().enabled) });
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function clearRoutingActive() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/routing/clear-active", {});
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function handleRoutingProfileAction(button) {
+      const action = button.dataset.action;
+      const profileId = button.dataset.profileId;
+      if (!profileId) return;
+
+      if (action === "activate-routing-profile") {
+        setBusy(true);
+        try {
+          const data = await apiPost("/api/routing/activate", { profile_id: profileId });
+          await syncFromResponse(data);
+        } finally {
+          setBusy(false);
+          await loadStore().catch(reportLoadError);
+        }
+        return;
+      }
+
+      if (action === "toggle-routing-profile") {
+        setBusy(true);
+        try {
+          const data = await apiPost("/api/routing/profile/update", {
+            profile_id: profileId,
+            enabled: button.dataset.enabled === "true",
+          });
+          await syncFromResponse(data);
+        } finally {
+          setBusy(false);
+          await loadStore().catch(reportLoadError);
+        }
+      }
+    }
+
     els.startButton.addEventListener("click", () => runAction("/api/start").catch(reportLoadError));
     els.stopButton.addEventListener("click", () => runAction("/api/stop").catch(reportLoadError));
     els.diagButton.addEventListener("click", () => runAction("/api/diagnostics").catch(reportLoadError));
@@ -1879,6 +2493,15 @@
     });
     els.subscriptionForm.addEventListener("submit", (event) => {
       addSubscription(event).catch(reportLoadError);
+    });
+    els.routingForm.addEventListener("submit", (event) => {
+      importRoutingProfile(event).catch(reportLoadError);
+    });
+    els.routingToggleButton.addEventListener("click", () => {
+      toggleRoutingMaster().catch(reportLoadError);
+    });
+    els.routingClearButton.addEventListener("click", () => {
+      clearRoutingActive().catch(reportLoadError);
     });
     els.nodeHelpToggle.addEventListener("click", () => {
       const nextExpanded = els.nodeHelpToggle.getAttribute("aria-expanded") !== "true";
@@ -1918,6 +2541,21 @@
       activateNode(row.dataset.profileId, row.dataset.nodeId).catch(reportLoadError);
     });
 
+    els.routingProfileList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      handleRoutingProfileAction(button).catch(reportLoadError);
+    });
+
+    els.sidebarNav.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-view-nav]");
+      if (!button) return;
+      const nextView = button.dataset.viewNav;
+      if (!VIEW_CONTENT[nextView]) return;
+      state.currentView = nextView;
+      renderViewShell();
+    });
+
     els.logFilterRow.addEventListener("click", (event) => {
       const button = event.target.closest("[data-log-filter]");
       if (!button) return;
@@ -1928,6 +2566,7 @@
 
     refreshActionButtons();
     updateFilterButtons();
+    renderViewShell();
     renderConnectionTimer();
     loadStore().catch(reportLoadError);
 
