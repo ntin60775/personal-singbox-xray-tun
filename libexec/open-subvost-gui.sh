@@ -6,16 +6,18 @@ source "${INTERNAL_DIR}/../lib/subvost-common.sh"
 subvost_load_project_layout_from_env
 
 HOST="${SUBVOST_GUI_HOST:-127.0.0.1}"
-PORT="${SUBVOST_GUI_PORT:-8421}"
-URL="http://${HOST}:${PORT}"
+PREFERRED_PORT="${SUBVOST_GUI_PORT:-8421}"
+PORT_FALLBACK_END="${SUBVOST_GUI_PORT_FALLBACK_END:-8499}"
+PORT="${PREFERRED_PORT}"
+URL=""
 REAL_USER="${USER:-$(id -un)}"
 REAL_HOME="${HOME:-$(getent passwd "$REAL_USER" | cut -d: -f6)}"
 REAL_XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${REAL_HOME}/.config}"
 REAL_UID="$(id -u "$REAL_USER" 2>/dev/null || id -u)"
 LAUNCH_MODE="${SUBVOST_GUI_LAUNCH_MODE:-auto}"
-WEBVIEW_LOG_FILE="/tmp/subvost-xray-tun-webview-${REAL_UID}.log"
-BACKEND_PID_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}.pid"
-BACKEND_LOG_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}.log"
+WEBVIEW_LOG_FILE=""
+BACKEND_PID_FILE=""
+BACKEND_LOG_FILE=""
 FORCE_RESTART=0
 
 if [[ -z "$REAL_HOME" ]]; then
@@ -45,6 +47,10 @@ parse_args() {
     auto    сначала встроенное GTK/WebKitGTK окно, затем fallback на браузер
     webview требовать встроенное окно и завершаться ошибкой без fallback
     browser всегда открывать системный браузер
+  SUBVOST_GUI_PORT=8421
+    базовый порт GUI backend-а
+  SUBVOST_GUI_PORT_FALLBACK_END=8499
+    верхняя граница диапазона поиска свободного GUI-порта
 EOF
         exit 0
         ;;
@@ -55,6 +61,43 @@ EOF
     esac
     shift
   done
+}
+
+is_valid_port_value() {
+  local value="$1"
+  [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+  (( 10#${value} >= 1 && 10#${value} <= 65535 ))
+}
+
+validate_port_settings() {
+  if ! is_valid_port_value "${PREFERRED_PORT}"; then
+    echo "SUBVOST_GUI_PORT должен быть числом от 1 до 65535: ${PREFERRED_PORT}" >&2
+    exit 1
+  fi
+
+  if ! is_valid_port_value "${PORT_FALLBACK_END}"; then
+    echo "SUBVOST_GUI_PORT_FALLBACK_END должен быть числом от 1 до 65535: ${PORT_FALLBACK_END}" >&2
+    exit 1
+  fi
+
+  if (( 10#${PORT_FALLBACK_END} < 10#${PREFERRED_PORT} )); then
+    PORT_FALLBACK_END="${PREFERRED_PORT}"
+  fi
+}
+
+refresh_gui_endpoint() {
+  URL="http://${HOST}:${PORT}"
+
+  if [[ "${PORT}" == "${PREFERRED_PORT}" ]]; then
+    WEBVIEW_LOG_FILE="/tmp/subvost-xray-tun-webview-${REAL_UID}.log"
+    BACKEND_PID_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}.pid"
+    BACKEND_LOG_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}.log"
+    return
+  fi
+
+  WEBVIEW_LOG_FILE="/tmp/subvost-xray-tun-webview-${REAL_UID}-${PORT}.log"
+  BACKEND_PID_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}-${PORT}.pid"
+  BACKEND_LOG_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}-${PORT}.log"
 }
 
 load_current_gui_version() {
@@ -119,6 +162,40 @@ if not same_root and isinstance(payload.get("bundle_identity"), dict):
 
 sys.exit(0 if same_version and same_root else 1)
 PY
+}
+
+select_gui_port() {
+  local candidate
+  local preferred_busy=0
+
+  candidate="${PREFERRED_PORT}"
+  while (( 10#${candidate} <= 10#${PORT_FALLBACK_END} )); do
+    PORT="${candidate}"
+    refresh_gui_endpoint
+
+    if is_server_ready; then
+      if server_contract_matches; then
+        if [[ "${preferred_busy}" == "1" && "${candidate}" != "${PREFERRED_PORT}" ]]; then
+          echo "GUI порт ${PREFERRED_PORT} занят несовместимым backend-ом; используется совместимый backend на порту ${PORT}." >&2
+        fi
+        return 0
+      fi
+
+      if [[ "${candidate}" == "${PREFERRED_PORT}" ]]; then
+        preferred_busy=1
+      fi
+      candidate="$((10#${candidate} + 1))"
+      continue
+    fi
+
+    if [[ "${preferred_busy}" == "1" ]]; then
+      echo "GUI порт ${PREFERRED_PORT} занят несовместимым backend-ом; выбран свободный порт ${PORT}." >&2
+    fi
+    return 0
+  done
+
+  echo "Не найден свободный GUI-порт в диапазоне ${PREFERRED_PORT}..${PORT_FALLBACK_END}." >&2
+  return 1
 }
 
 open_browser() {
@@ -193,6 +270,7 @@ start_backend() {
     SUBVOST_REAL_USER="${REAL_USER}" \
     SUBVOST_REAL_HOME="${REAL_HOME}" \
     SUBVOST_REAL_XDG_CONFIG_HOME="${REAL_XDG_CONFIG_HOME}" \
+    SUBVOST_GUI_BACKEND_PID_FILE="${BACKEND_PID_FILE}" \
     PYTHONUNBUFFERED=1 \
     python3 "${SUBVOST_GUI_DIR}/gui_server.py" --host "${HOST}" --port "${PORT}" \
     >"${BACKEND_LOG_FILE}" 2>&1 &
@@ -226,6 +304,8 @@ stop_existing_backend() {
 }
 
 parse_args "$@"
+validate_port_settings
+refresh_gui_endpoint
 CURRENT_GUI_VERSION="$(load_current_gui_version)"
 
 if [[ -z "${CURRENT_GUI_VERSION}" ]]; then
@@ -234,17 +314,16 @@ if [[ -z "${CURRENT_GUI_VERSION}" ]]; then
 fi
 
 if [[ "${FORCE_RESTART}" == "1" ]]; then
+  select_gui_port || exit 1
   stop_existing_backend
+else
+  select_gui_port || exit 1
 fi
 
 if is_server_ready; then
   if ! server_contract_matches; then
-    stop_existing_backend
-    if is_server_ready; then
-      echo "На ${URL} уже работает несовместимый GUI backend. Останови старый процесс и повтори запуск." >&2
-      exit 1
-    fi
-    start_backend
+    echo "На ${URL} уже работает несовместимый GUI backend, хотя порт был выбран как доступный." >&2
+    exit 1
   fi
 else
   start_backend
