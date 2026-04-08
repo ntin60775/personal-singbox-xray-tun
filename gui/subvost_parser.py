@@ -29,6 +29,7 @@ PLACEHOLDER_TEXT_MARKERS = (
     "@provider_support",
     "not support",
 )
+HAPP_ROUTING_PREFIX = "happ://routing/"
 
 
 class ParseError(ValueError):
@@ -517,13 +518,17 @@ def parse_subscription_payload(payload: bytes) -> tuple[list[str], str]:
         raise ParseError("Подписка вернула пустой ответ.")
 
     plain_lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if plain_lines and all(urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES for line in plain_lines):
-        return plain_lines, "plain_text"
+    plain_proxy_lines = [line for line in plain_lines if urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES]
+    plain_ignorable_lines = [line for line in plain_lines if line.startswith(HAPP_ROUTING_PREFIX)]
+    if plain_proxy_lines and len(plain_proxy_lines) + len(plain_ignorable_lines) == len(plain_lines):
+        return plain_proxy_lines, "plain_text"
 
     decoded_text = _decode_base64_text(text).strip()
     decoded_lines = [line.strip() for line in decoded_text.splitlines() if line.strip()]
-    if decoded_lines and all(urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES for line in decoded_lines):
-        return decoded_lines, "base64"
+    decoded_proxy_lines = [line for line in decoded_lines if urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES]
+    decoded_ignorable_lines = [line for line in decoded_lines if line.startswith(HAPP_ROUTING_PREFIX)]
+    if decoded_proxy_lines and len(decoded_proxy_lines) + len(decoded_ignorable_lines) == len(decoded_lines):
+        return decoded_proxy_lines, "base64"
 
     raise ParseError("Формат подписки не распознан: ожидался plain-text или base64-список ссылок.")
 

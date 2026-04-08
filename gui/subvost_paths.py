@@ -13,6 +13,9 @@ STORE_FILENAME = "store.json"
 GENERATED_XRAY_CONFIG_FILENAME = "generated-xray-config.json"
 ACTIVE_RUNTIME_XRAY_CONFIG_FILENAME = "active-runtime-xray-config.json"
 GUI_SETTINGS_FILENAME = "gui-settings.json"
+XRAY_ASSET_DIRNAME = "xray-assets"
+GEOIP_ASSET_FILENAME = "geoip.dat"
+GEOSITE_ASSET_FILENAME = "geosite.dat"
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,9 @@ class AppPaths:
     generated_xray_config_file: Path
     active_runtime_xray_config_file: Path
     gui_settings_file: Path
+    xray_asset_dir: Path
+    geoip_asset_file: Path
+    geosite_asset_file: Path
 
 
 def resolve_config_home(real_home: Path, explicit_config_home: str | None = None) -> Path:
@@ -46,6 +52,7 @@ def resolve_config_home(real_home: Path, explicit_config_home: str | None = None
 def build_app_paths(real_home: Path, explicit_config_home: str | None = None) -> AppPaths:
     config_home = resolve_config_home(real_home, explicit_config_home)
     store_dir = config_home / APP_DIRNAME
+    xray_asset_dir = store_dir / XRAY_ASSET_DIRNAME
     return AppPaths(
         real_home=real_home,
         config_home=config_home,
@@ -54,26 +61,53 @@ def build_app_paths(real_home: Path, explicit_config_home: str | None = None) ->
         generated_xray_config_file=store_dir / GENERATED_XRAY_CONFIG_FILENAME,
         active_runtime_xray_config_file=store_dir / ACTIVE_RUNTIME_XRAY_CONFIG_FILENAME,
         gui_settings_file=store_dir / GUI_SETTINGS_FILENAME,
+        xray_asset_dir=xray_asset_dir,
+        geoip_asset_file=xray_asset_dir / GEOIP_ASSET_FILENAME,
+        geosite_asset_file=xray_asset_dir / GEOSITE_ASSET_FILENAME,
     )
 
 
-def ensure_store_dir(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> None:
-    paths.store_dir.mkdir(parents=True, exist_ok=True)
+def ensure_owned_dir(path: Path, uid: int | None = None, gid: int | None = None, mode: int = 0o700) -> None:
+    path.mkdir(parents=True, exist_ok=True)
     try:
-        paths.store_dir.chmod(0o700)
+        path.chmod(mode)
     except OSError:
         pass
     if uid is not None and gid is not None and os.geteuid() == 0:
         try:
-            os.chown(paths.store_dir, uid, gid)
+            os.chown(path, uid, gid)
         except OSError:
             pass
+
+
+def ensure_store_dir(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> None:
+    ensure_owned_dir(paths.store_dir, uid=uid, gid=gid, mode=0o700)
 
 
 def atomic_write_text(path: Path, text: str, mode: int = 0o600, uid: int | None = None, gid: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
         handle.write(text)
+        temp_path = Path(handle.name)
+
+    try:
+        os.chmod(temp_path, mode)
+    except OSError:
+        pass
+
+    if uid is not None and gid is not None and os.geteuid() == 0:
+        try:
+            os.chown(temp_path, uid, gid)
+        except OSError:
+            pass
+
+    os.replace(temp_path, path)
+
+
+def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600, uid: int | None = None, gid: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+        handle.write(data)
         temp_path = Path(handle.name)
 
     try:

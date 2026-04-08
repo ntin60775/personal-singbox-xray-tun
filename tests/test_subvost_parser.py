@@ -86,6 +86,16 @@ class SubvostParserTests(unittest.TestCase):
         self.assertEqual(payload_format, "base64")
         self.assertEqual(lines, [raw])
 
+    def test_parse_subscription_payload_ignores_happ_routing_line(self) -> None:
+        payload = (
+            "happ://routing/add/eyJuYW1lIjoiVGVzdCJ9\n"
+            "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node\n"
+        ).encode("utf-8")
+        lines, payload_format = parse_subscription_payload(payload)
+        self.assertEqual(payload_format, "plain_text")
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("vless://"))
+
     def test_provider_placeholder_link_is_rejected(self) -> None:
         raw_uri = (
             "vless://00000000-0000-0000-0000-000000000000@0.0.0.0:1"

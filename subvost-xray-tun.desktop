@@ -3,7 +3,7 @@ Version=1.0
 Type=Application
 Name=Subvost Xray TUN GUI
 Comment=Запуск локального GUI для управления туннелем
-Exec=/usr/bin/env python3 -c "import os, sys; desktop_file = sys.argv[1]; bundle_dir = os.path.dirname(os.path.realpath(desktop_file)); target = os.path.join(bundle_dir, 'open-subvost-gui.sh'); os.execv(target, [target])" %k
+Exec=/usr/bin/env python3 -c "import os, sys; os.environ.setdefault('SUBVOST_GUI_LAUNCH_MODE', 'browser'); desktop_file = sys.argv[1]; bundle_dir = os.path.dirname(os.path.realpath(desktop_file)); target = os.path.join(bundle_dir, 'open-subvost-gui.sh'); os.execv(target, [target])" %k
 Icon=subvost-xray-tun-icon
 Terminal=false
 Categories=Network;

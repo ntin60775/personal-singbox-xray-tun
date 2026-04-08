@@ -16,10 +16,18 @@ from uuid import NAMESPACE_DNS, uuid4, uuid5
 
 from subvost_parser import ParseError, parse_proxy_uri, parse_subscription_payload
 from subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
+from subvost_routing import (
+    RoutingProfileError,
+    build_geodata_status,
+    download_routing_geodata,
+    get_existing_geodata_status,
+    parse_routing_profile_input,
+    routing_profile_rule_count,
+)
 from subvost_runtime import node_can_render_runtime, read_json_config, render_runtime_config
 
 
-STORE_VERSION = 1
+STORE_VERSION = 2
 MANUAL_PROFILE_ID = "manual"
 MANUAL_PROFILE_NAME = "Локальные ссылки"
 DEFAULT_SUBSCRIPTION_USER_AGENT = os.environ.get("SUBVOST_SUBSCRIPTION_USER_AGENT", "Xray-core")
@@ -69,21 +77,95 @@ def default_store() -> dict[str, Any]:
             "activated_at": None,
             "source": None,
         },
+        "routing": {
+            "enabled": False,
+            "active_profile_id": None,
+            "profiles": [],
+            "runtime_ready": False,
+            "runtime_error": "",
+            "geodata": default_routing_geodata_state(),
+        },
         "meta": {
             "initialized_at": iso_now(),
         },
     }
 
 
+def default_routing_geodata_state() -> dict[str, Any]:
+    return {
+        "status": "inactive",
+        "ready": False,
+        "error": "",
+        "geoip_url": "",
+        "geosite_url": "",
+        "geoip_path": "",
+        "geosite_path": "",
+        "asset_dir": "",
+        "geoip_exists": False,
+        "geosite_exists": False,
+    }
+
+
+def _normalize_routing_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    now = iso_now()
+    name = str(profile.get("name") or "").strip()
+    raw_payload = profile.get("raw_payload")
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+    return {
+        "id": str(profile.get("id") or f"routing-{uuid4().hex}"),
+        "name": name,
+        "name_key": str(profile.get("name_key") or name.casefold()),
+        "enabled": bool(profile.get("enabled", True)),
+        "source_format": str(profile.get("source_format") or "json"),
+        "raw_payload": raw_payload,
+        "global_proxy": bool(profile.get("global_proxy", False)),
+        "domain_strategy": str(profile.get("domain_strategy") or "AsIs"),
+        "geoip_url": str(profile.get("geoip_url") or ""),
+        "geosite_url": str(profile.get("geosite_url") or ""),
+        "direct_sites": [str(item).strip() for item in profile.get("direct_sites", []) if str(item).strip()],
+        "direct_ip": [str(item).strip() for item in profile.get("direct_ip", []) if str(item).strip()],
+        "proxy_sites": [str(item).strip() for item in profile.get("proxy_sites", []) if str(item).strip()],
+        "proxy_ip": [str(item).strip() for item in profile.get("proxy_ip", []) if str(item).strip()],
+        "block_sites": [str(item).strip() for item in profile.get("block_sites", []) if str(item).strip()],
+        "block_ip": [str(item).strip() for item in profile.get("block_ip", []) if str(item).strip()],
+        "dns_hosts": dict(profile.get("dns_hosts") or {}),
+        "domestic_dns_domain": str(profile.get("domestic_dns_domain") or ""),
+        "domestic_dns_ip": str(profile.get("domestic_dns_ip") or ""),
+        "domestic_dns_type": str(profile.get("domestic_dns_type") or ""),
+        "remote_dns_domain": str(profile.get("remote_dns_domain") or ""),
+        "remote_dns_ip": str(profile.get("remote_dns_ip") or ""),
+        "remote_dns_type": str(profile.get("remote_dns_type") or ""),
+        "fake_dns": bool(profile.get("fake_dns", False)),
+        "route_order": list(profile.get("route_order") or ["block", "direct", "proxy"]),
+        "last_updated": str(profile.get("last_updated") or ""),
+        "supported_entry_count": int(profile.get("supported_entry_count", routing_profile_rule_count(profile))),
+        "stored_only_fields": [str(item) for item in profile.get("stored_only_fields", []) if str(item).strip()],
+        "ignored_fields": [str(item) for item in profile.get("ignored_fields", []) if str(item).strip()],
+        "unknown_fields": [str(item) for item in profile.get("unknown_fields", []) if str(item).strip()],
+        "created_at": str(profile.get("created_at") or now),
+        "updated_at": str(profile.get("updated_at") or profile.get("created_at") or now),
+    }
+
+
 def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
     if not store:
         store = default_store()
+    routing = store.get("routing") or {}
     store = {
-        "version": store.get("version", STORE_VERSION),
+        "version": STORE_VERSION,
         "profiles": store.get("profiles", []),
         "subscriptions": store.get("subscriptions", []),
         "active_selection": store.get("active_selection")
         or {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
+        "routing": {
+            "enabled": bool(routing.get("enabled", False)),
+            "active_profile_id": routing.get("active_profile_id"),
+            "profiles": [_normalize_routing_profile(item) for item in routing.get("profiles", []) if isinstance(item, dict)],
+            "runtime_ready": bool(routing.get("runtime_ready", False)),
+            "runtime_error": str(routing.get("runtime_error") or ""),
+            "geodata": {**default_routing_geodata_state(), **(routing.get("geodata") or {})},
+        },
         "meta": store.get("meta") or {},
     }
     store["meta"].setdefault("initialized_at", iso_now())
@@ -110,6 +192,21 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
             node.setdefault("origin", {"kind": profile.get("kind", "manual")})
             node.setdefault("created_at", iso_now())
             node.setdefault("updated_at", node["created_at"])
+
+    valid_routing_ids = {profile["id"] for profile in store["routing"]["profiles"] if profile.get("name")}
+    active_routing_id = store["routing"].get("active_profile_id")
+    if active_routing_id not in valid_routing_ids:
+        store["routing"]["active_profile_id"] = None
+        store["routing"]["enabled"] = False
+    else:
+        active_routing_profile = next(
+            (profile for profile in store["routing"]["profiles"] if profile["id"] == active_routing_id),
+            None,
+        )
+        if active_routing_profile and not active_routing_profile.get("enabled", True):
+            store["routing"]["active_profile_id"] = None
+            store["routing"]["enabled"] = False
+
     for subscription in store["subscriptions"]:
         subscription.setdefault("enabled", True)
         subscription.setdefault("etag", "")
@@ -119,7 +216,6 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
         subscription.setdefault("last_error", "")
         subscription.setdefault("profile_id", None)
     return store
-
 
 def save_store(paths: AppPaths, store: dict[str, Any], uid: int | None = None, gid: int | None = None) -> None:
     ensure_store_dir(paths, uid=uid, gid=gid)
@@ -201,6 +297,130 @@ def get_active_node(store: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[
     return _find_node(store, profile_id, node_id)
 
 
+def _find_routing_profile(store: dict[str, Any], profile_id: str | None) -> dict[str, Any] | None:
+    if not profile_id:
+        return None
+    for profile in store.get("routing", {}).get("profiles", []):
+        if profile.get("id") == profile_id:
+            return profile
+    return None
+
+
+def _find_routing_profile_by_name(store: dict[str, Any], name_key: str) -> dict[str, Any] | None:
+    for profile in store.get("routing", {}).get("profiles", []):
+        if profile.get("name_key") == name_key:
+            return profile
+    return None
+
+
+def get_active_routing_profile(store: dict[str, Any]) -> dict[str, Any] | None:
+    return _find_routing_profile(store, store.get("routing", {}).get("active_profile_id"))
+
+
+def _routing_geodata_for_profile(
+    paths: AppPaths,
+    routing: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    geoip_url = str(profile.get("geoip_url") or "")
+    geosite_url = str(profile.get("geosite_url") or "")
+    previous = routing.get("geodata") or {}
+    same_urls = previous.get("geoip_url") == geoip_url and previous.get("geosite_url") == geosite_url
+
+    if same_urls:
+        status = get_existing_geodata_status(paths, geoip_url=geoip_url, geosite_url=geosite_url)
+        if previous.get("status") == "error" and not status["ready"]:
+            status["status"] = "error"
+            status["error"] = str(previous.get("error") or "")
+        return status
+
+    return build_geodata_status(
+        paths,
+        geoip_url=geoip_url,
+        geosite_url=geosite_url,
+        status="missing",
+        error="",
+    )
+
+
+def ensure_routing_state(store: dict[str, Any], paths: AppPaths) -> bool:
+    routing = store.setdefault("routing", default_store()["routing"])
+    before = json.dumps(routing, ensure_ascii=False, sort_keys=True)
+    active_profile = get_active_routing_profile(store)
+
+    if not active_profile:
+        routing["active_profile_id"] = None
+        routing["enabled"] = False
+        routing["runtime_ready"] = False
+        routing["runtime_error"] = "Активный routing-профиль не выбран."
+        routing["geodata"] = {
+            **default_routing_geodata_state(),
+            "asset_dir": str(paths.xray_asset_dir),
+            "geoip_path": str(paths.geoip_asset_file),
+            "geosite_path": str(paths.geosite_asset_file),
+        }
+        return before != json.dumps(routing, ensure_ascii=False, sort_keys=True)
+
+    if not active_profile.get("enabled", True):
+        routing["active_profile_id"] = None
+        routing["enabled"] = False
+        routing["runtime_ready"] = False
+        routing["runtime_error"] = f"Routing-профиль '{active_profile.get('name', 'без имени')}' отключён."
+        routing["geodata"] = {
+            **default_routing_geodata_state(),
+            "asset_dir": str(paths.xray_asset_dir),
+            "geoip_path": str(paths.geoip_asset_file),
+            "geosite_path": str(paths.geosite_asset_file),
+        }
+        return before != json.dumps(routing, ensure_ascii=False, sort_keys=True)
+
+    routing["geodata"] = _routing_geodata_for_profile(paths, routing, active_profile)
+    if routing.get("enabled"):
+        if routing["geodata"].get("ready"):
+            routing["runtime_ready"] = True
+            routing["runtime_error"] = ""
+        else:
+            routing["runtime_ready"] = False
+            routing["runtime_error"] = routing["geodata"].get("error") or "Для маршрутизации не подготовлены geodata-файлы."
+    else:
+        routing["runtime_ready"] = bool(routing["geodata"].get("ready"))
+        routing["runtime_error"] = str(routing["geodata"].get("error") or "")
+
+    return before != json.dumps(routing, ensure_ascii=False, sort_keys=True)
+
+
+def prepare_routing_runtime(
+    store: dict[str, Any],
+    paths: AppPaths,
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+    allow_download: bool = False,
+) -> dict[str, Any]:
+    ensure_routing_state(store, paths)
+    routing = store["routing"]
+    active_profile = get_active_routing_profile(store)
+    if not active_profile:
+        return routing["geodata"]
+    if routing["geodata"].get("ready") or not allow_download:
+        return routing["geodata"]
+
+    try:
+        routing["geodata"] = download_routing_geodata(paths, active_profile, uid=uid, gid=gid)
+        ensure_routing_state(store, paths)
+    except RoutingProfileError as exc:
+        routing["geodata"] = build_geodata_status(
+            paths,
+            geoip_url=str(active_profile.get("geoip_url") or ""),
+            geosite_url=str(active_profile.get("geosite_url") or ""),
+            status="error",
+            error=str(exc),
+        )
+        routing["runtime_ready"] = False
+        routing["runtime_error"] = str(exc)
+    return routing["geodata"]
+
+
 def ensure_active_selection(store: dict[str, Any]) -> bool:
     selection = store["active_selection"]
     active_profile, active_node = get_active_node(store)
@@ -231,13 +451,25 @@ def sync_generated_runtime(
     uid: int | None = None,
     gid: int | None = None,
 ) -> Path | None:
+    ensure_routing_state(store, paths)
     active_profile, active_node = get_active_node(store)
     if not active_profile or not active_node or not active_profile.get("enabled", True) or not node_can_render_runtime(active_node):
         remove_file_if_exists(paths.generated_xray_config_file)
         return None
 
+    routing_profile = None
+    routing = store.get("routing", {})
+    if routing.get("enabled"):
+        if not routing.get("runtime_ready"):
+            remove_file_if_exists(paths.generated_xray_config_file)
+            return None
+        routing_profile = get_active_routing_profile(store)
+        if not routing_profile:
+            remove_file_if_exists(paths.generated_xray_config_file)
+            return None
+
     template_config = read_json_config(project_root / "xray-tun-subvost.json")
-    rendered = render_runtime_config(template_config, active_node)
+    rendered = render_runtime_config(template_config, active_node, routing_profile=routing_profile)
     atomic_write_json(paths.generated_xray_config_file, rendered, uid=uid, gid=gid)
     return paths.generated_xray_config_file
 
@@ -249,9 +481,12 @@ def ensure_store_initialized(
     gid: int | None = None,
 ) -> dict[str, Any]:
     ensure_store_dir(paths, uid=uid, gid=gid)
-    store = load_store(paths)
-    changed = False
+    raw_store = read_json_file(paths.store_file)
+    store = ensure_store_structure(raw_store)
+    changed = raw_store != store
     if ensure_active_selection(store):
+        changed = True
+    if ensure_routing_state(store, paths):
         changed = True
     if changed or not paths.store_file.exists():
         save_store(paths, store, uid=uid, gid=gid)
@@ -269,21 +504,27 @@ def store_summary(store: dict[str, Any]) -> dict[str, int]:
         "subscriptions_total": len(store["subscriptions"]),
         "nodes_total": total_nodes,
         "nodes_enabled": enabled_nodes,
+        "routing_profiles_total": len(store.get("routing", {}).get("profiles", [])),
     }
 
 
 def store_payload(store: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
     active_profile, active_node = get_active_node(store)
+    active_routing_profile = get_active_routing_profile(store)
     return {
         "store": store,
         "summary": store_summary(store),
         "active_profile": active_profile,
         "active_node": active_node,
+        "active_routing_profile": active_routing_profile,
         "paths": {
             "store_file": str(paths.store_file),
             "generated_xray_config": str(paths.generated_xray_config_file),
             "active_runtime_xray_config": str(paths.active_runtime_xray_config_file),
             "gui_settings_file": str(paths.gui_settings_file),
+            "xray_asset_dir": str(paths.xray_asset_dir),
+            "geoip_asset_file": str(paths.geoip_asset_file),
+            "geosite_asset_file": str(paths.geosite_asset_file),
         },
     }
 
@@ -338,6 +579,150 @@ def save_manual_import_results(
         "valid": len(valid_results),
         "invalid": len(previews) - len(valid_results),
     }
+
+
+def import_routing_profile(
+    store: dict[str, Any],
+    paths: AppPaths,
+    raw_text: str,
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
+    parsed = parse_routing_profile_input(raw_text)
+    now = iso_now()
+    routing = store["routing"]
+    existing = _find_routing_profile_by_name(store, parsed["name_key"])
+
+    if existing:
+        profile = _normalize_routing_profile(
+            {
+                **existing,
+                **parsed,
+                "id": existing["id"],
+                "enabled": existing.get("enabled", True),
+                "created_at": existing.get("created_at") or now,
+                "updated_at": now,
+            }
+        )
+        routing["profiles"] = [
+            profile if item.get("id") == existing["id"] else item
+            for item in routing["profiles"]
+        ]
+        created = False
+    else:
+        profile = _normalize_routing_profile(
+            {
+                **parsed,
+                "id": f"routing-{uuid4().hex}",
+                "enabled": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+        routing["profiles"].append(profile)
+        created = True
+
+    if not routing.get("active_profile_id"):
+        routing["active_profile_id"] = profile["id"]
+
+    allow_download = routing.get("active_profile_id") == profile["id"]
+    geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=allow_download)
+    ensure_routing_state(store, paths)
+    return {
+        "created": created,
+        "profile": profile,
+        "geodata": geodata,
+    }
+
+
+def activate_routing_profile(
+    store: dict[str, Any],
+    paths: AppPaths,
+    profile_id: str,
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
+    profile = _find_routing_profile(store, profile_id)
+    if not profile:
+        raise ValueError("Routing-профиль не найден.")
+    if not profile.get("enabled", True):
+        raise ValueError("Routing-профиль отключён.")
+
+    routing = store["routing"]
+    previous_active_id = routing.get("active_profile_id")
+    previous_geodata = copy.deepcopy(routing.get("geodata") or {})
+    previous_runtime_ready = bool(routing.get("runtime_ready"))
+    previous_runtime_error = str(routing.get("runtime_error") or "")
+
+    routing["active_profile_id"] = profile_id
+    geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
+    if routing.get("enabled") and not geodata.get("ready"):
+        routing["active_profile_id"] = previous_active_id
+        routing["geodata"] = previous_geodata
+        routing["runtime_ready"] = previous_runtime_ready
+        routing["runtime_error"] = previous_runtime_error
+        ensure_routing_state(store, paths)
+        raise ValueError(geodata.get("error") or "Не удалось подготовить geodata для выбранного routing-профиля.")
+
+    ensure_routing_state(store, paths)
+    return profile
+
+
+def clear_active_routing_profile(store: dict[str, Any], paths: AppPaths) -> None:
+    store["routing"]["active_profile_id"] = None
+    store["routing"]["enabled"] = False
+    ensure_routing_state(store, paths)
+
+
+def update_routing_profile_enabled(
+    store: dict[str, Any],
+    paths: AppPaths,
+    profile_id: str,
+    *,
+    enabled: bool,
+) -> dict[str, Any]:
+    profile = _find_routing_profile(store, profile_id)
+    if not profile:
+        raise ValueError("Routing-профиль не найден.")
+
+    profile["enabled"] = bool(enabled)
+    profile["updated_at"] = iso_now()
+    if not profile["enabled"] and store["routing"].get("active_profile_id") == profile_id:
+        store["routing"]["active_profile_id"] = None
+        store["routing"]["enabled"] = False
+    ensure_routing_state(store, paths)
+    return profile
+
+
+def set_routing_enabled(
+    store: dict[str, Any],
+    paths: AppPaths,
+    enabled: bool,
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
+    routing = store["routing"]
+    if not enabled:
+        routing["enabled"] = False
+        ensure_routing_state(store, paths)
+        return routing
+
+    active_profile = get_active_routing_profile(store)
+    if not active_profile:
+        raise ValueError("Сначала выбери routing-профиль.")
+    if not active_profile.get("enabled", True):
+        raise ValueError("Активный routing-профиль отключён.")
+
+    geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
+    if not geodata.get("ready"):
+        raise ValueError(geodata.get("error") or "Не удалось подготовить geodata для маршрутизации.")
+
+    routing["enabled"] = True
+    ensure_routing_state(store, paths)
+    return routing
 
 
 def activate_selection(store: dict[str, Any], profile_id: str, node_id: str, source: str = "ui") -> dict[str, Any]:
