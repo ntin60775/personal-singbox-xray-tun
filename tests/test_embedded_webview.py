@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
+import json
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
 
 
@@ -12,6 +15,12 @@ import embedded_webview  # noqa: E402
 
 
 class EmbeddedWebViewTests(unittest.TestCase):
+    def test_build_app_terminate_url_appends_shutdown_route(self) -> None:
+        self.assertEqual(
+            embedded_webview.build_app_terminate_url("http://127.0.0.1:8421/"),
+            "http://127.0.0.1:8421/api/app/terminate",
+        )
+
     def test_apply_software_rendering_environment_sets_defaults(self) -> None:
         env = {"DISPLAY": ":0", "WEBKIT_DISABLE_DMABUF_RENDERER": "0"}
 
@@ -297,6 +306,105 @@ class EmbeddedWebViewTests(unittest.TestCase):
         self.assertTrue(container.hexpand)
         self.assertTrue(container.vexpand)
         self.assertEqual(container.style_context.classes, ["subvost-embedded-root"])
+
+    def test_request_application_shutdown_posts_json_payload(self) -> None:
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(request, timeout: float):
+            seen["url"] = request.full_url
+            seen["timeout"] = timeout
+            seen["headers"] = {key.lower(): value for key, value in request.header_items()}
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse({"ok": True, "message": "closing"})
+
+        payload = embedded_webview.request_application_shutdown(
+            "http://127.0.0.1:8421",
+            source="window-close",
+            timeout=17,
+            urlopen=fake_urlopen,
+        )
+
+        self.assertEqual(payload["message"], "closing")
+        self.assertEqual(seen["url"], "http://127.0.0.1:8421/api/app/terminate")
+        self.assertEqual(seen["timeout"], 17)
+        self.assertEqual(seen["headers"]["content-type"], "application/json")
+        self.assertEqual(seen["body"], {"source": "window-close"})
+
+    def test_request_application_shutdown_raises_backend_message_from_http_error(self) -> None:
+        error = urllib.error.HTTPError(
+            "http://127.0.0.1:8421/api/app/terminate",
+            400,
+            "Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b'{"message":"stop failed"}'),
+        )
+
+        def fake_urlopen(_request, timeout: float):
+            raise error
+
+        with self.assertRaisesRegex(RuntimeError, "stop failed"):
+            embedded_webview.request_application_shutdown("http://127.0.0.1:8421", urlopen=fake_urlopen)
+
+    def test_close_application_quits_only_after_successful_full_shutdown(self) -> None:
+        class FakeApp:
+            def __init__(self) -> None:
+                self.quit_calls = 0
+
+            def quit(self) -> None:
+                self.quit_calls += 1
+
+        app = object.__new__(embedded_webview.EmbeddedWebViewApp)
+        app.app = FakeApp()
+        app.shutting_down = False
+        app.request_full_shutdown = lambda: {"ok": True}
+        app.show_shutdown_error = lambda _message: self.fail("Диалог ошибки не должен открываться")
+
+        closed = embedded_webview.EmbeddedWebViewApp.close_application(app)
+
+        self.assertTrue(closed)
+        self.assertTrue(app.shutting_down)
+        self.assertEqual(app.app.quit_calls, 1)
+
+    def test_close_application_blocks_window_close_on_shutdown_error(self) -> None:
+        class FakeApp:
+            def __init__(self) -> None:
+                self.quit_calls = 0
+
+            def quit(self) -> None:
+                self.quit_calls += 1
+
+        shown_errors: list[str] = []
+        app = object.__new__(embedded_webview.EmbeddedWebViewApp)
+        app.app = FakeApp()
+        app.shutting_down = False
+
+        def fail_shutdown():
+            raise RuntimeError("stop failed")
+
+        app.request_full_shutdown = fail_shutdown
+        app.show_shutdown_error = shown_errors.append
+
+        closed = embedded_webview.EmbeddedWebViewApp.close_application(app)
+
+        self.assertFalse(closed)
+        self.assertFalse(app.shutting_down)
+        self.assertEqual(app.app.quit_calls, 0)
+        self.assertEqual(shown_errors, ["stop failed"])
+
+
+class FakeResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
 
 if __name__ == "__main__":
     unittest.main()
