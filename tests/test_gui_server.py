@@ -181,18 +181,20 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_stop_button_is_not_disabled_by_stopped_runtime_state(self) -> None:
         html = self.main_html()
-        self.assertIn("els.stopButton.disabled = state.busy;", html)
+        self.assertIn("const stopAllowed = Boolean(state.statusPayload?.runtime?.stop_allowed ?? true);", html)
+        self.assertIn("els.stopButton.disabled = state.busy || !stopAllowed;", html)
         self.assertNotIn('els.stopButton.disabled = state.busy || summaryState === "stopped";', html)
 
     def test_start_button_is_not_disabled_by_runtime_readiness_flag(self) -> None:
         html = self.main_html()
-        self.assertIn('els.startButton.disabled = state.busy || summaryState === "running";', html)
+        self.assertIn("const startBlocked = Boolean(state.statusPayload?.runtime?.start_blocked);", html)
+        self.assertIn('els.startButton.disabled = state.busy || summaryState === "running" || startBlocked;', html)
         self.assertNotIn('els.startButton.disabled = state.busy || summaryState === "running" || !startReady;', html)
 
     def test_start_button_shows_readiness_reason_without_hard_disable(self) -> None:
         html = self.main_html()
         self.assertIn('const nextStartReason = state.statusPayload?.runtime?.next_start_reason || "";', html)
-        self.assertIn('els.startButton.title = !startReady && !state.busy && summaryState !== "running" ? nextStartReason : "";', html)
+        self.assertIn('els.startButton.title = !state.busy && (startBlocked || (summaryState !== "running" && !startReady)) ? nextStartReason : "";', html)
         self.assertIn('setDataAttrIfChanged(els.startButton, "ready", startReady ? "true" : "false");', html)
 
     def test_main_gui_topbar_keeps_two_columns_at_1280_and_stacks_only_below_1120(self) -> None:
@@ -265,9 +267,44 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             self.assertFalse(removed)
             self.assertTrue(pid_file.exists())
 
+    def test_classify_runtime_ownership_matches_current_bundle(self) -> None:
+        ownership = gui_server.classify_runtime_ownership({"BUNDLE_PROJECT_ROOT": str(gui_server.PROJECT_ROOT)})
+
+        self.assertEqual(ownership, "current")
+
+    def test_classify_runtime_ownership_detects_foreign_bundle(self) -> None:
+        ownership = gui_server.classify_runtime_ownership({"BUNDLE_PROJECT_ROOT": "/tmp/foreign-subvost-bundle"})
+
+        self.assertEqual(ownership, "foreign")
+
+    def test_runtime_stop_required_ignores_foreign_runtime_state(self) -> None:
+        state = {
+            "XRAY_PID": "12345",
+            "TUN_INTERFACE": "tun0",
+            "BUNDLE_PROJECT_ROOT": "/tmp/foreign-subvost-bundle",
+        }
+
+        with patch("gui_server.is_pid_alive", return_value=True):
+            stop_needed = gui_server.runtime_stop_required(state)
+
+        self.assertFalse(stop_needed)
+
     def test_handle_app_terminate_skips_stop_when_runtime_is_already_down(self) -> None:
+        runtime_info = {
+            "has_state": False,
+            "ownership": "unknown",
+            "ownership_label": "Источник не подтверждён",
+            "state_bundle_project_root": None,
+            "tun_interface": "tun0",
+            "xray_pid": None,
+            "xray_alive": False,
+            "tun_present": False,
+            "stack_is_live": False,
+            "owned_stack_is_live": False,
+        }
+
         with (
-            patch("gui_server.runtime_stop_required", return_value=False),
+            patch("gui_server.inspect_runtime_state", return_value=runtime_info),
             patch("gui_server.remember_action") as remember_mock,
             patch("gui_server.collect_status", return_value={"summary": {"state": "stopped"}}),
         ):
@@ -280,9 +317,21 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_handle_app_terminate_stops_runtime_when_it_is_live(self) -> None:
         result = gui_server.CommandResult(name="Закрытие приложения", ok=True, returncode=0, output="stopped")
+        runtime_info = {
+            "has_state": True,
+            "ownership": "current",
+            "ownership_label": "Текущий bundle",
+            "state_bundle_project_root": str(gui_server.PROJECT_ROOT),
+            "tun_interface": "tun0",
+            "xray_pid": "12345",
+            "xray_alive": True,
+            "tun_present": True,
+            "stack_is_live": True,
+            "owned_stack_is_live": True,
+        }
 
         with (
-            patch("gui_server.runtime_stop_required", return_value=True),
+            patch("gui_server.inspect_runtime_state", return_value=runtime_info),
             patch("gui_server.run_shell_action", return_value=result) as run_mock,
             patch("gui_server.remember_action") as remember_mock,
             patch("gui_server.collect_status", return_value={"summary": {"state": "stopped"}}),
@@ -294,6 +343,81 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("VPN runtime остановлен", payload["message"])
         run_mock.assert_called_once_with("Закрытие приложения", gui_server.STOP_SCRIPT)
         remember_mock.assert_called_once()
+
+    def test_handle_app_terminate_does_not_stop_foreign_runtime(self) -> None:
+        runtime_info = {
+            "has_state": True,
+            "ownership": "foreign",
+            "ownership_label": "Другой bundle",
+            "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+            "tun_interface": "tun0",
+            "xray_pid": "12345",
+            "xray_alive": True,
+            "tun_present": True,
+            "stack_is_live": True,
+            "owned_stack_is_live": False,
+        }
+
+        with (
+            patch("gui_server.inspect_runtime_state", return_value=runtime_info),
+            patch("gui_server.run_shell_action") as run_mock,
+            patch("gui_server.remember_action") as remember_mock,
+            patch("gui_server.collect_status", return_value={"summary": {"state": "degraded"}}),
+        ):
+            payload = gui_server.handle_app_terminate({"source": "window-close"})
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["vpn_stop_requested"])
+        self.assertIn("другого bundle", payload["message"])
+        run_mock.assert_not_called()
+        remember_mock.assert_called_once()
+
+    def test_handle_stop_rejects_foreign_runtime(self) -> None:
+        runtime_info = {
+            "has_state": True,
+            "ownership": "foreign",
+            "ownership_label": "Другой bundle",
+            "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+            "tun_interface": "tun0",
+            "xray_pid": "12345",
+            "xray_alive": True,
+            "tun_present": True,
+            "stack_is_live": True,
+            "owned_stack_is_live": False,
+        }
+
+        with patch("gui_server.inspect_runtime_state", return_value=runtime_info):
+            with self.assertRaisesRegex(ValueError, "другого bundle"):
+                gui_server.handle_stop()
+
+    def test_handle_start_rejects_foreign_runtime_before_store_checks(self) -> None:
+        runtime_info = {
+            "has_state": True,
+            "ownership": "foreign",
+            "ownership_label": "Другой bundle",
+            "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+            "tun_interface": "tun0",
+            "xray_pid": None,
+            "xray_alive": False,
+            "tun_present": False,
+            "stack_is_live": False,
+            "owned_stack_is_live": False,
+        }
+
+        with patch("gui_server.inspect_runtime_state", return_value=runtime_info):
+            with self.assertRaisesRegex(ValueError, "другого bundle"):
+                gui_server.handle_start()
+
+    def test_runtime_scripts_persist_and_guard_bundle_project_root(self) -> None:
+        run_script = (REPO_ROOT / "libexec" / "run-xray-tun-subvost.sh").read_text(encoding="utf-8")
+        stop_script = (REPO_ROOT / "libexec" / "stop-xray-tun-subvost.sh").read_text(encoding="utf-8")
+
+        self.assertIn("BUNDLE_PROJECT_ROOT", run_script)
+        self.assertIn("printf 'BUNDLE_PROJECT_ROOT=%s\\n' \"$SUBVOST_PROJECT_ROOT\" >>\"$STATE_FILE\"", run_script)
+        self.assertIn("read_state_bundle_project_root()", run_script)
+        self.assertIn("STATE_BUNDLE_PROJECT_ROOT", stop_script)
+        self.assertIn("Файл состояния принадлежит другому bundle", stop_script)
+        self.assertIn("не будет останавливать неподтверждённый runtime", stop_script)
 
     def test_root_backend_shell_action_runs_script_directly(self) -> None:
         script = Path("/tmp/run-xray-tun-subvost.sh")
@@ -364,6 +488,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             xray_alive=True,
             tun_present=True,
             tun_interface="tun0",
+            ownership="current",
         )
         self.assertEqual(status["state"], "running")
         self.assertEqual(status["stack_line"], "Xray core")
@@ -375,10 +500,22 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             xray_alive=True,
             tun_present=False,
             tun_interface="tun0",
+            ownership="current",
         )
         self.assertEqual(status["state"], "degraded")
         self.assertEqual(status["stack_line"], "Xray core")
         self.assertIn("Часть runtime активна", status["description"])
+
+    def test_describe_stack_status_for_foreign_runtime(self) -> None:
+        status = gui_server.describe_stack_status(
+            xray_alive=True,
+            tun_present=True,
+            tun_interface="tun0",
+            ownership="foreign",
+        )
+        self.assertEqual(status["state"], "degraded")
+        self.assertIn("другой bundle", status["label"])
+        self.assertIn("управление заблокировано", status["stack_subline"])
 
     def test_normalize_iso_timestamp_preserves_valid_values(self) -> None:
         self.assertEqual(
@@ -533,6 +670,21 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
             with (
                 patch.object(gui_server, "APP_PATHS", paths),
                 patch.object(gui_server, "PROJECT_ROOT", root),
+                patch(
+                    "gui_server.inspect_runtime_state",
+                    return_value={
+                        "has_state": False,
+                        "ownership": "unknown",
+                        "ownership_label": "Источник не подтверждён",
+                        "state_bundle_project_root": None,
+                        "tun_interface": "tun0",
+                        "xray_pid": None,
+                        "xray_alive": False,
+                        "tun_present": False,
+                        "stack_is_live": False,
+                        "owned_stack_is_live": False,
+                    },
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "сначала выбери и активируй валидный узел"):
                     gui_server.handle_start()

@@ -361,6 +361,42 @@ def load_state_file() -> dict[str, str]:
     return result
 
 
+def normalize_identity_path(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    path = Path(raw)
+    if not path.is_absolute():
+        return None
+
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def state_bundle_project_root(state: dict[str, str]) -> str | None:
+    return normalize_identity_path(state.get("BUNDLE_PROJECT_ROOT"))
+
+
+def classify_runtime_ownership(state: dict[str, str]) -> str:
+    bundle_root = state_bundle_project_root(state)
+    if not bundle_root:
+        return "unknown"
+
+    current_root = normalize_identity_path(str(PROJECT_ROOT)) or str(PROJECT_ROOT)
+    return "current" if bundle_root == current_root else "foreign"
+
+
+def runtime_ownership_label(ownership: str) -> str:
+    if ownership == "current":
+        return "Текущий bundle"
+    if ownership == "foreign":
+        return "Другой bundle"
+    return "Источник не подтверждён"
+
+
 def is_pid_alive(value: str | None) -> bool:
     if not value or not value.isdigit():
         return False
@@ -384,13 +420,67 @@ def cleanup_backend_pid_file(pid_file: Path = GUI_BACKEND_PID_FILE, expected_pid
     return True
 
 
-def runtime_stop_required(state: dict[str, str] | None = None) -> bool:
+def inspect_runtime_state(state: dict[str, str] | None = None) -> dict[str, Any]:
     runtime_state = load_state_file() if state is None else state
     tun_interface = str(runtime_state.get("TUN_INTERFACE") or "tun0").strip() or "tun0"
     xray_pid = runtime_state.get("XRAY_PID")
     xray_alive = is_pid_alive(xray_pid)
     tun_present = Path("/sys/class/net").joinpath(tun_interface).exists()
-    return xray_alive or tun_present
+    stack_is_live = xray_alive or tun_present
+    has_state = bool(runtime_state)
+    ownership = classify_runtime_ownership(runtime_state) if has_state else "unknown"
+    owned_stack_is_live = ownership == "current" and stack_is_live
+
+    return {
+        "state": runtime_state,
+        "has_state": has_state,
+        "ownership": ownership,
+        "ownership_label": runtime_ownership_label(ownership),
+        "state_bundle_project_root": state_bundle_project_root(runtime_state),
+        "tun_interface": tun_interface,
+        "xray_pid": xray_pid,
+        "xray_alive": xray_alive,
+        "tun_present": tun_present,
+        "stack_is_live": stack_is_live,
+        "owned_stack_is_live": owned_stack_is_live,
+    }
+
+
+def runtime_control_blocked(runtime_info: dict[str, Any]) -> bool:
+    return runtime_info["ownership"] != "current" and (runtime_info["has_state"] or runtime_info["stack_is_live"])
+
+
+def runtime_control_guard_message(runtime_info: dict[str, Any], *, action: str) -> str:
+    state_root = runtime_info.get("state_bundle_project_root")
+    tun_interface = runtime_info.get("tun_interface") or "tun0"
+    current_root = str(PROJECT_ROOT)
+
+    if runtime_info["ownership"] == "foreign":
+        base = (
+            f"Обнаружен runtime другого bundle. Bundle-владелец: {state_root}. "
+            f"Текущий bundle: {current_root}."
+        )
+    elif runtime_info["has_state"]:
+        base = (
+            f"Обнаружен state-файл без bundle identity: {STATE_FILE}. "
+            "Для безопасности ownership этого runtime не считается подтверждённым."
+        )
+    else:
+        base = (
+            f"Обнаружен активный runtime без подтверждённой bundle identity. "
+            f"Интерфейс: {tun_interface}."
+        )
+
+    if action == "close":
+        return base + " Окно закроется без остановки этого runtime."
+    if action == "start":
+        return base + " Сначала остановите или проверьте исходный bundle, затем повторите запуск."
+    return base + " Текущий bundle не будет управлять этим runtime."
+
+
+def runtime_stop_required(state: dict[str, str] | None = None) -> bool:
+    runtime_info = inspect_runtime_state(state)
+    return bool(runtime_info["owned_stack_is_live"])
 
 
 def read_resolv_conf_nameservers() -> list[str]:
@@ -434,8 +524,27 @@ def describe_stack_status(
     xray_alive: bool,
     tun_present: bool,
     tun_interface: str,
+    ownership: str,
 ) -> dict[str, str]:
     tun_label = tun_interface or "tun0"
+
+    if ownership == "foreign" and (xray_alive or tun_present):
+        return {
+            "state": "degraded",
+            "label": "Активен другой bundle",
+            "description": f"Обнаружен runtime другой копии bundle. Интерфейс: {tun_label}.",
+            "stack_line": "Xray core",
+            "stack_subline": "Чужой runtime, управление заблокировано",
+        }
+
+    if ownership == "unknown" and (xray_alive or tun_present):
+        return {
+            "state": "degraded",
+            "label": "Ownership не подтверждён",
+            "description": f"Обнаружен активный runtime без подтверждённой bundle identity. Интерфейс: {tun_label}.",
+            "stack_line": "Xray core",
+            "stack_subline": "Источник runtime не подтверждён",
+        }
 
     if xray_alive and tun_present:
         return {
@@ -577,6 +686,7 @@ def describe_runtime_state(
     state: dict[str, str],
     *,
     stack_is_live: bool,
+    runtime_info: dict[str, Any],
     active_profile: dict[str, Any] | None,
     active_node: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -594,6 +704,12 @@ def describe_runtime_state(
         next_start_source = "blocked"
         next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
 
+    start_blocked = runtime_control_blocked(runtime_info)
+    if start_blocked:
+        start_ready = False
+        next_start_source = "blocked"
+        next_start_reason = runtime_control_guard_message(runtime_info, action="start")
+
     live_source = None
     if stack_is_live:
         live_source = str(state.get("XRAY_CONFIG_SOURCE") or "").strip().lower() or None
@@ -608,6 +724,12 @@ def describe_runtime_state(
         "next_start_source": next_start_source,
         "next_start_source_label": runtime_source_label(next_start_source),
         "next_start_reason": next_start_reason,
+        "ownership": runtime_info["ownership"],
+        "ownership_label": runtime_info["ownership_label"],
+        "state_bundle_project_root": runtime_info["state_bundle_project_root"],
+        "start_blocked": start_blocked,
+        "stop_allowed": not start_blocked,
+        "control_message": runtime_control_guard_message(runtime_info, action="stop") if start_blocked else "",
         "generated_path": str(APP_PATHS.generated_xray_config_file),
     }
 
@@ -721,21 +843,23 @@ def collect_status() -> dict[str, Any]:
     settings = load_settings()
     store = ensure_store_ready()
     state = load_state_file()
+    runtime_info = inspect_runtime_state(state)
     active_profile, active_node = get_active_node(store)
     runtime_impl = str(state.get("RUNTIME_IMPL") or "xray").strip().lower() or "xray"
     if runtime_impl != "xray":
         runtime_impl = "xray"
-    tun_interface = str(state.get("TUN_INTERFACE") or "tun0").strip() or "tun0"
-    xray_pid = state.get("XRAY_PID")
-    xray_alive = is_pid_alive(xray_pid)
-    tun_present = Path("/sys/class/net").joinpath(tun_interface).exists()
-    stack_is_live = xray_alive or tun_present
+    tun_interface = runtime_info["tun_interface"]
+    xray_pid = runtime_info["xray_pid"]
+    xray_alive = runtime_info["xray_alive"]
+    tun_present = runtime_info["tun_present"]
+    stack_is_live = runtime_info["owned_stack_is_live"]
     active_xray_config_path = resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
     xray = read_json_config(active_xray_config_path)
     stack_status = describe_stack_status(
         xray_alive=xray_alive,
         tun_present=tun_present,
         tun_interface=tun_interface,
+        ownership=runtime_info["ownership"],
     )
     state_key = stack_status["state"]
     state_label = stack_status["label"]
@@ -765,6 +889,7 @@ def collect_status() -> dict[str, Any]:
         store,
         state,
         stack_is_live=stack_is_live,
+        runtime_info=runtime_info,
         active_profile=active_profile,
         active_node=active_node,
     )
@@ -797,6 +922,8 @@ def collect_status() -> dict[str, Any]:
             "xray_alive": xray_alive,
             "tun_present": tun_present,
             "tun_interface": tun_interface,
+            "state_bundle_project_root": runtime_info["state_bundle_project_root"],
+            "ownership": runtime_info["ownership"],
         },
         "connection": {
             **parse_connection_info(
@@ -847,6 +974,12 @@ def collect_status() -> dict[str, Any]:
 
 
 def handle_start() -> dict[str, Any]:
+    runtime_info = inspect_runtime_state()
+    if runtime_control_blocked(runtime_info):
+        raise ValueError(runtime_control_guard_message(runtime_info, action="start"))
+    if runtime_info["owned_stack_is_live"]:
+        raise ValueError("Runtime текущего bundle уже активен.")
+
     store = ensure_store_ready()
     active_profile, active_node = get_active_node(store)
     if not (
@@ -868,6 +1001,13 @@ def handle_start() -> dict[str, Any]:
 
 
 def handle_stop() -> dict[str, Any]:
+    runtime_info = inspect_runtime_state()
+    if runtime_control_blocked(runtime_info):
+        raise ValueError(runtime_control_guard_message(runtime_info, action="stop"))
+    if not runtime_info["has_state"] and not runtime_info["stack_is_live"]:
+        remember_action("Стоп", True, "Остановка не нужна: runtime уже не активен.", "state=already-stopped")
+        return collect_status()
+
     result = run_shell_action("Стоп", STOP_SCRIPT)
     if result.ok:
         message = "Остановка выполнена."
@@ -879,7 +1019,20 @@ def handle_stop() -> dict[str, Any]:
 
 def handle_app_terminate(payload: dict[str, Any]) -> dict[str, Any]:
     source = str(payload.get("source") or "window-close").strip() or "window-close"
-    stop_needed = runtime_stop_required()
+    runtime_info = inspect_runtime_state()
+
+    if runtime_control_blocked(runtime_info):
+        message = runtime_control_guard_message(runtime_info, action="close")
+        remember_action("Закрытие приложения", True, message, f"source={source}")
+        return {
+            "ok": True,
+            "message": message,
+            "shutdown_source": source,
+            "vpn_stop_requested": False,
+            "status": collect_status(),
+        }
+
+    stop_needed = bool(runtime_info["owned_stack_is_live"])
 
     if stop_needed:
         result = run_shell_action("Закрытие приложения", STOP_SCRIPT)

@@ -1700,11 +1700,13 @@
     function refreshActionButtons() {
       const summaryState = state.statusPayload?.summary?.state || "unknown";
       const startReady = Boolean(state.statusPayload?.runtime?.start_ready);
+      const startBlocked = Boolean(state.statusPayload?.runtime?.start_blocked);
+      const stopAllowed = Boolean(state.statusPayload?.runtime?.stop_allowed ?? true);
       const nextStartReason = state.statusPayload?.runtime?.next_start_reason || "";
-      els.startButton.disabled = state.busy || summaryState === "running";
-      els.startButton.title = !startReady && !state.busy && summaryState !== "running" ? nextStartReason : "";
+      els.startButton.disabled = state.busy || summaryState === "running" || startBlocked;
+      els.startButton.title = !state.busy && (startBlocked || (summaryState !== "running" && !startReady)) ? nextStartReason : "";
       setDataAttrIfChanged(els.startButton, "ready", startReady ? "true" : "false");
-      els.stopButton.disabled = state.busy;
+      els.stopButton.disabled = state.busy || !stopAllowed;
       els.diagButton.disabled = state.busy;
       els.addSubscriptionButton.disabled = state.busy;
       els.refreshAllButton.disabled = state.busy;

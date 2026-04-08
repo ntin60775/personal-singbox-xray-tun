@@ -21,6 +21,7 @@ STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
 ARG_XRAY_PID="${1:-}"
 XRAY_PID=""
+STATE_BUNDLE_PROJECT_ROOT=""
 RUNTIME_IMPL="${RUNTIME_IMPL:-xray}"
 TUN_INTERFACE="${TUN_INTERFACE:-tun0}"
 ROUTE_TABLE="${ROUTE_TABLE:-18421}"
@@ -39,7 +40,26 @@ ensure_absolute_path() {
 ensure_absolute_path "$STATE_FILE" "STATE_FILE"
 ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
 
+read_state_bundle_project_root() {
+  local state_file="$1"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      BUNDLE_PROJECT_ROOT)
+        if [[ "$value" == /* ]]; then
+          printf '%s\n' "$value"
+          return 0
+        fi
+        ;;
+    esac
+  done <"$state_file"
+}
+
 if [[ -f "$STATE_FILE" ]]; then
+  STATE_BUNDLE_PROJECT_ROOT="$(read_state_bundle_project_root "$STATE_FILE")"
   while IFS='=' read -r key value; do
     case "$key" in
       XRAY_PID)
@@ -55,6 +75,11 @@ if [[ -f "$STATE_FILE" ]]; then
       XRAY_CONFIG)
         if [[ "$value" == /* ]]; then
           XRAY_CONFIG="$value"
+        fi
+        ;;
+      BUNDLE_PROJECT_ROOT)
+        if [[ "$value" == /* ]]; then
+          STATE_BUNDLE_PROJECT_ROOT="$value"
         fi
         ;;
       RUNTIME_IMPL)
@@ -88,6 +113,23 @@ fi
 
 if [[ -n "$ARG_XRAY_PID" ]]; then
   XRAY_PID="$ARG_XRAY_PID"
+fi
+
+if [[ ! -f "$STATE_FILE" ]]; then
+  if [[ -z "$ARG_XRAY_PID" ]]; then
+    echo "Файл состояния не найден: ${STATE_FILE}" >&2
+    echo "Для безопасности без state-файла или явного PID текущий bundle не будет выполнять stop." >&2
+    exit 1
+  fi
+elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+  echo "Файл состояния не содержит bundle identity: ${STATE_FILE}" >&2
+  echo "Для безопасности текущий bundle не будет останавливать неподтверждённый runtime." >&2
+  exit 1
+elif [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
+  echo "Файл состояния принадлежит другому bundle: ${STATE_FILE}" >&2
+  echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+  echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+  exit 1
 fi
 
 echo "[1/4] Остановка Xray core"

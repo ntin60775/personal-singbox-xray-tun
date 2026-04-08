@@ -210,6 +210,24 @@ PY
   ACTIVE_NODE_ID="$(printf '%s\n' "$selection_data" | sed -n '2p')"
 }
 
+read_state_bundle_project_root() {
+  local state_file="$1"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      BUNDLE_PROJECT_ROOT)
+        if [[ "$value" == /* ]]; then
+          printf '%s\n' "$value"
+          return 0
+        fi
+        ;;
+    esac
+  done <"$state_file"
+}
+
 backup_resolv_conf() {
   sudo cp -fL /etc/resolv.conf "$RESOLV_BACKUP"
 }
@@ -431,7 +449,17 @@ if pgrep -xaf 'FlClashX|FlClashCore' >/dev/null 2>&1; then
 fi
 
 if [[ -f "$STATE_FILE" ]]; then
-  echo "Обнаружен файл состояния прошлого запуска: $STATE_FILE" >&2
+  STATE_BUNDLE_PROJECT_ROOT="$(read_state_bundle_project_root "$STATE_FILE")"
+  if [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]] && [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
+    echo "Обнаружен файл состояния другого bundle: $STATE_FILE" >&2
+    echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+    echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+  elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+    echo "Обнаружен файл состояния без bundle identity: $STATE_FILE" >&2
+    echo "Для безопасности текущий bundle не будет стартовать поверх неподтверждённого runtime." >&2
+  else
+    echo "Обнаружен файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
+  fi
   echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
   exit 1
 fi
@@ -515,6 +543,7 @@ printf 'XRAY_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PROFILE_ID=%s\nACT
   >"$STATE_FILE"
 printf 'STARTED_AT=%s\n' "$STARTED_AT" >>"$STATE_FILE"
 printf 'XRAY_CONFIG_SOURCE=%s\n' "$XRAY_CONFIG_SOURCE" >>"$STATE_FILE"
+printf 'BUNDLE_PROJECT_ROOT=%s\n' "$SUBVOST_PROJECT_ROOT" >>"$STATE_FILE"
 printf 'RUNTIME_IMPL=%s\n' "xray" >>"$STATE_FILE"
 printf 'TUN_INTERFACE=%s\n' "$TUN_INTERFACE_NAME" >>"$STATE_FILE"
 printf 'TUN_INTERFACE_ADDRESS=%s\n' "$TUN_INTERFACE_ADDRESS" >>"$STATE_FILE"
