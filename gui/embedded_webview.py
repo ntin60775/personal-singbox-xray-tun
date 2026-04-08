@@ -19,11 +19,16 @@ STARTUP_VERTICAL_RESERVE = 56
 MIN_WINDOW_WIDTH = 720
 MIN_WINDOW_HEIGHT = 540
 SOFTWARE_RENDERING_ENV_DEFAULTS = {
+    "WEBKIT_DISABLE_COMPOSITING_MODE": "1",
     "WEBKIT_DISABLE_DMABUF_RENDERER": "1",
     "WEBKIT_DMABUF_RENDERER_FORCE_SHM": "1",
     "WEBKIT_WEBGL_DISABLE_GBM": "1",
     "WEBKIT_SKIA_ENABLE_CPU_RENDERING": "1",
 }
+WEBVIEW_BACKGROUND_RGBA = (9 / 255, 16 / 255, 25 / 255, 1.0)
+EMBEDDED_SURFACE_HEX = "#091019"
+WINDOW_BACKGROUND_CSS_CLASS = "subvost-embedded-window"
+ROOT_CONTAINER_CSS_CLASS = "subvost-embedded-root"
 
 
 @dataclass(frozen=True)
@@ -176,6 +181,120 @@ def apply_webview_software_rendering_settings(webview, webkit_module) -> dict[st
     return applied
 
 
+def build_webview_background_rgba(gdk_module, rgba: tuple[float, float, float, float] = WEBVIEW_BACKGROUND_RGBA):
+    rgba_class = getattr(gdk_module, "RGBA", None)
+    if rgba_class is None:
+        return None
+    color = rgba_class()
+    color.red, color.green, color.blue, color.alpha = rgba
+    return color
+
+
+def apply_webview_background_color(webview, gdk_module) -> bool:
+    if not hasattr(webview, "set_background_color"):
+        return False
+
+    color = build_webview_background_rgba(gdk_module)
+    if color is None:
+        return False
+
+    try:
+        webview.set_background_color(color)
+    except Exception:
+        return False
+    return True
+
+
+def add_css_class(widget, css_class: str) -> bool:
+    get_style_context = getattr(widget, "get_style_context", None)
+    if get_style_context is None:
+        return False
+
+    style_context = get_style_context()
+    add_class = getattr(style_context, "add_class", None)
+    if add_class is None:
+        return False
+
+    add_class(css_class)
+    return True
+
+
+def build_embedded_window_css(background_hex: str = EMBEDDED_SURFACE_HEX) -> bytes:
+    return f"""
+window.{WINDOW_BACKGROUND_CSS_CLASS},
+window.{WINDOW_BACKGROUND_CSS_CLASS} > widget,
+window.{WINDOW_BACKGROUND_CSS_CLASS} box,
+box.{ROOT_CONTAINER_CSS_CLASS},
+box.{ROOT_CONTAINER_CSS_CLASS} > widget,
+box.{ROOT_CONTAINER_CSS_CLASS} scrolledwindow,
+box.{ROOT_CONTAINER_CSS_CLASS} viewport,
+box.{ROOT_CONTAINER_CSS_CLASS} webview {{
+  background: {background_hex};
+  background-color: {background_hex};
+}}
+""".encode("utf-8")
+
+
+def build_css_provider(gtk_module, css_data: bytes):
+    css_provider_class = getattr(gtk_module, "CssProvider", None)
+    if css_provider_class is None:
+        return None
+
+    provider = css_provider_class()
+    load_from_data = getattr(provider, "load_from_data", None)
+    if load_from_data is None:
+        return None
+
+    try:
+        load_from_data(css_data)
+    except TypeError:
+        load_from_data(css_data.decode("utf-8"))
+    except Exception:
+        return None
+    return provider
+
+
+def apply_window_background_css(window, gtk_module, gdk_module):
+    add_css_class(window, WINDOW_BACKGROUND_CSS_CLASS)
+    provider = build_css_provider(gtk_module, build_embedded_window_css())
+    if provider is None:
+        return None
+
+    priority = getattr(gtk_module, "STYLE_PROVIDER_PRIORITY_APPLICATION", 600)
+    style_context_class = getattr(gtk_module, "StyleContext", None)
+    if style_context_class is None:
+        return None
+
+    add_provider_for_display = getattr(style_context_class, "add_provider_for_display", None)
+    if callable(add_provider_for_display):
+        display_class = getattr(gdk_module, "Display", None)
+        display = display_class.get_default() if display_class is not None and hasattr(display_class, "get_default") else None
+        if display is not None:
+            add_provider_for_display(display, provider, priority)
+            return provider
+
+    add_provider_for_screen = getattr(style_context_class, "add_provider_for_screen", None)
+    if callable(add_provider_for_screen):
+        screen_class = getattr(gdk_module, "Screen", None)
+        screen = screen_class.get_default() if screen_class is not None and hasattr(screen_class, "get_default") else None
+        if screen is not None:
+            add_provider_for_screen(screen, provider, priority)
+            return provider
+
+    return None
+
+
+def build_webview_container(gtk_module):
+    orientation = getattr(getattr(gtk_module, "Orientation", None), "VERTICAL", 1)
+    container = gtk_module.Box(orientation=orientation)
+    if hasattr(container, "set_hexpand"):
+        container.set_hexpand(True)
+    if hasattr(container, "set_vexpand"):
+        container.set_vexpand(True)
+    add_css_class(container, ROOT_CONTAINER_CSS_CLASS)
+    return container
+
+
 class EmbeddedWebViewApp:
     def __init__(self, candidate: RuntimeCandidate, args: argparse.Namespace) -> None:
         self.candidate = candidate
@@ -187,6 +306,8 @@ class EmbeddedWebViewApp:
         self.app.connect("activate", self.on_activate)
         self.window = None
         self.webview = None
+        self.container = None
+        self.window_css_provider = None
 
     def run(self) -> int:
         return int(self.app.run([]))
@@ -206,20 +327,32 @@ class EmbeddedWebViewApp:
         width, height = self.resolve_startup_window_size()
         window.set_default_size(width, height)
         self.apply_icon(window)
+        self.window_css_provider = apply_window_background_css(window, self.Gtk, self.Gdk)
         return window
 
     def build_webview(self):
         webview = self.WebKit.WebView()
         apply_webview_software_rendering_settings(webview, self.WebKit)
+        apply_webview_background_color(webview, self.Gdk)
         webview.connect("notify::title", self.on_title_changed)
+        webview.connect("load-changed", self.on_load_changed)
+        try:
+            webview.connect("web-process-terminated", self.on_web_process_terminated)
+        except TypeError:
+            pass
         return webview
 
     def attach_webview(self) -> None:
+        if self.container is None:
+            self.container = build_webview_container(self.Gtk)
+
         if self.candidate.gtk_version.startswith("4."):
-            self.window.set_child(self.webview)
+            self.container.append(self.webview)
+            self.window.set_child(self.container)
             return
 
-        self.window.add(self.webview)
+        self.container.pack_start(self.webview, True, True, 0)
+        self.window.add(self.container)
         self.window.show_all()
 
     def connect_close_handler(self) -> None:
@@ -241,6 +374,14 @@ class EmbeddedWebViewApp:
         page_title = webview.get_title()
         if page_title:
             self.window.set_title(page_title)
+
+    def on_load_changed(self, webview, *_args) -> None:
+        apply_webview_background_color(webview, self.Gdk)
+
+    def on_web_process_terminated(self, webview, *_args):
+        apply_webview_background_color(webview, self.Gdk)
+        print("Embedded WebKit web-process terminated.", file=sys.stderr, flush=True)
+        return False
 
     def apply_icon(self, window) -> None:
         if not self.args.icon_path:

@@ -145,14 +145,15 @@ def load_gui_asset(filename: str) -> str:
     return asset_path.read_text(encoding="utf-8")
 
 
+def load_main_gui_html() -> str:
+    return load_gui_asset(MAIN_GUI_ASSET)
+
+
 def load_binary_asset(path: Path) -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"Не найден asset: {path}")
     return path.read_bytes()
 
-
-# Основной web-интерфейс хранится только в одном asset-файле.
-INDEX_HTML = load_gui_asset(MAIN_GUI_ASSET)
 
 @dataclass
 class CommandResult:
@@ -1238,7 +1239,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if request_path in ROOT_GUI_PATHS:
-            self.send_html(INDEX_HTML)
+            self.send_html(load_main_gui_html())
             return
 
         if request_path == "/api/status":
