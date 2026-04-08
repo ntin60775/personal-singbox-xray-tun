@@ -171,9 +171,23 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("WEBKIT_SKIA_ENABLE_CPU_RENDERING", launcher)
         self.assertIn("gui_server.py", launcher)
         self.assertIn("BACKEND_PID_FILE", launcher)
+        self.assertIn('SUBVOST_GUI_BACKEND_PID_FILE="${BACKEND_PID_FILE}"', launcher)
         self.assertNotIn("pkexec env", launcher)
         self.assertNotIn("start-gui-backend-root.sh", launcher)
         self.assertNotIn('CURRENT_GUI_VERSION="2026-', launcher)
+
+    def test_launcher_falls_back_to_free_gui_port_without_stopping_foreign_backend(self) -> None:
+        launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
+
+        self.assertIn('PREFERRED_PORT="${SUBVOST_GUI_PORT:-8421}"', launcher)
+        self.assertIn('PORT_FALLBACK_END="${SUBVOST_GUI_PORT_FALLBACK_END:-8499}"', launcher)
+        self.assertIn("select_gui_port()", launcher)
+        self.assertIn('URL="http://${HOST}:${PORT}"', launcher)
+        self.assertIn('WEBVIEW_LOG_FILE="/tmp/subvost-xray-tun-webview-${REAL_UID}-${PORT}.log"', launcher)
+        self.assertIn('BACKEND_PID_FILE="/tmp/subvost-xray-tun-gui-user-${REAL_UID}-${PORT}.pid"', launcher)
+        self.assertIn("GUI порт ${PREFERRED_PORT} занят несовместимым backend-ом", launcher)
+        self.assertIn("Не найден свободный GUI-порт в диапазоне", launcher)
+        self.assertNotIn("Останови старый процесс и повтори запуск", launcher)
 
     def test_desktop_launcher_does_not_force_backend_restart(self) -> None:
         desktop_entry = (REPO_ROOT / "subvost-xray-tun.desktop").read_text(encoding="utf-8")
@@ -292,6 +306,15 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
             self.assertFalse(removed)
             self.assertTrue(pid_file.exists())
+
+    def test_resolve_backend_pid_file_accepts_launcher_override(self) -> None:
+        with patch.dict("gui_server.os.environ", {"SUBVOST_GUI_BACKEND_PID_FILE": "/tmp/subvost-custom.pid"}):
+            self.assertEqual(gui_server.resolve_backend_pid_file(1000), Path("/tmp/subvost-custom.pid"))
+
+    def test_resolve_backend_pid_file_rejects_relative_launcher_override(self) -> None:
+        with patch.dict("gui_server.os.environ", {"SUBVOST_GUI_BACKEND_PID_FILE": "relative.pid"}):
+            with self.assertRaisesRegex(SystemExit, "SUBVOST_GUI_BACKEND_PID_FILE"):
+                gui_server.resolve_backend_pid_file(1000)
 
     def test_classify_runtime_ownership_matches_current_bundle(self) -> None:
         ownership = gui_server.classify_runtime_ownership({"BUNDLE_PROJECT_ROOT": str(gui_server.PROJECT_ROOT)})

@@ -102,6 +102,15 @@ def discover_real_user() -> tuple[str, Path]:
     pw_entry = pwd.getpwnam(user)
     return user, Path(pw_entry.pw_dir)
 
+def resolve_backend_pid_file(real_uid: int) -> Path:
+    explicit_pid_file = os.environ.get("SUBVOST_GUI_BACKEND_PID_FILE")
+    if explicit_pid_file:
+        candidate = Path(explicit_pid_file)
+        if not candidate.is_absolute():
+            raise SystemExit(f"SUBVOST_GUI_BACKEND_PID_FILE должен быть абсолютным путём: {explicit_pid_file}")
+        return candidate
+    return Path(f"/tmp/subvost-xray-tun-gui-user-{real_uid}.pid")
+
 PROJECT_ROOT = discover_project_root()
 RUN_SCRIPT = PROJECT_ROOT / "run-xray-tun-subvost.sh"
 STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
@@ -115,7 +124,7 @@ REAL_GID = REAL_PW_ENTRY.pw_gid
 APP_PATHS = build_app_paths(REAL_HOME)
 STATE_FILE = REAL_HOME / ".xray-tun-subvost.state"
 RESOLV_BACKUP = REAL_HOME / ".xray-tun-subvost.resolv.conf.backup"
-GUI_BACKEND_PID_FILE = Path(f"/tmp/subvost-xray-tun-gui-user-{REAL_UID}.pid")
+GUI_BACKEND_PID_FILE = resolve_backend_pid_file(REAL_UID)
 LAST_ACTION: dict[str, Any] = {
     "name": None,
     "ok": None,
