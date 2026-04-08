@@ -58,6 +58,48 @@ read_state_bundle_project_root() {
   done <"$state_file"
 }
 
+read_state_value() {
+  local state_file="$1"
+  local target_key="$2"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "$target_key" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done <"$state_file"
+}
+
+legacy_state_runtime_is_live() {
+  local state_file="$1"
+  local state_pid=""
+  local state_tun_interface=""
+
+  state_pid="$(read_state_value "$state_file" "XRAY_PID")"
+  state_tun_interface="$(read_state_value "$state_file" "TUN_INTERFACE")"
+
+  if [[ ! "$state_pid" =~ ^[0-9]+$ ]]; then
+    state_pid=""
+  fi
+
+  if [[ -z "$state_tun_interface" ]]; then
+    state_tun_interface="$TUN_INTERFACE"
+  fi
+
+  if [[ -n "$state_pid" ]] && kill -0 "$state_pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ -n "$state_tun_interface" ]] && ip link show "$state_tun_interface" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
 if [[ -f "$STATE_FILE" ]]; then
   STATE_BUNDLE_PROJECT_ROOT="$(read_state_bundle_project_root "$STATE_FILE")"
   while IFS='=' read -r key value; do
@@ -122,9 +164,16 @@ if [[ ! -f "$STATE_FILE" ]]; then
     exit 1
   fi
 elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+  if legacy_state_runtime_is_live "$STATE_FILE"; then
+    echo "Файл состояния не содержит bundle identity: ${STATE_FILE}" >&2
+    echo "Для безопасности текущий bundle не будет останавливать неподтверждённый runtime." >&2
+    exit 1
+  fi
+
   echo "Файл состояния не содержит bundle identity: ${STATE_FILE}" >&2
-  echo "Для безопасности текущий bundle не будет останавливать неподтверждённый runtime." >&2
-  exit 1
+  echo "Runtime по этому state уже не активен. Удаляется только stale state-файл." >&2
+  rm -f "$STATE_FILE"
+  exit 0
 elif [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
   echo "Файл состояния принадлежит другому bundle: ${STATE_FILE}" >&2
   echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2

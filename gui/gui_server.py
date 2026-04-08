@@ -461,7 +461,12 @@ def inspect_runtime_state(state: dict[str, str] | None = None) -> dict[str, Any]
 
 
 def runtime_control_blocked(runtime_info: dict[str, Any]) -> bool:
-    return runtime_info["ownership"] != "current" and (runtime_info["has_state"] or runtime_info["stack_is_live"])
+    ownership = runtime_info["ownership"]
+    if ownership == "foreign":
+        return bool(runtime_info["has_state"] or runtime_info["stack_is_live"])
+    if ownership == "unknown":
+        return bool(runtime_info["stack_is_live"])
+    return False
 
 
 def runtime_control_guard_message(runtime_info: dict[str, Any], *, action: str) -> str:
