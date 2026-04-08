@@ -338,6 +338,24 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         self.assertFalse(stop_needed)
 
+    def test_runtime_control_blocked_keeps_foreign_stale_state_blocked(self) -> None:
+        runtime_info = {
+            "has_state": True,
+            "ownership": "foreign",
+            "stack_is_live": False,
+        }
+
+        self.assertTrue(gui_server.runtime_control_blocked(runtime_info))
+
+    def test_runtime_control_blocked_allows_stale_unknown_state_without_live_runtime(self) -> None:
+        runtime_info = {
+            "has_state": True,
+            "ownership": "unknown",
+            "stack_is_live": False,
+        }
+
+        self.assertFalse(gui_server.runtime_control_blocked(runtime_info))
+
     def test_handle_app_terminate_skips_stop_when_runtime_is_already_down(self) -> None:
         runtime_info = {
             "has_state": False,
@@ -483,6 +501,10 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("STATE_BUNDLE_PROJECT_ROOT", stop_script)
         self.assertIn("Файл состояния принадлежит другому bundle", stop_script)
         self.assertIn("не будет останавливать неподтверждённый runtime", stop_script)
+        self.assertIn("legacy_state_runtime_is_live()", run_script)
+        self.assertIn("Обнаружен stale legacy state без bundle identity", run_script)
+        self.assertIn("Runtime по этому state уже не активен, файл будет перезаписан новым запуском.", run_script)
+        self.assertIn("Runtime по этому state уже не активен. Удаляется только stale state-файл.", stop_script)
 
     def test_root_backend_shell_action_runs_script_directly(self) -> None:
         script = Path("/tmp/run-xray-tun-subvost.sh")

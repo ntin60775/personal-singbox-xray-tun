@@ -229,6 +229,48 @@ read_state_bundle_project_root() {
   done <"$state_file"
 }
 
+read_state_value() {
+  local state_file="$1"
+  local target_key="$2"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "$target_key" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done <"$state_file"
+}
+
+legacy_state_runtime_is_live() {
+  local state_file="$1"
+  local state_pid=""
+  local state_tun_interface=""
+
+  state_pid="$(read_state_value "$state_file" "XRAY_PID")"
+  state_tun_interface="$(read_state_value "$state_file" "TUN_INTERFACE")"
+
+  if [[ ! "$state_pid" =~ ^[0-9]+$ ]]; then
+    state_pid=""
+  fi
+
+  if [[ -z "$state_tun_interface" ]]; then
+    state_tun_interface="$TUN_INTERFACE_NAME"
+  fi
+
+  if [[ -n "$state_pid" ]] && kill -0 "$state_pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ -n "$state_tun_interface" ]] && ip link show "$state_tun_interface" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
 backup_resolv_conf() {
   sudo cp -fL /etc/resolv.conf "$RESOLV_BACKUP"
 }
@@ -457,14 +499,23 @@ if [[ -f "$STATE_FILE" ]]; then
     echo "Обнаружен файл состояния другого bundle: $STATE_FILE" >&2
     echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
     echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+    echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+    exit 1
   elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
-    echo "Обнаружен файл состояния без bundle identity: $STATE_FILE" >&2
-    echo "Для безопасности текущий bundle не будет стартовать поверх неподтверждённого runtime." >&2
+    if legacy_state_runtime_is_live "$STATE_FILE"; then
+      echo "Обнаружен файл состояния без bundle identity: $STATE_FILE" >&2
+      echo "Для безопасности текущий bundle не будет стартовать поверх неподтверждённого runtime." >&2
+      echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+      exit 1
+    fi
+
+    echo "Обнаружен stale legacy state без bundle identity: $STATE_FILE" >&2
+    echo "Runtime по этому state уже не активен, файл будет перезаписан новым запуском." >&2
   else
     echo "Обнаружен файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
+    echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+    exit 1
   fi
-  echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
-  exit 1
 fi
 
 echo "[2/8] Preflight DNS и routing-окружения"
