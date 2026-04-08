@@ -64,3 +64,4 @@
 | `TASK-2026-0042` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0042-webview-nvidia-software-fallback/` | Аппаратно-независимый software-rendering fallback для embedded webview вместо хрупкого GPU/GBM-пути |
 | `TASK-2026-0043` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0043-gui-user-backend-pkexec-actions/` | Запуск GUI без раннего root-запроса и перенос root-действий GUI на `pkexec` |
 | `TASK-2026-0044` | `—` | `на проверке` | `средний` | `main` | `knowledge/tasks/TASK-2026-0044-main-window-width-reduction/` | Уменьшить стартовую ширину главного окна до `1280` px, убрать боковые поля и снять регрессии верхней панели и мерцание embedded GUI |
+| `TASK-2026-0045` | `—` | `на проверке` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0045-ui-window-close-full-shutdown/` | Сделать закрытие GUI-окна полным shutdown приложения: окно, GUI-backend и VPN runtime должны останавливаться одним сценарием |
