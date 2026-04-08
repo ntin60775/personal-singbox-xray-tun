@@ -7,9 +7,11 @@ subvost_load_project_layout_from_env
 
 REAL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
-APPLICATIONS_DIR="${REAL_HOME}/.local/share/applications"
-DESKTOP_ENTRY_PATH="${APPLICATIONS_DIR}/subvost-xray-tun.desktop"
-ICON_PATH="${SUBVOST_ASSETS_DIR}/subvost-xray-tun-icon.svg"
+REAL_DATA_HOME=""
+APPLICATIONS_DIR=""
+DESKTOP_ENTRY_PATH=""
+ICON_PATH="${SUBVOST_DESKTOP_ICON_PATH}"
+ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"
 LAUNCHER_PATH="${SUBVOST_OPEN_GUI_WRAPPER}"
 
 ensure_real_home_detected() {
@@ -39,7 +41,7 @@ Name=Subvost Xray TUN GUI
 Comment=Запуск локального GUI для управления туннелем
 Exec=/usr/bin/env python3 -c "import os, sys; os.execv(sys.argv[1], [sys.argv[1]])" "${LAUNCHER_PATH}"
 TryExec=${LAUNCHER_PATH}
-Icon=${ICON_PATH}
+Icon=${ICON_NAME}
 Terminal=false
 Categories=Network;
 StartupNotify=true
@@ -54,8 +56,12 @@ refresh_desktop_database() {
 }
 
 ensure_real_home_detected
+REAL_DATA_HOME="$(subvost_resolve_real_data_home "$REAL_HOME")"
+APPLICATIONS_DIR="${REAL_DATA_HOME}/applications"
+DESKTOP_ENTRY_PATH="${APPLICATIONS_DIR}/subvost-xray-tun.desktop"
 ensure_runtime_paths
 write_desktop_entry
+subvost_sync_desktop_launcher_icon
 refresh_desktop_database
 
 echo "Ярлык установлен в меню приложений:"

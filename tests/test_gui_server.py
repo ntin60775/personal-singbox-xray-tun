@@ -155,10 +155,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
     def test_desktop_launcher_does_not_force_backend_restart(self) -> None:
         desktop_entry = (REPO_ROOT / "subvost-xray-tun.desktop").read_text(encoding="utf-8")
         menu_installer = (REPO_ROOT / "libexec" / "install-subvost-gui-menu-entry.sh").read_text(encoding="utf-8")
-        expected_icon = REPO_ROOT / "assets" / "subvost-xray-tun-icon.svg"
+        common_shell = (REPO_ROOT / "lib" / "subvost-common.sh").read_text(encoding="utf-8")
+        expected_icon_name = "subvost-xray-tun-icon"
 
         self.assertIn("open-subvost-gui.sh", desktop_entry)
-        self.assertIn(f"Icon={expected_icon}", desktop_entry)
+        self.assertIn(f"Icon={expected_icon_name}", desktop_entry)
+        self.assertNotIn("/assets/subvost-xray-tun-icon.svg", desktop_entry)
+        self.assertIn('ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"', menu_installer)
+        self.assertIn("Icon=${ICON_NAME}", menu_installer)
+        self.assertIn("subvost_sync_desktop_launcher_icon", menu_installer)
+        self.assertIn('SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"', common_shell)
+        self.assertIn('ln -sfn -- "$icon_path" "$icon_link_path"', common_shell)
         self.assertNotIn("--force-restart-backend", desktop_entry)
         self.assertNotIn("--force-restart-backend", menu_installer)
 

@@ -46,6 +46,7 @@ subvost_load_project_layout_from_env() {
   export SUBVOST_OPEN_GUI_WRAPPER="${project_root}/open-subvost-gui.sh"
   export SUBVOST_INSTALL_WRAPPER="${project_root}/install-on-new-pc.sh"
   export SUBVOST_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun.desktop"
+  export SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"
   export SUBVOST_DESKTOP_ICON_PATH="${project_root}/assets/subvost-xray-tun-icon.svg"
 }
 
@@ -67,24 +68,83 @@ subvost_find_executable() {
   return 1
 }
 
-subvost_sync_desktop_launcher_icon() {
-  local desktop_file="${SUBVOST_DESKTOP_LAUNCHER:-}"
-  local icon_path="${SUBVOST_DESKTOP_ICON_PATH:-}"
+subvost_resolve_real_user_name() {
+  if [[ -n "${SUBVOST_REAL_USER:-}" ]]; then
+    printf '%s\n' "${SUBVOST_REAL_USER}"
+    return 0
+  fi
+
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    printf '%s\n' "${SUDO_USER}"
+    return 0
+  fi
+
+  if [[ -n "${USER:-}" ]]; then
+    printf '%s\n' "${USER}"
+    return 0
+  fi
+
+  id -un
+}
+
+subvost_resolve_real_home() {
+  local explicit_home="${SUBVOST_REAL_HOME:-}"
+  local real_user
+  local real_home
+
+  if [[ -n "$explicit_home" ]]; then
+    subvost_ensure_absolute_path "$explicit_home" "SUBVOST_REAL_HOME"
+    printf '%s\n' "$explicit_home"
+    return 0
+  fi
+
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && [[ -n "${HOME:-}" ]] && [[ "${HOME}" == /* ]]; then
+    printf '%s\n' "${HOME}"
+    return 0
+  fi
+
+  real_user="$(subvost_resolve_real_user_name)"
+  real_home="$(getent passwd "$real_user" | cut -d: -f6)"
+  [[ -n "$real_home" ]] || return 1
+  subvost_ensure_absolute_path "$real_home" "REAL_HOME"
+  printf '%s\n' "$real_home"
+}
+
+subvost_resolve_real_data_home() {
+  local real_home="$1"
+  local explicit_data_home="${SUBVOST_REAL_XDG_DATA_HOME:-}"
+
+  if [[ -n "$explicit_data_home" ]]; then
+    subvost_ensure_absolute_path "$explicit_data_home" "SUBVOST_REAL_XDG_DATA_HOME"
+    printf '%s\n' "$explicit_data_home"
+    return 0
+  fi
+
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && [[ -n "${XDG_DATA_HOME:-}" ]] && [[ "${XDG_DATA_HOME}" == /* ]]; then
+    printf '%s\n' "${XDG_DATA_HOME}"
+    return 0
+  fi
+
+  printf '%s\n' "${real_home}/.local/share"
+}
+
+subvost_sync_desktop_icon_value() {
+  local desktop_file="$1"
+  local icon_value="$2"
   local tmp_file
 
   [[ -n "$desktop_file" ]] || return 0
-  [[ -n "$icon_path" ]] || return 0
+  [[ -n "$icon_value" ]] || return 0
   [[ -f "$desktop_file" ]] || return 0
-  [[ -f "$icon_path" ]] || return 0
   [[ -w "$desktop_file" ]] || return 0
 
   tmp_file="$(mktemp "${desktop_file}.tmp.XXXXXX")"
-  SUBVOST_SYNC_ICON_PATH="$icon_path" awk '
+  SUBVOST_SYNC_ICON_VALUE="$icon_value" awk '
     BEGIN {
       replaced = 0
     }
     /^Icon=/ {
-      print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_PATH"]
+      print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_VALUE"]
       replaced = 1
       next
     }
@@ -93,7 +153,7 @@ subvost_sync_desktop_launcher_icon() {
     }
     END {
       if (!replaced) {
-        print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_PATH"]
+        print "Icon=" ENVIRON["SUBVOST_SYNC_ICON_VALUE"]
       }
     }
   ' "$desktop_file" > "$tmp_file"
@@ -105,6 +165,33 @@ subvost_sync_desktop_launcher_icon() {
 
   chmod --reference="$desktop_file" "$tmp_file"
   mv -- "$tmp_file" "$desktop_file"
+}
+
+subvost_sync_desktop_launcher_icon() {
+  local desktop_file="${SUBVOST_DESKTOP_LAUNCHER:-}"
+  local icon_path="${SUBVOST_DESKTOP_ICON_PATH:-}"
+  local icon_name="${SUBVOST_DESKTOP_ICON_NAME:-}"
+  local real_home
+  local data_home
+  local icon_dir
+  local icon_link_path
+  local installed_desktop_file
+
+  [[ -n "$icon_name" ]] || return 0
+  [[ -n "$icon_path" ]] || return 0
+  [[ -f "$icon_path" ]] || return 0
+
+  real_home="$(subvost_resolve_real_home)" || return 0
+  data_home="$(subvost_resolve_real_data_home "$real_home")" || return 0
+  icon_dir="${data_home}/icons/hicolor/scalable/apps"
+  icon_link_path="${icon_dir}/${icon_name}.svg"
+  installed_desktop_file="${data_home}/applications/subvost-xray-tun.desktop"
+
+  mkdir -p "$icon_dir" 2>/dev/null || return 0
+  ln -sfn -- "$icon_path" "$icon_link_path" 2>/dev/null || return 0
+
+  subvost_sync_desktop_icon_value "$desktop_file" "$icon_name"
+  subvost_sync_desktop_icon_value "$installed_desktop_file" "$icon_name"
 }
 
 subvost_resolve_real_config_home() {
