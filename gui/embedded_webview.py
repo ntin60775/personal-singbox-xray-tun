@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -29,6 +32,8 @@ WEBVIEW_BACKGROUND_RGBA = (9 / 255, 16 / 255, 25 / 255, 1.0)
 EMBEDDED_SURFACE_HEX = "#091019"
 WINDOW_BACKGROUND_CSS_CLASS = "subvost-embedded-window"
 ROOT_CONTAINER_CSS_CLASS = "subvost-embedded-root"
+APP_TERMINATE_ROUTE = "/api/app/terminate"
+APP_TERMINATE_TIMEOUT_SECS = 180.0
 
 
 @dataclass(frozen=True)
@@ -295,6 +300,51 @@ def build_webview_container(gtk_module):
     return container
 
 
+def build_app_terminate_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}{APP_TERMINATE_ROUTE}"
+
+
+def request_application_shutdown(
+    base_url: str,
+    *,
+    source: str = "window-close",
+    timeout: float = APP_TERMINATE_TIMEOUT_SECS,
+    urlopen=urllib.request.urlopen,
+) -> dict[str, object]:
+    payload = json.dumps({"source": source}).encode("utf-8")
+    request = urllib.request.Request(
+        build_app_terminate_url(base_url),
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw_body = response.read()
+    except urllib.error.HTTPError as exc:
+        message = f"HTTP {exc.code}"
+        try:
+            error_payload = json.loads(exc.read().decode("utf-8") or "{}")
+        except Exception:
+            error_payload = {}
+        if error_payload.get("message"):
+            message = str(error_payload["message"])
+        raise RuntimeError(message) from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"Не удалось связаться с GUI backend: {reason}") from exc
+
+    try:
+        response_payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except Exception as exc:
+        raise RuntimeError("GUI backend вернул некорректный ответ при завершении приложения.") from exc
+
+    if not response_payload.get("ok"):
+        raise RuntimeError(str(response_payload.get("message") or "GUI backend отклонил завершение приложения."))
+    return response_payload
+
+
 class EmbeddedWebViewApp:
     def __init__(self, candidate: RuntimeCandidate, args: argparse.Namespace) -> None:
         self.candidate = candidate
@@ -308,6 +358,7 @@ class EmbeddedWebViewApp:
         self.webview = None
         self.container = None
         self.window_css_provider = None
+        self.shutting_down = False
 
     def run(self) -> int:
         return int(self.app.run([]))
@@ -363,12 +414,10 @@ class EmbeddedWebViewApp:
         self.window.connect("delete-event", self.on_delete_event)
 
     def on_close_request(self, *_args):
-        self.app.quit()
-        return False
+        return not self.close_application()
 
     def on_delete_event(self, *_args):
-        self.app.quit()
-        return False
+        return not self.close_application()
 
     def on_title_changed(self, webview, *_args) -> None:
         page_title = webview.get_title()
@@ -382,6 +431,46 @@ class EmbeddedWebViewApp:
         apply_webview_background_color(webview, self.Gdk)
         print("Embedded WebKit web-process terminated.", file=sys.stderr, flush=True)
         return False
+
+    def close_application(self) -> bool:
+        if self.shutting_down:
+            return True
+
+        try:
+            self.request_full_shutdown()
+        except RuntimeError as exc:
+            self.show_shutdown_error(str(exc))
+            return False
+
+        self.shutting_down = True
+        self.app.quit()
+        return True
+
+    def request_full_shutdown(self) -> dict[str, object]:
+        return request_application_shutdown(self.args.url, source="window-close")
+
+    def show_shutdown_error(self, message: str) -> None:
+        dialog_text = "Не удалось полностью закрыть приложение.\n" + (message or "Неизвестная ошибка.")
+
+        try:
+            dialog = self.Gtk.MessageDialog(
+                transient_for=self.window,
+                modal=True,
+                message_type=self.Gtk.MessageType.ERROR,
+                buttons=self.Gtk.ButtonsType.CLOSE,
+                text=dialog_text,
+            )
+        except TypeError:
+            print(dialog_text, file=sys.stderr, flush=True)
+            return
+
+        if hasattr(dialog, "run"):
+            dialog.run()
+            dialog.destroy()
+            return
+
+        dialog.connect("response", lambda current_dialog, *_args: current_dialog.destroy())
+        dialog.present()
 
     def apply_icon(self, window) -> None:
         if not self.args.icon_path:

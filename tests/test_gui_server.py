@@ -130,7 +130,9 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertNotIn("LEGACY_GUI_PATHS", do_get_source)
 
         do_post_source = inspect.getsource(gui_server.Handler.do_POST)
+        self.assertIn('"/api/app/terminate"', do_post_source)
         self.assertIn('"/api/nodes/ping"', do_post_source)
+        self.assertIn("schedule_server_shutdown(self.server)", do_post_source)
 
     def test_launcher_reads_gui_version_from_shared_contract_module(self) -> None:
         launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
@@ -235,6 +237,56 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             self.assertIn("bash", command)
             self.assertEqual(command[-1], str(script))
             self.assertNotIn("sudo", command)
+
+    def test_cleanup_backend_pid_file_removes_only_matching_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pid_file = Path(temp_dir) / "gui.pid"
+            pid_file.write_text("12345", encoding="utf-8")
+
+            removed = gui_server.cleanup_backend_pid_file(pid_file, expected_pid=12345)
+
+            self.assertTrue(removed)
+            self.assertFalse(pid_file.exists())
+
+    def test_cleanup_backend_pid_file_keeps_foreign_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pid_file = Path(temp_dir) / "gui.pid"
+            pid_file.write_text("12345", encoding="utf-8")
+
+            removed = gui_server.cleanup_backend_pid_file(pid_file, expected_pid=54321)
+
+            self.assertFalse(removed)
+            self.assertTrue(pid_file.exists())
+
+    def test_handle_app_terminate_skips_stop_when_runtime_is_already_down(self) -> None:
+        with (
+            patch("gui_server.runtime_stop_required", return_value=False),
+            patch("gui_server.remember_action") as remember_mock,
+            patch("gui_server.collect_status", return_value={"summary": {"state": "stopped"}}),
+        ):
+            payload = gui_server.handle_app_terminate({"source": "window-close"})
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["vpn_stop_requested"])
+        self.assertIn("уже не активен", payload["message"])
+        remember_mock.assert_called_once()
+
+    def test_handle_app_terminate_stops_runtime_when_it_is_live(self) -> None:
+        result = gui_server.CommandResult(name="Закрытие приложения", ok=True, returncode=0, output="stopped")
+
+        with (
+            patch("gui_server.runtime_stop_required", return_value=True),
+            patch("gui_server.run_shell_action", return_value=result) as run_mock,
+            patch("gui_server.remember_action") as remember_mock,
+            patch("gui_server.collect_status", return_value={"summary": {"state": "stopped"}}),
+        ):
+            payload = gui_server.handle_app_terminate({"source": "window-close"})
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["vpn_stop_requested"])
+        self.assertIn("VPN runtime остановлен", payload["message"])
+        run_mock.assert_called_once_with("Закрытие приложения", gui_server.STOP_SCRIPT)
+        remember_mock.assert_called_once()
 
     def test_root_backend_shell_action_runs_script_directly(self) -> None:
         script = Path("/tmp/run-xray-tun-subvost.sh")

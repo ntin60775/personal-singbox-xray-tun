@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import pwd
@@ -109,6 +110,7 @@ REAL_GID = REAL_PW_ENTRY.pw_gid
 APP_PATHS = build_app_paths(REAL_HOME)
 STATE_FILE = REAL_HOME / ".xray-tun-subvost.state"
 RESOLV_BACKUP = REAL_HOME / ".xray-tun-subvost.resolv.conf.backup"
+GUI_BACKEND_PID_FILE = Path(f"/tmp/subvost-xray-tun-gui-user-{REAL_UID}.pid")
 LAST_ACTION: dict[str, Any] = {
     "name": None,
     "ok": None,
@@ -363,6 +365,32 @@ def is_pid_alive(value: str | None) -> bool:
     if not value or not value.isdigit():
         return False
     return Path(f"/proc/{value}").exists()
+
+
+def cleanup_backend_pid_file(pid_file: Path = GUI_BACKEND_PID_FILE, expected_pid: int | None = None) -> bool:
+    target_pid = str(expected_pid if expected_pid is not None else os.getpid())
+    try:
+        recorded_pid = pid_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+
+    if recorded_pid != target_pid:
+        return False
+
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def runtime_stop_required(state: dict[str, str] | None = None) -> bool:
+    runtime_state = load_state_file() if state is None else state
+    tun_interface = str(runtime_state.get("TUN_INTERFACE") or "tun0").strip() or "tun0"
+    xray_pid = runtime_state.get("XRAY_PID")
+    xray_alive = is_pid_alive(xray_pid)
+    tun_present = Path("/sys/class/net").joinpath(tun_interface).exists()
+    return xray_alive or tun_present
 
 
 def read_resolv_conf_nameservers() -> list[str]:
@@ -849,6 +877,40 @@ def handle_stop() -> dict[str, Any]:
     return collect_status()
 
 
+def handle_app_terminate(payload: dict[str, Any]) -> dict[str, Any]:
+    source = str(payload.get("source") or "window-close").strip() or "window-close"
+    stop_needed = runtime_stop_required()
+
+    if stop_needed:
+        result = run_shell_action("Закрытие приложения", STOP_SCRIPT)
+        if result.ok:
+            message = "Приложение закрывается: VPN runtime остановлен."
+        else:
+            message = f"Не удалось закрыть приложение: stop runtime завершился ошибкой, код {result.returncode}."
+        remember_action(result.name, result.ok, message, result.output)
+        if not result.ok:
+            raise ValueError(message)
+    else:
+        message = "Приложение закрывается: VPN runtime уже не активен."
+        remember_action("Закрытие приложения", True, message, f"source={source}")
+
+    return {
+        "ok": True,
+        "message": message,
+        "shutdown_source": source,
+        "vpn_stop_requested": stop_needed,
+        "status": collect_status(),
+    }
+
+
+def schedule_server_shutdown(server: ThreadingHTTPServer) -> None:
+    def worker() -> None:
+        time.sleep(0.1)
+        server.shutdown()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def handle_diagnostics() -> dict[str, Any]:
     result = run_shell_action("Диагностика", DIAG_SCRIPT)
     match = re.search(r"(/.+xray-tun-state-[^\\s]+\\.log)", result.output)
@@ -1271,6 +1333,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path not in [
+            "/api/app/terminate",
             "/api/start",
             "/api/stop",
             "/api/diagnostics",
@@ -1302,8 +1365,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         payload = self.read_json_body()
+        shutdown_after_response = False
         try:
-            if self.path == "/api/start":
+            if self.path == "/api/app/terminate":
+                response = handle_app_terminate(payload)
+                shutdown_after_response = True
+            elif self.path == "/api/start":
                 response = {"ok": True, "status": handle_start()}
             elif self.path == "/api/stop":
                 response = {"ok": True, "status": handle_stop()}
@@ -1348,6 +1415,8 @@ class Handler(BaseHTTPRequestHandler):
             ACTION_LOCK.release()
 
         self.send_json(response)
+        if shutdown_after_response:
+            schedule_server_shutdown(self.server)
 
 
 def main() -> None:
@@ -1362,6 +1431,7 @@ def main() -> None:
         f"GUI backend запущен для пользователя {REAL_USER}. Откройте http://{args.host}:{args.port}",
         "Сервер готов к работе.",
     )
+    atexit.register(cleanup_backend_pid_file)
 
     with ThreadingHTTPServer((args.host, args.port), Handler) as httpd:
         print(f"Subvost GUI доступен: http://{args.host}:{args.port}")
