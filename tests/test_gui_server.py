@@ -42,16 +42,22 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
-        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-07-user-backend-pkexec-actions-v1")
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-08-main-gui-live-asset-v1")
 
     def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
-        self.assertEqual(gui_server.INDEX_HTML, self.main_html())
-        self.assertIn("function normalizeDataAttrName(name)", gui_server.INDEX_HTML)
-        self.assertIn("function setHtmlIfChanged(element, markup, cacheKey = \"\")", gui_server.INDEX_HTML)
-        self.assertIn("renderCache", gui_server.INDEX_HTML)
-        self.assertIn("setHtmlIfChanged(els.nodeList, markup, \"nodes\")", gui_server.INDEX_HTML)
-        self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
-        self.assertNotIn('data-${key}="${escapeAttr(value)}"', gui_server.INDEX_HTML)
+        html = self.main_html()
+        self.assertEqual(gui_server.load_main_gui_html(), html)
+        self.assertIn("function normalizeDataAttrName(name)", html)
+        self.assertIn("function setHtmlIfChanged(element, markup, cacheKey = \"\")", html)
+        self.assertIn("renderCache", html)
+        self.assertIn("setHtmlIfChanged(els.nodeList, markup, \"nodes\")", html)
+        self.assertIn('data-${normalizeDataAttrName(key)}="${escapeAttr(value)}"', html)
+        self.assertNotIn('data-${key}="${escapeAttr(value)}"', html)
+
+    def test_root_route_reads_main_gui_asset_at_request_time(self) -> None:
+        do_get_source = inspect.getsource(gui_server.Handler.do_GET)
+        self.assertIn("self.send_html(load_main_gui_html())", do_get_source)
+        self.assertNotIn("self.send_html(INDEX_HTML)", do_get_source)
 
     def test_main_gui_asset_contains_operational_controls(self) -> None:
         self.assertEqual(gui_server.MAIN_GUI_ASSET, "main_gui.html")
@@ -88,6 +94,20 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertNotIn("Состояние стека", html)
         self.assertNotIn("Ручной импорт ссылок", html)
 
+    def test_main_gui_shell_uses_available_window_width(self) -> None:
+        html = self.main_html()
+        self.assertIn("width: 100%;", html)
+        self.assertIn("max-width: 1280px;", html)
+        self.assertNotIn("width: min(100%, 1200px);", html)
+
+    def test_main_gui_skips_full_rerender_when_poll_payload_is_visibly_unchanged(self) -> None:
+        html = self.main_html()
+        self.assertIn("lastRenderSignature", html)
+        self.assertIn("function buildRenderSignature(statusPayload, storePayload)", html)
+        self.assertIn('delete statusClone.timestamp;', html)
+        self.assertIn("if (nextSignature === state.lastRenderSignature) {", html)
+        self.assertIn("state.lastRenderSignature = nextSignature;", html)
+
     def test_main_gui_has_single_runtime_language(self) -> None:
         html = self.main_html()
         self.assertNotIn('id="runtime-mode-store"', html)
@@ -119,6 +139,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("SUBVOST_GUI_LAUNCH_MODE", launcher)
         self.assertIn("embedded_webview.py", launcher)
         self.assertIn("open_embedded_webview", launcher)
+        self.assertIn("WEBKIT_DISABLE_COMPOSITING_MODE", launcher)
         self.assertIn("WEBKIT_DISABLE_DMABUF_RENDERER", launcher)
         self.assertIn("WEBKIT_DMABUF_RENDERER_FORCE_SHM", launcher)
         self.assertIn("WEBKIT_WEBGL_DISABLE_GBM", launcher)
@@ -132,11 +153,11 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
     def test_desktop_launcher_does_not_force_backend_restart(self) -> None:
         desktop_entry = (REPO_ROOT / "subvost-xray-tun.desktop").read_text(encoding="utf-8")
         menu_installer = (REPO_ROOT / "libexec" / "install-subvost-gui-menu-entry.sh").read_text(encoding="utf-8")
+        expected_icon = REPO_ROOT / "assets" / "subvost-xray-tun-icon.svg"
 
         self.assertIn("open-subvost-gui.sh", desktop_entry)
-        self.assertIn("Icon=network-vpn", desktop_entry)
+        self.assertIn(f"Icon={expected_icon}", desktop_entry)
         self.assertNotIn("--force-restart-backend", desktop_entry)
-        self.assertNotIn(str(REPO_ROOT), desktop_entry)
         self.assertNotIn("--force-restart-backend", menu_installer)
 
     def test_install_on_new_pc_selects_pkexec_package_with_policykit_fallback(self) -> None:
@@ -153,6 +174,29 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         html = self.main_html()
         self.assertIn("els.stopButton.disabled = state.busy;", html)
         self.assertNotIn('els.stopButton.disabled = state.busy || summaryState === "stopped";', html)
+
+    def test_start_button_is_not_disabled_by_runtime_readiness_flag(self) -> None:
+        html = self.main_html()
+        self.assertIn('els.startButton.disabled = state.busy || summaryState === "running";', html)
+        self.assertNotIn('els.startButton.disabled = state.busy || summaryState === "running" || !startReady;', html)
+
+    def test_start_button_shows_readiness_reason_without_hard_disable(self) -> None:
+        html = self.main_html()
+        self.assertIn('const nextStartReason = state.statusPayload?.runtime?.next_start_reason || "";', html)
+        self.assertIn('els.startButton.title = !startReady && !state.busy && summaryState !== "running" ? nextStartReason : "";', html)
+        self.assertIn('setDataAttrIfChanged(els.startButton, "ready", startReady ? "true" : "false");', html)
+
+    def test_main_gui_topbar_keeps_two_columns_at_1280_and_stacks_only_below_1120(self) -> None:
+        html = self.main_html()
+        self.assertNotIn("@media (max-width: 1280px) {\n      .topbar {", html)
+        self.assertIn("@media (max-width: 1120px)", html)
+        self.assertIn("grid-template-columns: minmax(280px, 0.94fr) minmax(0, 1.12fr);", html)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(312px, 372px);", html)
+        self.assertIn("grid-template-columns: repeat(3, minmax(0, 1fr));", html)
+        self.assertIn("grid-template-rows: auto auto auto;", html)
+        self.assertIn(".topbar-primary {\n        grid-row: 1;", html)
+        self.assertIn(".metric-strip {\n        grid-row: 2;", html)
+        self.assertIn(".action-row {\n        grid-row: 3;\n        grid-template-columns: 1fr;\n        align-self: stretch;", html)
 
     def test_user_backend_shell_action_uses_pkexec_not_sudo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
