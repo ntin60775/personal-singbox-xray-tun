@@ -96,6 +96,7 @@
 - файл плана: `plan.md`
 - связанная историческая задача: `knowledge/tasks/TASK-2026-0022-native-ui-gtk-direction/`
 - первая реализованная подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
+- visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
 - текущая логика store и routing: `gui/subvost_store.py`, `gui/subvost_routing.py`, `gui/subvost_runtime.py`, `gui/subvost_parser.py`
@@ -104,7 +105,7 @@
 
 ## Текущий этап
 
-Задача остаётся в активной реализации, но первый этап уже закрыт: `TASK-2026-0053.1` завершила рабочий `GTK4` shell, tray/fallback-контур, минимальное окно настроек и совместимый формат shell-настроек в `gui_settings.json`. Дополнительно зафиксировано визуальное направление `Raycast` для тёмной темы: следующие этапы должны развивать именно desktop-shell логику с плотными тёмными поверхностями, быстрыми action-зонами и аккуратными акцентами, а не уходить в стиль обычного web-dashboard.
+Задача остаётся в активной реализации, но первый этап уже закрыт: `TASK-2026-0053.1` завершила рабочий `GTK4` shell, tray/fallback-контур, минимальное окно настроек и совместимый формат shell-настроек в `gui_settings.json`. Дополнительно зафиксировано визуальное направление `Raycast` для тёмной темы и вынесено в отдельный design-contract `TASK-2026-0053.1.1`: следующие этапы должны развивать именно desktop-shell логику с плотными тёмными поверхностями, быстрыми action-зонами и аккуратными акцентами, а не уходить в стиль обычного web-dashboard.
 
 ## Стратегия проверки
 

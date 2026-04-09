@@ -89,13 +89,14 @@
 - основной каталог подзадачи: `knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
 - файл плана: `plan.md`
 - родительская задача: `knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/`
+- связанная подзадача дизайна: `subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - связанные пользовательские требования: системный трей, минимальные настройки, отсутствие раннего `pkexec`
 - связанные коммиты / PR / ветки: `topic/gtk4-native-ui-spike`, merge в `main` через `1e00242`
 - связанные операции в `knowledge/operations/`, если есть: `—`
 
 ## Текущий этап
 
-Подзадача завершена. Реальный desktop-smoke в графической `XFCE`-сессии подтвердил два критичных сценария: fallback без трея не прячет окно и не вызывает ранний `pkexec`, а рабочий tray backend через `Ayatana AppIndicator` поддерживает `start minimized to tray`, открытие главного окна, окно настроек и `close-to-tray` без падения приложения.
+Подзадача завершена. Реальный desktop-smoke в графической `XFCE`-сессии подтвердил два критичных сценария: fallback без трея не прячет окно и не вызывает ранний `pkexec`, а рабочий tray backend через `Ayatana AppIndicator` поддерживает `start minimized to tray`, открытие главного окна, окно настроек и `close-to-tray` без падения приложения. Дополнительно визуальный контракт этого shell-каркаса вынесен в отдельную подзадачу `TASK-2026-0053.1.1`.
 
 ## Стратегия проверки
 
