@@ -11,7 +11,7 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053.1` |
 | Parent ID | `TASK-2026-0053` |
-| Версия плана | `2` |
+| Версия плана | `3` |
 | Дата обновления | `2026-04-09` |
 
 ## Цель
@@ -86,15 +86,14 @@
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
-- краткий runtime-smoke без tray-helper;
-- краткий runtime-smoke с tray-helper и подтверждением, что helper жив во время работы shell.
+- runtime-smoke без tray-helper в отдельном `XDG_CONFIG_HOME`: приложение стартует видимым окном, `TrayAvailable=false`, ранний `pkexec` не возникает, fallback для сохранённых `close_to_tray` и `start_minimized_to_tray` отрабатывает корректно;
+- runtime-smoke с tray-helper в реальной `XFCE`-сессии: `TrayAvailable=true`, backend `Ayatana AppIndicator`, скрытый старт по `start_minimized_to_tray`, успешные команды `ShowWindow` и `OpenSettings` через D-Bus control interface;
+- проверка `close-to-tray` через `wmctrl`: после закрытия главного окна свойство `WindowVisible` стало `false`, а D-Bus interface и tray-контур остались живыми.
 
 ### Что остаётся на ручную проверку
 
-- поведение трея на целевом Linux desktop;
-- открытие окна настроек;
-- отсутствие раннего `pkexec`;
-- адекватный fallback, если tray недоступен.
+- для самой `TASK-2026-0053.1` отдельных ручных проверок больше не осталось;
+- финальный интеграционный manual smoke собран единым списком в родительской `TASK-2026-0053`, чтобы launcher/runtime/routing не дублировались по нескольким task-артефактам.
 
 ## Шаги
 
@@ -120,4 +119,5 @@
 - при аварийной остановке tray-helper скрытое окно автоматически показывается обратно, чтобы приложение не оставалось недоступным;
 - режим `theme=system` теперь восстанавливает исходное GTK-предпочтение сессии и не схлопывается с `theme=light`;
 - минимальные shell-настройки сохраняются в общем `gui_settings.json` без конфликта с текущим web GUI;
-- installer расширен опциональной установкой `Gtk3/AppIndicator` GI-зависимостей.
+- installer расширен опциональной установкой `Gtk3/AppIndicator` GI-зависимостей;
+- завершающий smoke `2026-04-09` подтвердил отсутствие раннего `pkexec`, рабочий fallback без трея, реальный `Ayatana AppIndicator` backend, открытие окна настроек и корректный `close-to-tray` через менеджер окон.

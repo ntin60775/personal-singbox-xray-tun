@@ -6,7 +6,7 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053` |
 | Parent ID | `—` |
-| Версия плана | `2` |
+| Версия плана | `3` |
 | Дата обновления | `2026-04-09` |
 
 ## Цель
@@ -157,34 +157,39 @@
 
 - `python3 ~/.agents/skills/markdown-localization-guard/scripts/markdown_localization_guard.py knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/task.md knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/plan.md knowledge/tasks/registry.md`
 
-### Что нужно проверить при реализации
+### Что должно быть максимально автоматизировано
 
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
 - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`
+- `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
 - релевантные `python3 -m unittest` для parser/store/runtime/routing и новых native-модулей;
-- ручной smoke:
-  - окно открывается без раннего `pkexec`;
-  - иконка и меню трея появляются в поддерживаемом окружении;
-  - через трей можно показать окно и выполнить базовые действия;
-  - импорт подписки работает;
-  - routing import и `GeoIP/Geosite` блоки видны уже в первом UI-макете;
-  - активный узел выбирается явно;
-  - `Старт` поднимает runtime и `tun0`;
-  - `Снять диагностику` создаёт dump;
-  - `Стоп` восстанавливает DNS;
-  - если включено закрытие в трей, закрытие окна не убивает приложение;
-  - негативные сценарии показывают понятные причины блокировки.
+- D-Bus/X11 smoke для native shell в живой графической сессии, если сценарий воспроизводим без ручного визуального решения;
+- любое новое backend/frontend поведение сначала пытаться закрепить автоматической проверкой, а в финальный ручной список оставлять только то, что реально зависит от целостной desktop/runtime-интеграции.
+
+### Единый ручной smoke-лист на конец общей задачи
+
+- запуск native GUI из проектного launcher-а без раннего `pkexec`;
+- появление иконки и меню трея в поддерживаемом окружении;
+- сценарии `show/hide`, `start minimized to tray` и `close-to-tray` через реальное tray-меню и пользовательский launcher;
+- импорт URL-подписки, refresh одной и всех подписок, enable/disable и удаление;
+- выбор активного узла и `ping` без смены активного узла;
+- routing import и `GeoIP/Geosite` блоки видны уже в первом UI-макете и корректно работают после backend-подключения;
+- `Старт` поднимает runtime, создаёт `tun0` и обновляет статус/метрики;
+- `Снять диагностику` создаёт dump;
+- `Стоп` останавливает runtime и восстанавливает DNS;
+- негативные сценарии показывают понятные причины блокировки: нет активного узла, нет geodata, конфликт ownership с чужим runtime.
 
 ### Что уже подтверждено в рамках `TASK-2026-0053.1`
 
 - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
-- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`
+- `python3 -m unittest tests.test_native_shell_shared tests.test_native_shell_app tests.test_subvost_store`
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
-- краткий runtime-smoke `GTK4` shell без tray и с tray-helper в реальной графической сессии вне sandbox;
+- runtime-smoke `GTK4` shell без трея в реальной графической сессии: окно стартует видимым, `TrayAvailable=false`, ранний `pkexec` отсутствует, fallback для сохранённых tray-настроек корректен;
+- runtime-smoke `GTK4` shell с tray-helper в реальной графической сессии: `TrayAvailable=true`, backend `Ayatana AppIndicator`, скрытый старт по `start_minimized_to_tray`, команды `ShowWindow` и `OpenSettings` через D-Bus control interface, `close-to-tray` через менеджер окон без завершения приложения;
 - probe текущей Linux-сессии подтвердил `org.kde.StatusNotifierWatcher` и backend `Ayatana AppIndicator`.
 
 ## Шаги
