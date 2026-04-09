@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from gui_contract import GUI_VERSION
+from subvost_app_service import ServiceContext, ServiceState, SubvostAppService
 from subvost_parser import preview_links
 from subvost_paths import build_app_paths
 from subvost_runtime import node_can_render_runtime, read_json_config
@@ -142,6 +143,33 @@ LAST_TRAFFIC_SAMPLE: dict[str, Any] = {
     "rx_bytes": None,
     "tx_bytes": None,
 }
+
+
+def build_runtime_service() -> SubvostAppService:
+    context = ServiceContext(
+        project_root=PROJECT_ROOT,
+        real_user=REAL_USER,
+        real_home=REAL_HOME,
+        real_uid=REAL_UID,
+        real_gid=REAL_GID,
+        app_paths=APP_PATHS,
+        state_file=STATE_FILE,
+        resolv_backup=RESOLV_BACKUP,
+        log_dir=LOG_DIR,
+        run_script=RUN_SCRIPT,
+        stop_script=STOP_SCRIPT,
+        diag_script=DIAG_SCRIPT,
+        xray_template_path=XRAY_TEMPLATE_PATH,
+    )
+    state = ServiceState(
+        last_action=LAST_ACTION,
+        action_log=ACTION_LOG,
+        ping_cache=PING_CACHE,
+        ping_cache_lock=PING_CACHE_LOCK,
+        traffic_sample_lock=TRAFFIC_SAMPLE_LOCK,
+        last_traffic_sample=LAST_TRAFFIC_SAMPLE,
+    )
+    return SubvostAppService(context=context, state=state)
 
 
 def runtime_source_label(source: str | None) -> str:
@@ -355,24 +383,15 @@ def ping_cache_snapshot() -> dict[str, Any]:
 
 
 def load_settings() -> dict[str, Any]:
-    return read_gui_settings(APP_PATHS, uid=REAL_UID, gid=REAL_GID)
+    return build_runtime_service().load_settings()
 
 
 def save_settings(file_logs_enabled: bool) -> None:
-    save_gui_settings(APP_PATHS, file_logs_enabled, uid=REAL_UID, gid=REAL_GID)
+    build_runtime_service().save_settings(file_logs_enabled)
 
 
 def load_state_file() -> dict[str, str]:
-    if not STATE_FILE.exists():
-        return {}
-
-    result: dict[str, str] = {}
-    for line in STATE_FILE.read_text(encoding="utf-8").splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        result[key.strip()] = value.strip()
-    return result
+    return build_runtime_service().load_state_file()
 
 
 def normalize_identity_path(value: str | None) -> str | None:
@@ -395,26 +414,15 @@ def state_bundle_project_root(state: dict[str, str]) -> str | None:
 
 
 def classify_runtime_ownership(state: dict[str, str]) -> str:
-    bundle_root = state_bundle_project_root(state)
-    if not bundle_root:
-        return "unknown"
-
-    current_root = normalize_identity_path(str(PROJECT_ROOT)) or str(PROJECT_ROOT)
-    return "current" if bundle_root == current_root else "foreign"
+    return build_runtime_service().classify_runtime_ownership(state)
 
 
 def runtime_ownership_label(ownership: str) -> str:
-    if ownership == "current":
-        return "Текущий bundle"
-    if ownership == "foreign":
-        return "Другой bundle"
-    return "Источник не подтверждён"
+    return build_runtime_service().runtime_ownership_label(ownership)
 
 
 def is_pid_alive(value: str | None) -> bool:
-    if not value or not value.isdigit():
-        return False
-    return Path(f"/proc/{value}").exists()
+    return build_runtime_service().is_pid_alive(value)
 
 
 def cleanup_backend_pid_file(pid_file: Path = GUI_BACKEND_PID_FILE, expected_pid: int | None = None) -> bool:
@@ -435,71 +443,19 @@ def cleanup_backend_pid_file(pid_file: Path = GUI_BACKEND_PID_FILE, expected_pid
 
 
 def inspect_runtime_state(state: dict[str, str] | None = None) -> dict[str, Any]:
-    runtime_state = load_state_file() if state is None else state
-    tun_interface = str(runtime_state.get("TUN_INTERFACE") or "tun0").strip() or "tun0"
-    xray_pid = runtime_state.get("XRAY_PID")
-    xray_alive = is_pid_alive(xray_pid)
-    tun_present = Path("/sys/class/net").joinpath(tun_interface).exists()
-    stack_is_live = xray_alive or tun_present
-    has_state = bool(runtime_state)
-    ownership = classify_runtime_ownership(runtime_state) if has_state else "unknown"
-    owned_stack_is_live = ownership == "current" and stack_is_live
-
-    return {
-        "state": runtime_state,
-        "has_state": has_state,
-        "ownership": ownership,
-        "ownership_label": runtime_ownership_label(ownership),
-        "state_bundle_project_root": state_bundle_project_root(runtime_state),
-        "tun_interface": tun_interface,
-        "xray_pid": xray_pid,
-        "xray_alive": xray_alive,
-        "tun_present": tun_present,
-        "stack_is_live": stack_is_live,
-        "owned_stack_is_live": owned_stack_is_live,
-    }
+    return build_runtime_service().inspect_runtime_state(state)
 
 
 def runtime_control_blocked(runtime_info: dict[str, Any]) -> bool:
-    ownership = runtime_info["ownership"]
-    if ownership == "foreign":
-        return bool(runtime_info["has_state"] or runtime_info["stack_is_live"])
-    if ownership == "unknown":
-        return bool(runtime_info["stack_is_live"])
-    return False
+    return build_runtime_service().runtime_control_blocked(runtime_info)
 
 
 def runtime_control_guard_message(runtime_info: dict[str, Any], *, action: str) -> str:
-    state_root = runtime_info.get("state_bundle_project_root")
-    tun_interface = runtime_info.get("tun_interface") or "tun0"
-    current_root = str(PROJECT_ROOT)
-
-    if runtime_info["ownership"] == "foreign":
-        base = (
-            f"Обнаружен runtime другого bundle. Bundle-владелец: {state_root}. "
-            f"Текущий bundle: {current_root}."
-        )
-    elif runtime_info["has_state"]:
-        base = (
-            f"Обнаружен state-файл без bundle identity: {STATE_FILE}. "
-            "Для безопасности ownership этого runtime не считается подтверждённым."
-        )
-    else:
-        base = (
-            f"Обнаружен активный runtime без подтверждённой bundle identity. "
-            f"Интерфейс: {tun_interface}."
-        )
-
-    if action == "close":
-        return base + " Окно закроется без остановки этого runtime."
-    if action == "start":
-        return base + " Сначала остановите или проверьте исходный bundle, затем повторите запуск."
-    return base + " Текущий bundle не будет управлять этим runtime."
+    return build_runtime_service().runtime_control_guard_message(runtime_info, action=action)
 
 
 def runtime_stop_required(state: dict[str, str] | None = None) -> bool:
-    runtime_info = inspect_runtime_state(state)
-    return bool(runtime_info["owned_stack_is_live"])
+    return build_runtime_service().runtime_stop_required(state)
 
 
 def read_resolv_conf_nameservers() -> list[str]:
@@ -545,49 +501,12 @@ def describe_stack_status(
     tun_interface: str,
     ownership: str,
 ) -> dict[str, str]:
-    tun_label = tun_interface or "tun0"
-
-    if ownership == "foreign" and (xray_alive or tun_present):
-        return {
-            "state": "degraded",
-            "label": "Активен другой bundle",
-            "description": f"Обнаружен runtime другой копии bundle. Интерфейс: {tun_label}.",
-            "stack_line": "Xray core",
-            "stack_subline": "Чужой runtime, управление заблокировано",
-        }
-
-    if ownership == "unknown" and (xray_alive or tun_present):
-        return {
-            "state": "degraded",
-            "label": "Ownership не подтверждён",
-            "description": f"Обнаружен активный runtime без подтверждённой bundle identity. Интерфейс: {tun_label}.",
-            "stack_line": "Xray core",
-            "stack_subline": "Источник runtime не подтверждён",
-        }
-
-    if xray_alive and tun_present:
-        return {
-            "state": "running",
-            "label": "Подключение активно",
-            "description": f"Xray и {tun_label} активны.",
-            "stack_line": "Xray core",
-            "stack_subline": "Единый TUN-runtime проекта",
-        }
-    if xray_alive or tun_present:
-        return {
-            "state": "degraded",
-            "label": "Состояние частичное",
-            "description": f"Часть runtime активна, стоит снять диагностику. Интерфейс: {tun_label}.",
-            "stack_line": "Xray core",
-            "stack_subline": "Единый TUN-runtime проекта",
-        }
-    return {
-        "state": "stopped",
-        "label": "Runtime остановлен",
-        "description": f"Процессы остановлены, {tun_label} не поднят.",
-        "stack_line": "Xray core",
-        "stack_subline": "Единый TUN-runtime проекта",
-    }
+    return build_runtime_service().describe_stack_status(
+        xray_alive=xray_alive,
+        tun_present=tun_present,
+        tun_interface=tun_interface,
+        ownership=ownership,
+    )
 
 
 def find_latest_diagnostic() -> Path | None:
@@ -598,91 +517,31 @@ def find_latest_diagnostic() -> Path | None:
 
 
 def normalize_output(text: str, limit: int = 12000) -> str:
-    cleaned = text.strip()
-    if not cleaned:
-        return "Команда не вернула текстовый вывод."
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[-limit:]
+    return build_runtime_service().normalize_output(text, limit=limit)
 
 
 def remember_action(name: str, ok: bool | None, message: str, details: str) -> None:
-    normalized_details = normalize_output(details)
-    LAST_ACTION.update(
-        {
-            "name": name,
-            "ok": ok,
-            "message": message,
-            "timestamp": iso_now(),
-            "details": normalized_details,
-        }
-    )
-    append_action_log_entry(
-        name=name,
-        level="error" if ok is False else "info",
-        message=message,
-        details=normalized_details,
-    )
+    build_runtime_service().remember_action(name, ok, message, details)
 
 
 def build_shell_action_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
-    action_env = {
-        "SUDO_USER": REAL_USER,
-        "USER": REAL_USER,
-        "LOGNAME": REAL_USER,
-        "HOME": str(REAL_HOME),
-        "SUBVOST_PROJECT_ROOT": str(PROJECT_ROOT),
-        "SUBVOST_REAL_USER": REAL_USER,
-        "SUBVOST_REAL_HOME": str(REAL_HOME),
-        "SUBVOST_REAL_XDG_CONFIG_HOME": str(APP_PATHS.config_home),
-    }
-    action_env.update(extra_env or {})
-    return action_env
+    return build_runtime_service().build_shell_action_env(extra_env)
 
 
 def build_shell_action_command(script: Path, action_env: dict[str, str]) -> list[str]:
-    if os.geteuid() == 0:
-        return [str(script)]
-
-    pkexec_env = [f"{key}={value}" for key, value in action_env.items()]
-    return ["pkexec", "env", *pkexec_env, "/usr/bin/env", "bash", str(script)]
+    return build_runtime_service().build_shell_action_command(script, action_env)
 
 
 def run_shell_action(name: str, script: Path, extra_env: dict[str, str] | None = None) -> CommandResult:
-    env = os.environ.copy()
-    action_env = build_shell_action_env(extra_env)
-    env.update(action_env)
-    command = build_shell_action_command(script, action_env)
-
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=PROJECT_ROOT,
-            text=True,
-            capture_output=True,
-            env=env,
-            check=False,
-        )
-    except OSError as exc:
-        return CommandResult(
-            name=name,
-            ok=False,
-            returncode=127,
-            output=f"Не удалось выполнить действие '{name}': {exc}",
-        )
-
-    output = "\n".join(part for part in [completed.stdout.strip(), completed.stderr.strip()] if part).strip()
-    ok = completed.returncode == 0
-    return CommandResult(name=name, ok=ok, returncode=completed.returncode, output=output)
+    return build_runtime_service().run_shell_action(name, script, extra_env)
 
 
 def ensure_store_ready() -> dict[str, Any]:
-    return ensure_store_initialized(APP_PATHS, PROJECT_ROOT, uid=REAL_UID, gid=REAL_GID)
+    return build_runtime_service().ensure_store_ready()
 
 
 def persist_store(store: dict[str, Any]) -> None:
-    save_store(APP_PATHS, store, uid=REAL_UID, gid=REAL_GID)
-    sync_generated_runtime(store, APP_PATHS, PROJECT_ROOT, uid=REAL_UID, gid=REAL_GID)
+    build_runtime_service().persist_store(store)
 
 
 def resolve_active_xray_config_path(
@@ -691,13 +550,7 @@ def resolve_active_xray_config_path(
     *,
     stack_is_live: bool,
 ) -> Path:
-    state_config = state.get("XRAY_CONFIG")
-    if stack_is_live and state_config:
-        candidate = Path(state_config)
-        if candidate.is_absolute() and candidate.exists():
-            return candidate
-
-    return APP_PATHS.generated_xray_config_file
+    return build_runtime_service().resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
 
 
 def describe_runtime_state(
@@ -870,156 +723,7 @@ def ping_node(node: dict[str, Any], *, timeout: float = 3.0) -> dict[str, Any]:
 
 
 def collect_status() -> dict[str, Any]:
-    settings = load_settings()
-    store = ensure_store_ready()
-    state = load_state_file()
-    runtime_info = inspect_runtime_state(state)
-    active_profile, active_node = get_active_node(store)
-    active_routing_profile = get_active_routing_profile(store)
-    routing_state = store.get("routing", {})
-    runtime_impl = str(state.get("RUNTIME_IMPL") or "xray").strip().lower() or "xray"
-    if runtime_impl != "xray":
-        runtime_impl = "xray"
-    tun_interface = runtime_info["tun_interface"]
-    xray_pid = runtime_info["xray_pid"]
-    xray_alive = runtime_info["xray_alive"]
-    tun_present = runtime_info["tun_present"]
-    stack_is_live = runtime_info["owned_stack_is_live"]
-    active_xray_config_path = resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
-    xray = read_json_config(active_xray_config_path)
-    stack_status = describe_stack_status(
-        xray_alive=xray_alive,
-        tun_present=tun_present,
-        tun_interface=tun_interface,
-        ownership=runtime_info["ownership"],
-    )
-    state_key = stack_status["state"]
-    state_label = stack_status["label"]
-    description = stack_status["description"]
-
-    dns_runtime = ", ".join(read_resolv_conf_nameservers()) or "DNS не прочитан"
-    latest_diag = find_latest_diagnostic()
-    runtime_mode = "root-server" if os.geteuid() == 0 else "user-server"
-    runtime_label = (
-        "Root-backend через pkexec."
-        if os.geteuid() == 0
-        else "Пользовательский backend; root-действия запускаются через pkexec."
-    )
-    traffic = collect_traffic_metrics(tun_interface)
-    logs_payload = collect_log_payload()
-    connected_since = normalize_iso_timestamp(state.get("STARTED_AT"))
-    if not stack_is_live:
-        connected_since = None
-
-    log_files = []
-    for candidate in [LOG_DIR / "xray-subvost.log"]:
-        if candidate.exists():
-            log_files.append(str(candidate))
-
-    store_data = store_payload(store, APP_PATHS)
-    runtime_state = describe_runtime_state(
-        store,
-        state,
-        stack_is_live=stack_is_live,
-        runtime_info=runtime_info,
-        active_profile=active_profile,
-        active_node=active_node,
-    )
-    if routing_state.get("enabled") and active_routing_profile and routing_state.get("runtime_ready"):
-        routing_badge = f"маршрут {active_routing_profile.get('name', 'без имени')}"
-    elif routing_state.get("enabled"):
-        routing_badge = "маршрут с ошибкой"
-    elif active_routing_profile:
-        routing_badge = f"маршрут {active_routing_profile.get('name', 'без имени')} выключен"
-    else:
-        routing_badge = "маршрута нет"
-    if active_xray_config_path == APP_PATHS.active_runtime_xray_config_file:
-        config_origin = "snapshot"
-    else:
-        config_origin = "generated"
-
-    return {
-        "summary": {
-            "state": state_key,
-            "label": state_label,
-            "description": description,
-            "stack_line": stack_status["stack_line"],
-            "stack_subline": stack_status["stack_subline"],
-            "tun_line": f"{tun_interface} готов" if tun_present else f"{tun_interface} отсутствует",
-            "dns_line": dns_runtime,
-            "logs_line": "Файловые логи включены" if settings["file_logs_enabled"] else "Файловые логи выключены",
-            "logs_subline": "Применяется при следующем старте",
-            "badges": [
-                state_label,
-                f"{tun_interface} найден" if tun_present else f"{tun_interface} не найден",
-                "логирование включено" if settings["file_logs_enabled"] else "логирование выключено",
-                routing_badge,
-            ],
-        },
-        "settings": settings,
-        "processes": {
-            "runtime_impl": runtime_impl,
-            "xray_pid": xray_pid if xray_alive else None,
-            "xray_alive": xray_alive,
-            "tun_present": tun_present,
-            "tun_interface": tun_interface,
-            "state_bundle_project_root": runtime_info["state_bundle_project_root"],
-            "ownership": runtime_info["ownership"],
-        },
-        "connection": {
-            **parse_connection_info(
-                xray,
-                active_node,
-                tun_interface=tun_interface,
-            ),
-            "dns_servers": dns_runtime,
-        },
-        "runtime": {
-            "mode": runtime_mode,
-            "mode_label": runtime_label,
-            "requires_terminal_sudo_hint": False,
-            "requires_pkexec_actions": os.geteuid() != 0,
-            "impl": runtime_impl,
-            "config_origin": config_origin,
-            "active_xray_config": str(active_xray_config_path),
-            "connected_since": connected_since,
-            **runtime_state,
-        },
-        "traffic": traffic,
-        "routing": {
-            **routing_state,
-            "active_profile": active_routing_profile,
-        },
-        "ping": {
-            "cache": ping_cache_snapshot(),
-        },
-        "logs": logs_payload,
-        "artifacts": {
-            "latest_diagnostic": str(latest_diag) if latest_diag else None,
-            "state_file": str(STATE_FILE),
-            "resolv_backup": str(RESOLV_BACKUP),
-            "log_files": ", ".join(log_files) if log_files else "Логи ещё не созданы",
-            "store_file": str(APP_PATHS.store_file),
-            "generated_xray_config": str(APP_PATHS.generated_xray_config_file),
-            "active_runtime_xray_config": str(APP_PATHS.active_runtime_xray_config_file),
-            "active_xray_config": str(active_xray_config_path),
-            "xray_asset_dir": str(APP_PATHS.xray_asset_dir),
-            "geoip_asset_file": str(APP_PATHS.geoip_asset_file),
-            "geosite_asset_file": str(APP_PATHS.geosite_asset_file),
-        },
-        "store_summary": store_data["summary"],
-        "active_profile": active_profile,
-        "active_node": active_node,
-        "active_routing_profile": active_routing_profile,
-        "bundle_identity": {
-            "project_root": str(PROJECT_ROOT),
-            "config_home": str(APP_PATHS.config_home),
-        },
-        "project_root": str(PROJECT_ROOT),
-        "gui_version": GUI_VERSION,
-        "last_action": LAST_ACTION.copy(),
-        "timestamp": iso_now(),
-    }
+    return build_runtime_service().collect_status()
 
 
 def handle_start() -> dict[str, Any]:
