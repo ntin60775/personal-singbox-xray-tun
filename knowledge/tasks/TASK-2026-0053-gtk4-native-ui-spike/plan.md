@@ -137,7 +137,7 @@
 
 ### Документация
 
-- обновить `task.md` под статус `готова к работе`;
+- обновить `task.md` под статус активной реализации;
 - пересобрать `plan.md` из режима “сохраняем идею” в режим “можно брать в реализацию”;
 - синхронизировать `knowledge/tasks/registry.md`.
 
@@ -177,19 +177,29 @@
   - если включено закрытие в трей, закрытие окна не убивает приложение;
   - негативные сценарии показывают понятные причины блокировки.
 
+### Что уже подтверждено в рамках `TASK-2026-0053.1`
+
+- `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
+- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`
+- `bash -n *.sh`
+- `bash -n libexec/*.sh`
+- `bash -n lib/*.sh`
+- краткий runtime-smoke `GTK4` shell без tray и с tray-helper в реальной графической сессии вне sandbox;
+- probe текущей Linux-сессии подтвердил `org.kde.StatusNotifierWatcher` и backend `Ayatana AppIndicator`.
+
 ## Шаги
 
 - [x] Сверить пользовательский концепт с текущим `xray/TUN` bundle и фактическими backend-возможностями
 - [x] Перевести `TASK-2026-0053` из абстрактного черновика в рабочую постановку
 - [x] Синхронизировать реестр задач под новый статус и описание
 - [ ] Выделить общий application/service-слой для будущего native UI
-- [ ] Собрать каркас нативного окна `GTK4` с навигацией `Dashboard / Subscriptions / Log`
-- [ ] Реализовать системный трей и сценарии show-hide окна без раннего `pkexec`
+- [x] Собрать каркас нативного окна `GTK4` с навигацией `Dashboard / Subscriptions / Log`
+- [x] Реализовать системный трей и сценарии show-hide окна без раннего `pkexec`
 - [ ] Реализовать `Dashboard` с runtime-статусом, текущим узлом, метриками и действиями `Старт / Стоп / Диагностика`
 - [ ] Заложить в `Subscriptions` routing import и `GeoIP/Geosite` блоки уже на уровне UI-макета, даже если backend ещё не подключён
 - [ ] Реализовать `Subscriptions` с подписками, узлами, `ping` и routing-профилями
 - [ ] Реализовать `Log` с фильтрацией и экспортом
-- [ ] Реализовать минимальное окно настроек для `v1`
+- [x] Реализовать минимальное окно настроек для `v1`
 - [ ] Пройти ручной smoke и только после этого принимать решение о переключении launcher-а
 
 ## Критерии завершения

@@ -11,7 +11,7 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053.1` |
 | Parent ID | `TASK-2026-0053` |
-| Версия плана | `1` |
+| Версия плана | `2` |
 | Дата обновления | `2026-04-09` |
 
 ## Цель
@@ -59,7 +59,7 @@
 
 - открыть подзадачу в `subtasks/`;
 - добавить строку в `knowledge/tasks/registry.md`;
-- при необходимости позже сослаться на эту подзадачу из родительской задачи при старте реализации.
+- при реализации синхронизировать статус подзадачи, план и родительскую задачу.
 
 ## Риски и зависимости
 
@@ -78,6 +78,17 @@
 - smoke на `close-to-tray` и `start minimized to tray`;
 - локализационная проверка Markdown для task-артефактов.
 
+### Что уже проверено
+
+- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`
+- `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py gui/subvost_store.py`
+- `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py`
+- `bash -n *.sh`
+- `bash -n libexec/*.sh`
+- `bash -n lib/*.sh`
+- краткий runtime-smoke без tray-helper;
+- краткий runtime-smoke с tray-helper и подтверждением, что helper жив во время работы shell.
+
 ### Что остаётся на ручную проверку
 
 - поведение трея на целевом Linux desktop;
@@ -88,10 +99,10 @@
 ## Шаги
 
 - [x] Открыть подзадачу и синхронизировать реестр
-- [ ] Собрать native-shell окна и навигации
-- [ ] Реализовать tray и fallback-поведение
-- [ ] Реализовать минимальное окно настроек
-- [ ] Пройти smoke и зафиксировать результат
+- [x] Собрать native-shell окна и навигации
+- [x] Реализовать tray и fallback-поведение
+- [x] Реализовать минимальное окно настроек
+- [x] Пройти smoke и зафиксировать результат
 
 ## Критерии завершения
 
@@ -100,3 +111,11 @@
 - окно настроек существует как минимальный `v1` shell;
 - запуск окна не вызывает `pkexec`;
 - task-артефакты синхронизированы и проходят localization guard.
+
+## Фактический результат
+
+- реализованы `gui/native_shell_app.py`, `gui/native_shell_shared.py`, `gui/native_shell_tray_helper.py`;
+- tray-контур собран как отдельный helper-процесс на `Gtk3 + Ayatana/AppIndicator`, а главное окно остаётся `GTK4`;
+- fallback без рабочего `status notifier` оставляет приложение в режиме обычного окна и отключает опасный `close-to-tray` перехват;
+- минимальные shell-настройки сохраняются в общем `gui_settings.json` без конфликта с текущим web GUI;
+- installer расширен опциональной установкой `Gtk3/AppIndicator` GI-зависимостей.
