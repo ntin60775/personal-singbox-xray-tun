@@ -144,10 +144,19 @@ collect_gui_dependency_packages() {
     packages+=("gir1.2-gtk-4.0" "gir1.2-webkit-6.0")
   fi
 
-  if apt_package_exists "gir1.2-gtk-3.0" && apt_package_exists "gir1.2-webkit2-4.1"; then
-    packages+=("gir1.2-gtk-3.0" "gir1.2-webkit2-4.1")
-  elif apt_package_exists "gir1.2-gtk-3.0" && apt_package_exists "gir1.2-webkit2-4.0"; then
-    packages+=("gir1.2-gtk-3.0" "gir1.2-webkit2-4.0")
+  if apt_package_exists "gir1.2-gtk-3.0"; then
+    packages+=("gir1.2-gtk-3.0")
+    if apt_package_exists "gir1.2-webkit2-4.1"; then
+      packages+=("gir1.2-webkit2-4.1")
+    elif apt_package_exists "gir1.2-webkit2-4.0"; then
+      packages+=("gir1.2-webkit2-4.0")
+    fi
+  fi
+
+  if apt_package_exists "gir1.2-ayatanaappindicator3-0.1"; then
+    packages+=("gir1.2-ayatanaappindicator3-0.1")
+  elif apt_package_exists "gir1.2-appindicator3-0.1"; then
+    packages+=("gir1.2-appindicator3-0.1")
   fi
 
   printf '%s\n' "${packages[@]}"

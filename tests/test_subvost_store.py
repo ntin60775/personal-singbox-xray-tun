@@ -21,7 +21,9 @@ from subvost_store import (  # noqa: E402
     ensure_store_structure,
     ensure_store_initialized,
     import_routing_profile,
+    read_gui_settings,
     refresh_subscription,
+    save_gui_settings,
     save_manual_import_results,
     save_store,
     set_routing_enabled,
@@ -48,6 +50,32 @@ class FakeResponse:
 
 
 class SubvostStoreTests(unittest.TestCase):
+    def test_save_gui_settings_preserves_native_shell_fields_on_partial_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            real_home = Path(temp_dir) / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+
+            save_gui_settings(
+                paths,
+                True,
+                close_to_tray=True,
+                start_minimized_to_tray=True,
+                theme="dark",
+            )
+            save_gui_settings(paths, False)
+
+            settings = read_gui_settings(paths)
+            self.assertEqual(
+                settings,
+                {
+                    "file_logs_enabled": False,
+                    "close_to_tray": True,
+                    "start_minimized_to_tray": True,
+                    "theme": "dark",
+                },
+            )
+
     def test_default_subscription_hwid_prefers_real_home_from_env(self) -> None:
         with patch.dict("os.environ", {"SUBVOST_REAL_HOME": "/tmp/subvost-real-home"}, clear=False):
             first = default_subscription_hwid()

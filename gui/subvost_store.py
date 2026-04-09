@@ -1089,14 +1089,46 @@ def delete_subscription(store: dict[str, Any], subscription_id: str) -> None:
     ensure_active_selection(store)
 
 
-def read_gui_settings(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> dict[str, Any]:
-    ensure_store_dir(paths, uid=uid, gid=gid)
-    settings = read_json_file(paths.gui_settings_file)
+def normalize_gui_theme(value: str | None) -> str:
+    candidate = str(value or "").strip().lower()
+    if candidate in {"light", "dark"}:
+        return candidate
+    return "system"
+
+
+def normalize_gui_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
+    payload = settings or {}
     return {
-        "file_logs_enabled": bool(settings.get("file_logs_enabled", False)),
+        "file_logs_enabled": bool(payload.get("file_logs_enabled", False)),
+        "close_to_tray": bool(payload.get("close_to_tray", False)),
+        "start_minimized_to_tray": bool(payload.get("start_minimized_to_tray", False)),
+        "theme": normalize_gui_theme(payload.get("theme")),
     }
 
 
-def save_gui_settings(paths: AppPaths, file_logs_enabled: bool, uid: int | None = None, gid: int | None = None) -> None:
+def read_gui_settings(paths: AppPaths, uid: int | None = None, gid: int | None = None) -> dict[str, Any]:
     ensure_store_dir(paths, uid=uid, gid=gid)
-    atomic_write_json(paths.gui_settings_file, {"file_logs_enabled": bool(file_logs_enabled)}, uid=uid, gid=gid)
+    return normalize_gui_settings(read_json_file(paths.gui_settings_file))
+
+
+def save_gui_settings(
+    paths: AppPaths,
+    file_logs_enabled: bool | None = None,
+    uid: int | None = None,
+    gid: int | None = None,
+    *,
+    close_to_tray: bool | None = None,
+    start_minimized_to_tray: bool | None = None,
+    theme: str | None = None,
+) -> None:
+    ensure_store_dir(paths, uid=uid, gid=gid)
+    settings = read_gui_settings(paths, uid=uid, gid=gid)
+    if file_logs_enabled is not None:
+        settings["file_logs_enabled"] = bool(file_logs_enabled)
+    if close_to_tray is not None:
+        settings["close_to_tray"] = bool(close_to_tray)
+    if start_minimized_to_tray is not None:
+        settings["start_minimized_to_tray"] = bool(start_minimized_to_tray)
+    if theme is not None:
+        settings["theme"] = normalize_gui_theme(theme)
+    atomic_write_json(paths.gui_settings_file, settings, uid=uid, gid=gid)
