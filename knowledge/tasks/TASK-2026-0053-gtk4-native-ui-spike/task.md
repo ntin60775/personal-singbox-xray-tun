@@ -84,9 +84,9 @@
 
 | Область | Что меняется |
 |---------|--------------|
-| Код / сервисы | Появился первый native-shell контур `GTK4` и отдельный tray-helper для Linux status notifier |
+| Код / сервисы | Появились общий runtime/service-layer и рабочий `Dashboard` поверх первого native-shell контура `GTK4` |
 | Документация | Базовая идея переведена в рабочую постановку с `v1 scope`, ограничениями и критериями приёмки |
-| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и стартовал первый реализованный этап |
+| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и уже закрыты shell/tray и service-layer + `Dashboard` этапы |
 | UX-контракт | Уточнены реальные сущности UI: `xray/TUN`, подписки, узлы, routing, `pkexec`-действия, диагностика |
 | Визуальный контракт | Базовый dark reference закреплён за `Raycast` с адаптацией под desktop utility, а не под web-dashboard |
 
@@ -96,16 +96,18 @@
 - файл плана: `plan.md`
 - связанная историческая задача: `knowledge/tasks/TASK-2026-0022-native-ui-gtk-direction/`
 - первая реализованная подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
+- вторая реализованная подзадача: `subtasks/TASK-2026-0053.2-dashboard-and-shared-service-layer/`
 - visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
 - текущая логика store и routing: `gui/subvost_store.py`, `gui/subvost_routing.py`, `gui/subvost_runtime.py`, `gui/subvost_parser.py`
+- общий runtime/service-layer: `gui/subvost_app_service.py`
 - первый native-shell код: `gui/native_shell_app.py`, `gui/native_shell_shared.py`, `gui/native_shell_tray_helper.py`
 - выбранный visual reference: `https://getdesign.md/raycast/design-md`
 
 ## Текущий этап
 
-Задача остаётся в активной реализации, но первый этап уже закрыт: `TASK-2026-0053.1` завершила рабочий `GTK4` shell, tray/fallback-контур, минимальное окно настроек и совместимый формат shell-настроек в `gui_settings.json`. Дополнительно зафиксировано визуальное направление `Raycast` для тёмной темы и вынесено в отдельный design-contract `TASK-2026-0053.1.1`: следующие этапы должны развивать именно desktop-shell логику с плотными тёмными поверхностями, быстрыми action-зонами и аккуратными акцентами, а не уходить в стиль обычного web-dashboard.
+Задача остаётся в активной реализации, но второй рабочий этап уже закрыт: после `TASK-2026-0053.1` с shell/tray/settings подзадача `TASK-2026-0053.2` выделила общий `subvost_app_service.py` и довела `Dashboard` до реального runtime-экрана с ownership-guard, transport/security, метриками и действиями `Старт / Стоп / Диагностика`. Визуальное направление `Raycast` остаётся активным контрактом для следующих этапов. После закрытия `TASK-2026-0053.2` у родительской задачи осталось четыре этапа: routing UI-shell в `Subscriptions`, полноценный экран подписок, полноценный `Log` и единый финальный manual smoke с решением по launcher-роллаута.
 
 ## Стратегия проверки
 
@@ -117,14 +119,17 @@
   - `bash -n *.sh`
   - `bash -n libexec/*.sh`
   - `bash -n lib/*.sh`
+  - `python3 -m py_compile gui/subvost_app_service.py`
   - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py`
   - `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
-  - актуальный набор `python3 -m unittest` по Python-логике store/runtime/parser/routing и native-shell модулей;
+  - актуальный набор `python3 -m unittest` по Python-логике store/runtime/parser/routing, service-layer и native-shell модулей;
   - все backend/frontend сценарии, которые воспроизводимы без визуального решения пользователя, сначала переводить в автоматические `unittest`, syntax-check, `py_compile` или D-Bus/X11 smoke, а не оставлять ручными по умолчанию.
 
 ### Остаётся на ручную проверку
 
 Единый финальный manual smoke для закрытия всей `TASK-2026-0053`:
+
+Сюда сознательно собраны и живые сценарии, которые архитектурно относятся к закрытой `TASK-2026-0053.2`; в дочерней подзадаче отдельного ручного списка больше нет.
 
 - запуск native GUI из проектного launcher-а без раннего `pkexec`;
 - проверка иконки, меню трея и команд show/hide в поддерживаемом desktop-окружении;
