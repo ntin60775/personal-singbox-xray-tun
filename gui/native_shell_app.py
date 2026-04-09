@@ -207,6 +207,8 @@ class NativeShellApp:
         self.did_initial_activation = False
         self.theme_dropdown = None
         self.settings_switches: dict[str, object] = {}
+        self.initial_gtk_dark_theme_preference: bool | None = None
+        self.did_capture_initial_theme_preference = False
 
         self.app.connect("activate", self.on_activate)
         self.app.connect("shutdown", self.on_shutdown)
@@ -521,7 +523,10 @@ class NativeShellApp:
         theme_title = self.Gtk.Label(label="Тема окна", xalign=0)
         add_css_class(theme_title, "native-shell-card-title")
         theme_hint = self.Gtk.Label(
-            label="Для GTK4 shell сейчас поддерживается системный режим и тёмная тема через `gtk-application-prefer-dark-theme`.",
+            label=(
+                "Для GTK4 shell поддерживаются системный, светлый и тёмный режимы. "
+                "Системный режим восстанавливает исходное GTK-предпочтение сессии."
+            ),
             xalign=0,
         )
         theme_hint.set_wrap(True)
@@ -662,12 +667,33 @@ class NativeShellApp:
             theme=self.settings.theme,
         )
 
+    def capture_initial_theme_preference(self, settings) -> None:
+        if self.did_capture_initial_theme_preference:
+            return
+        self.did_capture_initial_theme_preference = True
+        get_property = getattr(settings, "get_property", None)
+        if get_property is None:
+            return
+        try:
+            self.initial_gtk_dark_theme_preference = bool(get_property("gtk-application-prefer-dark-theme"))
+        except (TypeError, ValueError):
+            self.initial_gtk_dark_theme_preference = None
+
     def apply_theme_preference(self, theme: str) -> None:
         settings = self.Gtk.Settings.get_default()
         if settings is None:
             return
+        self.capture_initial_theme_preference(settings)
         try:
-            settings.set_property("gtk-application-prefer-dark-theme", theme == "dark")
+            if theme == "dark":
+                value = True
+            elif theme == "light":
+                value = False
+            elif self.initial_gtk_dark_theme_preference is not None:
+                value = self.initial_gtk_dark_theme_preference
+            else:
+                return
+            settings.set_property("gtk-application-prefer-dark-theme", value)
         except (TypeError, ValueError):
             return
 
@@ -728,13 +754,7 @@ class NativeShellApp:
         return_code = self.tray_process.poll()
         if return_code is None:
             return False
-        self.tray_support = build_tray_support(
-            watcher_name=None,
-            indicator_candidate=None,
-            error=f"Tray helper завершился с кодом {return_code}.",
-        )
-        self.append_log("tray", self.tray_support.reason)
-        self.refresh_status_after_settings_change()
+        self.handle_tray_helper_failure(return_code, stage="startup")
         return False
 
     def poll_tray_helper(self) -> bool:
@@ -743,15 +763,25 @@ class NativeShellApp:
         return_code = self.tray_process.poll()
         if return_code is None:
             return True
+        self.handle_tray_helper_failure(return_code, stage="runtime")
+        return False
+
+    def handle_tray_helper_failure(self, return_code: int, *, stage: str) -> None:
         self.tray_support = build_tray_support(
             watcher_name=None,
             indicator_candidate=None,
-            error=f"Tray helper остановился с кодом {return_code}.",
+            error=f"Tray helper {('завершился' if stage == 'startup' else 'остановился')} с кодом {return_code}.",
         )
-        self.append_log("tray", self.tray_support.reason)
-        self.refresh_status_after_settings_change()
         self.tray_process = None
-        return False
+        self.append_log("tray", self.tray_support.reason)
+        if self.window is not None and not self.window.get_visible():
+            self.window.present()
+            self.set_status(
+                "Tray backend недоступен. Главное окно автоматически показано, чтобы приложение не осталось скрытым."
+            )
+            self.append_log("tray", "Главное окно автоматически показано после деградации tray backend.")
+            return
+        self.refresh_status_after_settings_change()
 
     def stop_tray_helper(self) -> None:
         if self.tray_process is None:
