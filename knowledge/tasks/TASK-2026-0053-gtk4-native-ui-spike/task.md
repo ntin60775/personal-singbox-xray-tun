@@ -78,15 +78,17 @@
 - системный трей полезен для desktop-сценария bundle, но должен быть описан как Linux-специфичная интеграция с аккуратным fallback-поведением в средах без рабочего status notifier;
 - пользовательский концепт переработан под реальные ограничения проекта, чтобы исключить фиктивные сущности и несуществующие backend-возможности.
 - по дополнительному требованию пользователя routing import и geodata должны быть заложены в UI с самого начала хотя бы как макет, чтобы не пришлось перепроектировать экран после появления backend-связки.
+- визуальный референс для текущего этапа выбран явно: `Raycast DESIGN.md` с `getdesign.md`, как источник dark desktop-shell направления для окна, поверхностей, акцентных состояний и минималистичных настроек.
 
 ## Затронутые области
 
 | Область | Что меняется |
 |---------|--------------|
-| Код / сервисы | Появился первый native-shell контур `GTK4` и отдельный tray-helper для Linux status notifier |
+| Код / сервисы | Появились общий runtime/service-layer и рабочий `Dashboard` поверх первого native-shell контура `GTK4` |
 | Документация | Базовая идея переведена в рабочую постановку с `v1 scope`, ограничениями и критериями приёмки |
-| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и стартовал первый реализованный этап |
+| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и уже закрыты shell/tray и service-layer + `Dashboard` этапы |
 | UX-контракт | Уточнены реальные сущности UI: `xray/TUN`, подписки, узлы, routing, `pkexec`-действия, диагностика |
+| Визуальный контракт | Базовый dark reference закреплён за `Raycast` с адаптацией под desktop utility, а не под web-dashboard |
 
 ## Связанные материалы
 
@@ -94,14 +96,18 @@
 - файл плана: `plan.md`
 - связанная историческая задача: `knowledge/tasks/TASK-2026-0022-native-ui-gtk-direction/`
 - первая реализованная подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
+- вторая реализованная подзадача: `subtasks/TASK-2026-0053.2-dashboard-and-shared-service-layer/`
+- visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
 - текущая логика store и routing: `gui/subvost_store.py`, `gui/subvost_routing.py`, `gui/subvost_runtime.py`, `gui/subvost_parser.py`
+- общий runtime/service-layer: `gui/subvost_app_service.py`
 - первый native-shell код: `gui/native_shell_app.py`, `gui/native_shell_shared.py`, `gui/native_shell_tray_helper.py`
+- выбранный visual reference: `https://getdesign.md/raycast/design-md`
 
 ## Текущий этап
 
-Задача переведена в активную реализацию. Подзадача `TASK-2026-0053.1` собрала первый рабочий `GTK4` shell: окно, навигацию, tray/fallback-контур, минимальное окно настроек и совместимый формат shell-настроек в `gui_settings.json`. Следующие этапы остаются за service-layer, реальным наполнением экранов и backend-проводкой действий.
+Задача остаётся в активной реализации, но второй рабочий этап уже закрыт: после `TASK-2026-0053.1` с shell/tray/settings подзадача `TASK-2026-0053.2` выделила общий `subvost_app_service.py` и довела `Dashboard` до реального runtime-экрана с ownership-guard, transport/security, метриками и действиями `Старт / Стоп / Диагностика`. Визуальное направление `Raycast` остаётся активным контрактом для следующих этапов. После закрытия `TASK-2026-0053.2` у родительской задачи осталось четыре этапа: routing UI-shell в `Subscriptions`, полноценный экран подписок, полноценный `Log` и единый финальный manual smoke с решением по launcher-роллаута.
 
 ## Стратегия проверки
 
@@ -113,24 +119,28 @@
   - `bash -n *.sh`
   - `bash -n libexec/*.sh`
   - `bash -n lib/*.sh`
+  - `python3 -m py_compile gui/subvost_app_service.py`
   - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py`
-  - актуальный набор `python3 -m unittest` по Python-логике store/runtime/parser/routing;
+  - `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
+  - актуальный набор `python3 -m unittest` по Python-логике store/runtime/parser/routing, service-layer и native-shell модулей;
+  - все backend/frontend сценарии, которые воспроизводимы без визуального решения пользователя, сначала переводить в автоматические `unittest`, syntax-check, `py_compile` или D-Bus/X11 smoke, а не оставлять ручными по умолчанию.
 
 ### Остаётся на ручную проверку
 
-- запуск окна без раннего `pkexec`;
-- импорт подписки по URL;
-- выбор активного узла;
-- старт через `pkexec`, появление `tun0`, обновление метрик и корректное отображение статуса;
-- запуск `Снять диагностику`;
+Единый финальный manual smoke для закрытия всей `TASK-2026-0053`:
+
+Сюда сознательно собраны и живые сценарии, которые архитектурно относятся к закрытой `TASK-2026-0053.2`; в дочерней подзадаче отдельного ручного списка больше нет.
+
+- запуск native GUI из проектного launcher-а без раннего `pkexec`;
+- проверка иконки, меню трея и команд show/hide в поддерживаемом desktop-окружении;
+- сценарии `start minimized to tray` и `close-to-tray` уже через пользовательский launcher и реальное взаимодействие с tray-меню;
+- импорт URL-подписки, refresh, enable/disable, удаление и выбор активного узла;
+- `ping` узлов без смены активного узла;
+- наличие и работа routing import, списка профилей и блока `GeoIP/Geosite`;
+- старт через `pkexec`, появление `tun0`, обновление статуса и метрик;
+- запуск `Снять диагностику` с созданием dump;
 - остановка runtime и восстановление DNS;
-- показ и скрытие окна через трей;
-- сценарий закрытия окна в трей, если этот режим включён;
-- наличие в первом UI-каркасе routing-блока и geodata-блока даже без полной backend-интеграции;
-- негативные сценарии:
-  - старт без активного узла;
-  - routing включён, но geodata не готова;
-  - конфликт ownership с чужим bundle runtime.
+- негативные сценарии: нет активного узла, routing включён без готовой geodata, конфликт ownership с чужим runtime.
 
 ## Критерии готовности
 

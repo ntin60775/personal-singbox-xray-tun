@@ -6,7 +6,7 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053` |
 | Parent ID | `—` |
-| Версия плана | `2` |
+| Версия плана | `5` |
 | Дата обновления | `2026-04-09` |
 
 ## Цель
@@ -52,6 +52,17 @@
   - состояние store/runtime/routing собиралось из одного источника;
   - root-действия продолжали идти через существующие shell-скрипты и `pkexec`;
 - сохранить launcher и `embedded_webview` как отдельный fallback-контур до стабилизации native UI.
+
+### Визуальное направление
+
+- базовый референс для dark theme: `Raycast DESIGN.md` с `getdesign.md`;
+- использовать логику desktop productivity shell, а не web-dashboard:
+  - тёмные плотные поверхности;
+  - чёткая иерархия panel / sidebar / action-zone;
+  - локальные яркие акценты только на selection, focus и critical runtime state;
+  - компактное окно настроек без декоративного шума;
+- не тащить в проект `Linear`-подобную фиолетовую SaaS-эстетику и не расползаться в терминальный ретро-стиль по умолчанию;
+- `Dashboard`, `Subscriptions` и `Log` могут брать разную плотность контента, но должны оставаться внутри одного `Raycast`-совместимого visual system.
 
 ### Системный трей
 
@@ -157,45 +168,60 @@
 
 - `python3 ~/.agents/skills/markdown-localization-guard/scripts/markdown_localization_guard.py knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/task.md knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/plan.md knowledge/tasks/registry.md`
 
-### Что нужно проверить при реализации
+### Что должно быть максимально автоматизировано
 
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
-- `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`
-- релевантные `python3 -m unittest` для parser/store/runtime/routing и новых native-модулей;
-- ручной smoke:
-  - окно открывается без раннего `pkexec`;
-  - иконка и меню трея появляются в поддерживаемом окружении;
-  - через трей можно показать окно и выполнить базовые действия;
-  - импорт подписки работает;
-  - routing import и `GeoIP/Geosite` блоки видны уже в первом UI-макете;
-  - активный узел выбирается явно;
-  - `Старт` поднимает runtime и `tun0`;
-  - `Снять диагностику` создаёт dump;
-  - `Стоп` восстанавливает DNS;
-  - если включено закрытие в трей, закрытие окна не убивает приложение;
-  - негативные сценарии показывают понятные причины блокировки.
+- `python3 -m py_compile gui/subvost_app_service.py gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py`
+- `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
+- релевантные `python3 -m unittest` для parser/store/runtime/routing, `subvost_app_service` и новых native-модулей;
+- D-Bus/X11 smoke для native shell в живой графической сессии, если сценарий воспроизводим без ручного визуального решения;
+- любое новое backend/frontend поведение сначала пытаться закрепить автоматической проверкой, а в финальный ручной список оставлять только то, что реально зависит от целостной desktop/runtime-интеграции.
+
+### Единый ручной smoke-лист на конец общей задачи
+
+Именно здесь теперь живут и runtime/tray/manual сценарии закрытой `TASK-2026-0053.2`; у дочерней подзадачи отдельного ручного хвоста больше нет.
+
+- запуск native GUI из проектного launcher-а без раннего `pkexec`;
+- появление иконки и меню трея в поддерживаемом окружении;
+- сценарии `show/hide`, `start minimized to tray` и `close-to-tray` через реальное tray-меню и пользовательский launcher;
+- импорт URL-подписки, refresh одной и всех подписок, enable/disable и удаление;
+- выбор активного узла и `ping` без смены активного узла;
+- routing import и `GeoIP/Geosite` блоки видны уже в первом UI-макете и корректно работают после backend-подключения;
+- `Старт` поднимает runtime, создаёт `tun0` и обновляет статус/метрики;
+- `Снять диагностику` создаёт dump;
+- `Стоп` останавливает runtime и восстанавливает DNS;
+- негативные сценарии показывают понятные причины блокировки: нет активного узла, нет geodata, конфликт ownership с чужим runtime.
 
 ### Что уже подтверждено в рамках `TASK-2026-0053.1`
 
 - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
-- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`
+- `python3 -m unittest tests.test_native_shell_shared tests.test_native_shell_app tests.test_subvost_store`
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
-- краткий runtime-smoke `GTK4` shell без tray и с tray-helper в реальной графической сессии вне sandbox;
+- runtime-smoke `GTK4` shell без трея в реальной графической сессии: окно стартует видимым, `TrayAvailable=false`, ранний `pkexec` отсутствует, fallback для сохранённых tray-настроек корректен;
+- runtime-smoke `GTK4` shell с tray-helper в реальной графической сессии: `TrayAvailable=true`, backend `Ayatana AppIndicator`, скрытый старт по `start_minimized_to_tray`, команды `ShowWindow` и `OpenSettings` через D-Bus control interface, `close-to-tray` через менеджер окон без завершения приложения;
 - probe текущей Linux-сессии подтвердил `org.kde.StatusNotifierWatcher` и backend `Ayatana AppIndicator`.
+
+### Что уже подтверждено в рамках `TASK-2026-0053.2`
+
+- `python3 -m unittest tests.test_subvost_app_service tests.test_native_shell_app tests.test_gui_server tests.test_native_shell_shared`
+- `python3 -m py_compile gui/subvost_app_service.py gui/gui_server.py gui/native_shell_app.py gui/native_shell_shared.py`
+- общий `subvost_app_service.py` собирает status/runtime orchestration, ownership guard, action log, traffic и `pkexec`-операции без `HTTP`-зависимости native shell;
+- `gui_server.py` продолжает отдавать совместимый `HTTP` payload и сохранил patchable handler-контракт для unit-тестов;
+- `Dashboard` в native shell больше не работает как `stub`: кнопки окна и tray проходят через общий service-layer, а экран показывает runtime state, transport/security, ownership и метрики.
 
 ## Шаги
 
 - [x] Сверить пользовательский концепт с текущим `xray/TUN` bundle и фактическими backend-возможностями
 - [x] Перевести `TASK-2026-0053` из абстрактного черновика в рабочую постановку
 - [x] Синхронизировать реестр задач под новый статус и описание
-- [ ] Выделить общий application/service-слой для будущего native UI
+- [x] Выделить общий application/service-слой для будущего native UI
 - [x] Собрать каркас нативного окна `GTK4` с навигацией `Dashboard / Subscriptions / Log`
 - [x] Реализовать системный трей и сценарии show-hide окна без раннего `pkexec`
-- [ ] Реализовать `Dashboard` с runtime-статусом, текущим узлом, метриками и действиями `Старт / Стоп / Диагностика`
+- [x] Реализовать `Dashboard` с runtime-статусом, текущим узлом, метриками и действиями `Старт / Стоп / Диагностика`
 - [ ] Заложить в `Subscriptions` routing import и `GeoIP/Geosite` блоки уже на уровне UI-макета, даже если backend ещё не подключён
 - [ ] Реализовать `Subscriptions` с подписками, узлами, `ping` и routing-профилями
 - [ ] Реализовать `Log` с фильтрацией и экспортом

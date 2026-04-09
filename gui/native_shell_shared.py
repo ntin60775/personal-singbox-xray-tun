@@ -41,17 +41,17 @@ NATIVE_SHELL_PAGES = (
     NativeShellPage(
         "dashboard",
         "Dashboard",
-        "Главная точка управления runtime. На этом этапе здесь только оболочка и stub-действия.",
+        "Главная operational-плоскость: runtime-статус, метрики, ownership и действия `Старт / Стоп / Диагностика`.",
     ),
     NativeShellPage(
         "subscriptions",
         "Subscriptions",
-        "Раздел под будущий импорт подписок, выбор профилей и управление узлами.",
+        "Следующий этап нативного клиента: импорт подписок, выбор узлов, ping и routing-профили.",
     ),
     NativeShellPage(
         "log",
         "Log",
-        "Временный журнал native shell: здесь видны tray-события, настройки и stub-команды.",
+        "Локальный журнал native shell и результаты runtime-действий этого окна.",
     ),
 )
 
@@ -66,9 +66,9 @@ class NativeShellTrayAction:
 NATIVE_SHELL_TRAY_ACTIONS = (
     NativeShellTrayAction("show-window", "Показать окно", "Показать главное окно приложения."),
     NativeShellTrayAction("hide-window", "Скрыть окно", "Спрятать окно, не завершая приложение."),
-    NativeShellTrayAction("start-runtime", "Старт", "Stub-действие для будущего запуска runtime."),
-    NativeShellTrayAction("stop-runtime", "Стоп", "Stub-действие для будущей остановки runtime."),
-    NativeShellTrayAction("capture-diagnostics", "Снять диагностику", "Stub-действие для будущего диагностического дампа."),
+    NativeShellTrayAction("start-runtime", "Старт", "Запустить runtime bundle через общий service-layer и `pkexec`."),
+    NativeShellTrayAction("stop-runtime", "Стоп", "Остановить текущий runtime bundle через общий service-layer."),
+    NativeShellTrayAction("capture-diagnostics", "Снять диагностику", "Собрать диагностический дамп bundle через общий service-layer."),
     NativeShellTrayAction("open-settings", "Настройки", "Открыть минимальное окно настроек shell-уровня."),
     NativeShellTrayAction("quit-app", "Выход", "Полностью завершить native shell."),
 )
