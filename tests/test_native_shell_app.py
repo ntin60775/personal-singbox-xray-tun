@@ -103,6 +103,32 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(app.window.present_calls, 0)
         self.assertTrue(app.refresh_called)
 
+    def test_finish_runtime_action_updates_status_and_log_on_success(self) -> None:
+        app = self.make_app()
+        app.action_in_flight = "start-runtime"
+        app.dashboard_action_buttons = {}
+        app.dashboard_labels = {}
+        app.dashboard_metrics = {}
+        app.last_status_payload = None
+        app.refresh_dashboard_controls = lambda: setattr(app, "controls_refreshed", True)
+        app.controls_refreshed = False
+        app.update_dashboard_from_status = lambda payload: setattr(app, "dashboard_payload", payload)
+
+        payload = {
+            "last_action": {
+                "message": "Запуск завершён успешно.",
+            }
+        }
+
+        result = app.finish_runtime_action("start-runtime", "tray", True, payload)
+
+        self.assertFalse(result)
+        self.assertIsNone(app.action_in_flight)
+        self.assertEqual(app.status_message, "Запуск завершён успешно.")
+        self.assertEqual(app.dashboard_payload, payload)
+        self.assertTrue(app.controls_refreshed)
+        self.assertTrue(any("Запуск завершён успешно." in message for _source, message in app.log_lines))
+
 
 if __name__ == "__main__":
     unittest.main()
