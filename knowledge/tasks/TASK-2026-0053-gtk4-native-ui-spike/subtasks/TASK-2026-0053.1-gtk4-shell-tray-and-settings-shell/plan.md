@@ -80,7 +80,7 @@
 
 ### Что уже проверено
 
-- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`
+- `python3 -m unittest tests.test_native_shell_shared tests.test_native_shell_app tests.test_subvost_store`
 - `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py gui/subvost_store.py`
 - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py`
 - `bash -n *.sh`
@@ -117,5 +117,7 @@
 - реализованы `gui/native_shell_app.py`, `gui/native_shell_shared.py`, `gui/native_shell_tray_helper.py`;
 - tray-контур собран как отдельный helper-процесс на `Gtk3 + Ayatana/AppIndicator`, а главное окно остаётся `GTK4`;
 - fallback без рабочего `status notifier` оставляет приложение в режиме обычного окна и отключает опасный `close-to-tray` перехват;
+- при аварийной остановке tray-helper скрытое окно автоматически показывается обратно, чтобы приложение не оставалось недоступным;
+- режим `theme=system` теперь восстанавливает исходное GTK-предпочтение сессии и не схлопывается с `theme=light`;
 - минимальные shell-настройки сохраняются в общем `gui_settings.json` без конфликта с текущим web GUI;
 - installer расширен опциональной установкой `Gtk3/AppIndicator` GI-зависимостей.

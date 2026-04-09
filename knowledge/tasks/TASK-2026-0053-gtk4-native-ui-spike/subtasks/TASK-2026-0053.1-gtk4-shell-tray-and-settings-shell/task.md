@@ -95,13 +95,13 @@
 
 ## Текущий этап
 
-Код реализован и прошёл локальные проверки. Сейчас подзадача находится на этапе проверки: native shell стартует как отдельное `GTK4` приложение, tray-helper работает через `Ayatana AppIndicator` в поддерживаемой сессии, а при отсутствии рабочего status notifier приложение остаётся обычным окном и не перехватывает закрытие.
+Код реализован и прошёл локальные проверки. Сейчас подзадача находится на этапе проверки: native shell стартует как отдельное `GTK4` приложение, tray-helper работает через `Ayatana AppIndicator` в поддерживаемой сессии, а при отсутствии рабочего status notifier приложение остаётся обычным окном и не перехватывает закрытие. После ревью дополнительно усилен fallback: при аварии tray-helper скрытое окно автоматически возвращается на экран, а режим `system` снова отличается от явного `light`.
 
 ## Стратегия проверки
 
 ### Покрывается кодом или тестами
 
-- `python3 -m unittest tests.test_native_shell_shared tests.test_subvost_store`;
+- `python3 -m unittest tests.test_native_shell_shared tests.test_native_shell_app tests.test_subvost_store`;
 - `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py gui/subvost_store.py`;
 - runtime-smoke `GTK4` окна без tray и с tray-helper без раннего `pkexec`;
 - проверки fallback-поведения трея в среде без status notifier и совместимого `session D-Bus`.
@@ -134,4 +134,5 @@
 
 - действия `Старт / Стоп / Снять диагностику` пока работают как shell-stub и не подключены к реальному runtime;
 - `Subscriptions` и `Log` пока остаются placeholder-страницами без service-layer и живого наполнения;
-- tray-контур прошёл короткий runtime-smoke, но нуждается в более длинной ручной проверке на целевом desktop с пользовательским launcher-ом.
+- tray-контур прошёл короткий runtime-smoke, но нуждается в более длинной ручной проверке на целевом desktop с пользовательским launcher-ом;
+- поведение `system`-темы опирается на исходное GTK-предпочтение сессии и должно быть отдельно подтверждено на desktop-окружениях с глобальной тёмной схемой.
