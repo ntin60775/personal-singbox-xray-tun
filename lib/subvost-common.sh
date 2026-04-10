@@ -44,8 +44,10 @@ subvost_load_project_layout_from_env() {
   export SUBVOST_STOP_WRAPPER="${project_root}/stop-xray-tun-subvost.sh"
   export SUBVOST_CAPTURE_WRAPPER="${project_root}/capture-xray-tun-state.sh"
   export SUBVOST_OPEN_GUI_WRAPPER="${project_root}/open-subvost-gui.sh"
+  export SUBVOST_OPEN_GTK_UI_WRAPPER="${project_root}/open-subvost-gtk-ui.sh"
   export SUBVOST_INSTALL_WRAPPER="${project_root}/install-on-new-pc.sh"
   export SUBVOST_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun.desktop"
+  export SUBVOST_GTK_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun-gtk-ui.desktop"
   export SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"
   export SUBVOST_DESKTOP_ICON_PATH="${project_root}/assets/subvost-xray-tun-icon.svg"
 }

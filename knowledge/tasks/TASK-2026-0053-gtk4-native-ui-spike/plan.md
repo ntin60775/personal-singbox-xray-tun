@@ -229,6 +229,14 @@
 - `gui/native_shell_app.py` хранит shell-журнал структурированно и показывает рабочий `Log` с источниками `native shell` и `bundle/runtime`, фильтром по уровню и действиями `Скопировать`/`Экспорт`;
 - повторный прогон service-layer и web-backend тестов подтвердил, что этап `Log` не сломал контур `TASK-2026-0053.3`.
 
+### Что уже подтверждено в рамках `TASK-2026-0053.5`
+
+- `bash -n *.sh`
+- `bash -n libexec/*.sh`
+- `python3 -m py_compile gui/native_shell_app.py`
+- появился отдельный launcher `open-subvost-gtk-ui.sh` и отдельный installer `install-subvost-gtk-ui-menu-entry.sh` для ручного запуска native shell;
+- основной web launcher проекта не менялся и остаётся fallback/дефолтным пользовательским путём до отдельного rollout-решения.
+
 ## Шаги
 
 - [x] Сверить пользовательский концепт с текущим `xray/TUN` bundle и фактическими backend-возможностями

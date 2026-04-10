@@ -99,6 +99,7 @@
 - вторая реализованная подзадача: `subtasks/TASK-2026-0053.2-dashboard-and-shared-service-layer/`
 - третья реализованная подзадача: `subtasks/TASK-2026-0053.3-subscriptions-vertical-slice/`
 - четвёртая реализованная подзадача: `subtasks/TASK-2026-0053.4-log-vertical-slice/`
+- пятая реализованная подзадача: `subtasks/TASK-2026-0053.5-gtk-test-launcher/`
 - visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
@@ -109,7 +110,7 @@
 
 ## Текущий этап
 
-Функциональная реализация `TASK-2026-0053` закрыта: после `TASK-2026-0053.3` подзадача `TASK-2026-0053.4` довела `Log` до полноценного vertical slice поверх того же native shell и существующего service-layer snapshot. Нативный клиент теперь покрывает `Dashboard`, `Subscriptions` и `Log` без внутренних `HTTP` вызовов. Визуальное направление `Raycast` остаётся активным контрактом, но у родительской задачи остался только единый финальный manual smoke и решение о launcher-роллауте.
+Функциональная реализация `TASK-2026-0053` закрыта: после `TASK-2026-0053.4` с готовым `Log` подзадача `TASK-2026-0053.5` добавила отдельный launcher для ручного тестирования `GTK4` native UI. Нативный клиент теперь покрывает `Dashboard`, `Subscriptions` и `Log` без внутренних `HTTP` вызовов, а manual smoke можно проходить через отдельный native shortcut без смены основного GUI по умолчанию.
 
 ## Стратегия проверки
 
