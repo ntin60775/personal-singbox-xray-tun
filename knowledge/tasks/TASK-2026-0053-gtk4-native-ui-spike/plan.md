@@ -213,6 +213,15 @@
 - `gui_server.py` продолжает отдавать совместимый `HTTP` payload и сохранил patchable handler-контракт для unit-тестов;
 - `Dashboard` в native shell больше не работает как `stub`: кнопки окна и tray проходят через общий service-layer, а экран показывает runtime state, transport/security, ownership и метрики.
 
+### Что уже подтверждено в рамках `TASK-2026-0053.3`
+
+- `python3 -m unittest tests.test_subvost_app_service tests.test_native_shell_app tests.test_gui_server tests.test_native_shell_shared`
+- `python3 -m py_compile gui/subvost_app_service.py gui/gui_server.py gui/native_shell_app.py gui/native_shell_shared.py`
+- общий `subvost_app_service.py` теперь собирает не только runtime/status orchestration, но и store/routing snapshot и mutation-операции для подписок, узлов, `ping` и routing-профилей;
+- `gui_server.py` переведён на thin-wrapper store/routing handlers поверх service-layer и сохранил совместимый `/api/store` и action-response shape;
+- `Subscriptions` в native shell больше не является placeholder: экран работает с URL-подписками, выбором узла, отдельным `Ping`, routing import и статусом `GeoIP/Geosite` без внутренних `HTTP` вызовов.
+
+
 ## Шаги
 
 - [x] Сверить пользовательский концепт с текущим `xray/TUN` bundle и фактическими backend-возможностями
@@ -222,8 +231,8 @@
 - [x] Собрать каркас нативного окна `GTK4` с навигацией `Dashboard / Subscriptions / Log`
 - [x] Реализовать системный трей и сценарии show-hide окна без раннего `pkexec`
 - [x] Реализовать `Dashboard` с runtime-статусом, текущим узлом, метриками и действиями `Старт / Стоп / Диагностика`
-- [ ] Заложить в `Subscriptions` routing import и `GeoIP/Geosite` блоки уже на уровне UI-макета, даже если backend ещё не подключён
-- [ ] Реализовать `Subscriptions` с подписками, узлами, `ping` и routing-профилями
+- [x] Заложить в `Subscriptions` routing import и `GeoIP/Geosite` блоки уже на уровне UI-макета, даже если backend ещё не подключён
+- [x] Реализовать `Subscriptions` с подписками, узлами, `ping` и routing-профилями
 - [ ] Реализовать `Log` с фильтрацией и экспортом
 - [x] Реализовать минимальное окно настроек для `v1`
 - [ ] Пройти ручной smoke и только после этого принимать решение о переключении launcher-а
@@ -233,5 +242,6 @@
 - task-контур больше не является “заготовкой на потом”, а задаёт конкретный `v1 scope` и ограничения для реализации;
 - будущая реализация может стартовать без повторного пересогласования базовых сущностей UI;
 - в постановке нет фиктивных функций, которых нет в текущем backend-контуре проекта;
+- `Subscriptions` уже закрыт как рабочий vertical slice поверх общего service-layer, а не как отдельный mockup-контур;
 - системный трей и минимальные настройки описаны как реальные части `v1`, а не как расплывчатые пожелания;
 - локализационная проверка Markdown проходит успешно.

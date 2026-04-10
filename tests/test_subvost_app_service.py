@@ -66,6 +66,64 @@ class SubvostAppServiceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "другого bundle"):
                     service.start_runtime()
 
+    def test_collect_store_snapshot_returns_store_and_status_envelope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+
+            with patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}):
+                payload = service.collect_store_snapshot()
+
+            self.assertTrue(payload["ok"])
+            self.assertIn("store", payload)
+            self.assertEqual(payload["status"]["summary"]["state"], "stopped")
+            self.assertEqual(payload["store"]["summary"]["subscriptions_total"], 0)
+
+    def test_add_subscription_rolls_back_store_when_initial_refresh_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+
+            with patch("subvost_app_service.store_refresh_subscription", side_effect=ValueError("network down")):
+                with self.assertRaisesRegex(ValueError, "Подписка не добавлена"):
+                    service.add_subscription("", "https://example.com/subscription")
+
+            store = ensure_store_initialized(service.context.app_paths, root)
+            self.assertEqual(store["subscriptions"], [])
+
+    def test_add_subscription_returns_store_response_on_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+
+            refresh_result = {
+                "status": "ok",
+                "valid": 1,
+                "invalid": 0,
+                "unique_nodes": 1,
+                "duplicate_lines": 0,
+            }
+            with (
+                patch("subvost_app_service.store_refresh_subscription", return_value=refresh_result),
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.add_subscription("", "https://example.com/subscription")
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["status"]["summary"]["state"], "stopped")
+            self.assertEqual(payload["refresh"], refresh_result)
+            self.assertEqual(payload["subscription"]["url"], "https://example.com/subscription")
+            self.assertEqual(payload["store"]["summary"]["subscriptions_total"], 1)
+
     def test_capture_diagnostics_remembers_path_from_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -211,6 +269,47 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["connection"]["transport_label"], "GRPC")
             self.assertEqual(payload["connection"]["security_label"], "REALITY")
             self.assertEqual(payload["connection"]["remote_sni"], "cdn.example.com")
+
+    def test_ping_node_by_id_updates_cache_and_returns_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            store = ensure_store_initialized(service.context.app_paths, root)
+            manual_profile = next(profile for profile in store["profiles"] if profile["id"] == "manual")
+            manual_profile["nodes"].append(
+                {
+                    "id": "node-1",
+                    "fingerprint": "fingerprint-1",
+                    "name": "Edge",
+                    "protocol": "vless",
+                    "raw_uri": "vless://...",
+                    "origin": {"kind": "manual", "subscription_id": None},
+                    "enabled": True,
+                    "user_renamed": False,
+                    "parse_error": "",
+                    "normalized": {
+                        "address": "edge.example.com",
+                        "port": 443,
+                    },
+                    "created_at": "2026-04-09T00:00:00",
+                    "updated_at": "2026-04-09T00:00:00",
+                }
+            )
+            service.persist_store(store)
+
+            with (
+                patch.object(service, "ping_node", return_value={"label": "12.4 мс", "ok": True, "host": "edge.example.com", "port": 443, "latency_ms": 12.4, "timestamp": "2026-04-09T10:00:00"}),
+                patch.object(service, "collect_status", return_value={"summary": {"state": "running"}}),
+            ):
+                payload = service.ping_node_by_id("manual", "node-1")
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["status"]["summary"]["state"], "running")
+            self.assertEqual(payload["ping"]["node_id"], "node-1")
+            self.assertIn("manual:node-1", service.state.ping_cache)
 
 
 if __name__ == "__main__":

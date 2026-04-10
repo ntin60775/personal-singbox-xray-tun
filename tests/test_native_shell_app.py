@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +44,17 @@ class FakeWindow:
         self.visible = True
 
 
+class FakeEntry:
+    def __init__(self, text: str = "") -> None:
+        self.text = text
+
+    def set_text(self, value: str) -> None:
+        self.text = value
+
+    def get_text(self) -> str:
+        return self.text
+
+
 class NativeShellAppTests(unittest.TestCase):
     def make_app(self) -> native_shell_app.NativeShellApp:
         app = native_shell_app.NativeShellApp.__new__(native_shell_app.NativeShellApp)
@@ -59,6 +72,22 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_status_after_settings_change = lambda: setattr(app, "refresh_called", True)
         app.refresh_called = False
         app.status_message = ""
+        app.last_store_payload = None
+        app.last_status_payload = None
+        app.selected_subscription_id = None
+        app.subscription_url_entry = None
+        app.routing_import_buffer = None
+        app.shell_log_entries = []
+        app.log_filter = "all"
+        app.log_filter_buttons = {}
+        app.log_copy_button = None
+        app.log_export_button = None
+        app.log_summary_label = None
+        app.log_meta_label = None
+        app.log_export_label = None
+        app.log_buffer = None
+        app.log_path = REPO_ROOT / "logs" / "native-shell.log"
+        app.last_log_export_path = None
         return app
 
     def test_apply_theme_preference_restores_initial_system_preference(self) -> None:
@@ -111,8 +140,12 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_metrics = {}
         app.last_status_payload = None
         app.refresh_dashboard_controls = lambda: setattr(app, "controls_refreshed", True)
+        app.refresh_subscriptions_controls = lambda: setattr(app, "subscriptions_controls_refreshed", True)
         app.controls_refreshed = False
+        app.subscriptions_controls_refreshed = False
         app.update_dashboard_from_status = lambda payload: setattr(app, "dashboard_payload", payload)
+        app.render_subscriptions_view = lambda: setattr(app, "subscriptions_rendered", True)
+        app.subscriptions_rendered = False
 
         payload = {
             "last_action": {
@@ -127,7 +160,90 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(app.status_message, "Запуск завершён успешно.")
         self.assertEqual(app.dashboard_payload, payload)
         self.assertTrue(app.controls_refreshed)
+        self.assertTrue(app.subscriptions_controls_refreshed)
+        self.assertTrue(app.subscriptions_rendered)
         self.assertTrue(any("Запуск завершён успешно." in message for _source, message in app.log_lines))
+
+    def test_apply_combined_snapshot_syncs_selected_subscription_id(self) -> None:
+        app = self.make_app()
+        app.selected_subscription_id = "missing"
+        app.update_dashboard_from_status = lambda payload: setattr(app, "dashboard_payload", payload)
+        app.render_subscriptions_view = lambda: setattr(app, "subscriptions_rendered", True)
+        app.subscriptions_rendered = False
+
+        payload = {
+            "status": {"summary": {"state": "stopped"}},
+            "store": {
+                "store": {
+                    "subscriptions": [
+                        {"id": "sub-2", "profile_id": "profile-2"},
+                    ],
+                    "profiles": [],
+                    "routing": {},
+                },
+                "active_profile": {"id": "profile-2", "source_subscription_id": "sub-2"},
+            },
+        }
+
+        app.apply_combined_snapshot(payload)
+
+        self.assertEqual(app.selected_subscription_id, "sub-2")
+        self.assertEqual(app.dashboard_payload, {"summary": {"state": "stopped"}})
+        self.assertEqual(app.last_store_payload, payload["store"])
+        self.assertTrue(app.subscriptions_rendered)
+
+    def test_finish_store_action_clears_url_and_focuses_new_subscription(self) -> None:
+        app = self.make_app()
+        app.action_in_flight = "subscriptions-add"
+        app.subscription_url_entry = FakeEntry("https://example.com/subscription")
+        app.apply_combined_snapshot = lambda payload: setattr(app, "combined_payload", payload)
+        app.refresh_dashboard_controls = lambda: setattr(app, "controls_refreshed", True)
+        app.refresh_subscriptions_controls = lambda: setattr(app, "subscriptions_controls_refreshed", True)
+        app.controls_refreshed = False
+        app.subscriptions_controls_refreshed = False
+
+        payload = {
+            "message": "Подписка добавлена.",
+            "subscription": {"id": "sub-1"},
+            "store": {"store": {"subscriptions": [{"id": "sub-1"}]}, "active_profile": None},
+            "status": {"summary": {"state": "stopped"}},
+        }
+
+        result = app.finish_store_action("subscriptions-add", "window", True, payload)
+
+        self.assertFalse(result)
+        self.assertIsNone(app.action_in_flight)
+        self.assertEqual(app.subscription_url_entry.text, "")
+        self.assertEqual(app.selected_subscription_id, "sub-1")
+        self.assertEqual(app.combined_payload, payload)
+        self.assertEqual(app.status_message, "Подписка добавлена.")
+        self.assertTrue(app.controls_refreshed)
+        self.assertTrue(app.subscriptions_controls_refreshed)
+
+    def test_finish_store_action_uses_status_payload_for_ping_result(self) -> None:
+        app = self.make_app()
+        app.action_in_flight = "node-ping"
+        app.apply_status_payload = lambda payload: setattr(app, "status_payload_applied", payload)
+        app.refresh_dashboard_controls = lambda: setattr(app, "controls_refreshed", True)
+        app.refresh_subscriptions_controls = lambda: setattr(app, "subscriptions_controls_refreshed", True)
+        app.controls_refreshed = False
+        app.subscriptions_controls_refreshed = False
+
+        payload = {
+            "status": {
+                "last_action": {
+                    "message": "Узел 'Edge' ответил за 12.4 мс.",
+                }
+            }
+        }
+
+        result = app.finish_store_action("node-ping", "window", True, payload)
+
+        self.assertFalse(result)
+        self.assertEqual(app.status_payload_applied, payload["status"])
+        self.assertEqual(app.status_message, "Узел 'Edge' ответил за 12.4 мс.")
+        self.assertTrue(app.controls_refreshed)
+        self.assertTrue(app.subscriptions_controls_refreshed)
 
 
 if __name__ == "__main__":

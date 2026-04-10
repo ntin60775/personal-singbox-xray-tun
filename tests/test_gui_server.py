@@ -670,7 +670,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
                 patch.object(gui_server, "APP_PATHS", paths),
                 patch.object(gui_server, "PROJECT_ROOT", root),
                 patch.object(gui_server, "XRAY_TEMPLATE_PATH", template),
-                patch.object(gui_server, "ping_node", return_value={"host": "example.com", "port": 443, "latency_ms": 42.5, "label": "42.5 мс", "timestamp": "2026-04-04T10:00:00", "ok": True}),
+                patch("subvost_app_service.SubvostAppService.ping_node", return_value={"host": "example.com", "port": 443, "latency_ms": 42.5, "label": "42.5 мс", "timestamp": "2026-04-04T10:00:00", "ok": True}),
             ):
                 gui_server.PING_CACHE.clear()
                 response = gui_server.handle_node_ping({"profile_id": "manual", "node_id": "node-1"})

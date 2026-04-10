@@ -97,6 +97,7 @@
 - связанная историческая задача: `knowledge/tasks/TASK-2026-0022-native-ui-gtk-direction/`
 - первая реализованная подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
 - вторая реализованная подзадача: `subtasks/TASK-2026-0053.2-dashboard-and-shared-service-layer/`
+- третья реализованная подзадача: `subtasks/TASK-2026-0053.3-subscriptions-vertical-slice/`
 - visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
@@ -107,7 +108,7 @@
 
 ## Текущий этап
 
-Задача остаётся в активной реализации, но второй рабочий этап уже закрыт: после `TASK-2026-0053.1` с shell/tray/settings подзадача `TASK-2026-0053.2` выделила общий `subvost_app_service.py` и довела `Dashboard` до реального runtime-экрана с ownership-guard, transport/security, метриками и действиями `Старт / Стоп / Диагностика`. Визуальное направление `Raycast` остаётся активным контрактом для следующих этапов. После закрытия `TASK-2026-0053.2` у родительской задачи осталось четыре этапа: routing UI-shell в `Subscriptions`, полноценный экран подписок, полноценный `Log` и единый финальный manual smoke с решением по launcher-роллаута.
+Задача остаётся в активной реализации, но третий рабочий этап уже закрыт: после `TASK-2026-0053.2` с общим runtime/service-layer подзадача `TASK-2026-0053.3` довела `Subscriptions` до полноценного vertical slice поверх того же `subvost_app_service.py`. Нативный клиент теперь умеет показывать store snapshot, добавлять и обновлять URL-подписки, выбирать узлы, делать отдельный `ping` и работать с routing-профилями без внутренних `HTTP` вызовов. Визуальное направление `Raycast` остаётся активным контрактом для оставшихся этапов. После закрытия `TASK-2026-0053.3` у родительской задачи осталось два этапа: полноценный `Log` и единый финальный manual smoke с решением по launcher-роллаута.
 
 ## Стратегия проверки
 
@@ -120,7 +121,7 @@
   - `bash -n libexec/*.sh`
   - `bash -n lib/*.sh`
   - `python3 -m py_compile gui/subvost_app_service.py`
-  - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py`
+  - `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_routing.py gui/subvost_parser.py`
   - `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/native_shell_tray_helper.py`
   - актуальный набор `python3 -m unittest` по Python-логике store/runtime/parser/routing, service-layer и native-shell модулей;
   - все backend/frontend сценарии, которые воспроизводимы без визуального решения пользователя, сначала переводить в автоматические `unittest`, syntax-check, `py_compile` или D-Bus/X11 smoke, а не оставлять ручными по умолчанию.
@@ -149,6 +150,6 @@
 - системный трей даёт быстрый доступ к окну и базовым runtime-действиям без раннего `pkexec`;
 - старт, остановка и диагностика сохраняют текущую `pkexec`-границу: root-запрос только на runtime-действиях, а не при открытии окна;
 - окно настроек в `v1` остаётся компактным и содержит только реально поддерживаемые параметры, без фиктивных сетевых переключателей;
-- первый UI-прототип уже содержит routing import и `GeoIP/Geosite` блоки хотя бы в режиме макета, без последующего пересборa layout под эти функции;
-- routing в UI опирается на уже существующие `JSON` и `happ://routing/...` профили и явно показывает готовность `geoip.dat`/`geosite.dat`;
+- `Subscriptions` уже покрывает URL-подписки, выбор узла, отдельный `ping`, routing import и явный статус `GeoIP/Geosite`;
+- routing в UI опирается на уже существующие `JSON` и `happ://routing/...` профили и явно показывает готовность `geoip.dat`/`geosite.dat` без второго backend-контракта;
 - текущий web UI может оставаться fallback-слоем до отдельного решения по переключению основного GUI.

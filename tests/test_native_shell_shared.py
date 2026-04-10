@@ -10,10 +10,16 @@ sys.path.insert(0, str(REPO_ROOT / "gui"))
 
 from native_shell_shared import (  # noqa: E402
     NativeShellSettings,
+    active_routing_profile_from_store_snapshot,
     build_startup_notes,
     build_tray_support,
     native_shell_theme_label,
+    native_shell_action_label,
     normalize_native_shell_theme,
+    ping_snapshot_from_status,
+    resolve_selected_subscription_id,
+    selected_profile_from_store_snapshot,
+    selected_subscription_from_store_snapshot,
     select_indicator_candidate,
     select_status_notifier_watcher,
     should_hide_on_close,
@@ -86,6 +92,60 @@ class NativeShellSharedTests(unittest.TestCase):
         self.assertEqual(normalize_native_shell_theme(" DARK "), "dark")
         self.assertEqual(native_shell_theme_label("dark"), "Тёмная")
         self.assertEqual(tray_action_label("capture-diagnostics"), "Снять диагностику")
+        self.assertEqual(native_shell_action_label("subscription-refresh"), "Обновление подписки")
+
+    def test_resolve_selected_subscription_id_prefers_current_then_active_then_first(self) -> None:
+        store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1"},
+                    {"id": "sub-2", "profile_id": "profile-2"},
+                ],
+                "profiles": [],
+                "routing": {},
+            },
+            "active_profile": {"id": "profile-2", "source_subscription_id": "sub-2"},
+        }
+
+        self.assertEqual(resolve_selected_subscription_id(store_payload, "sub-1"), "sub-1")
+        self.assertEqual(resolve_selected_subscription_id(store_payload, "missing"), "sub-2")
+        self.assertEqual(resolve_selected_subscription_id({"store": {"subscriptions": [{"id": "sub-3"}]}}, None), "sub-3")
+
+    def test_selected_snapshot_helpers_return_subscription_profile_and_routing(self) -> None:
+        store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1"},
+                ],
+                "profiles": [
+                    {"id": "profile-1", "nodes": [{"id": "node-1"}]},
+                ],
+                "routing": {
+                    "profiles": [{"id": "routing-1"}],
+                },
+            },
+            "active_profile": {"id": "profile-1", "source_subscription_id": "sub-1"},
+            "active_routing_profile": {"id": "routing-1", "name": "RU"},
+        }
+
+        self.assertEqual(selected_subscription_from_store_snapshot(store_payload, None), {"id": "sub-1", "profile_id": "profile-1"})
+        self.assertEqual(selected_profile_from_store_snapshot(store_payload, None), {"id": "profile-1", "nodes": [{"id": "node-1"}]})
+        self.assertEqual(active_routing_profile_from_store_snapshot(store_payload), {"id": "routing-1", "name": "RU"})
+
+    def test_ping_snapshot_is_read_from_status_cache(self) -> None:
+        status_payload = {
+            "ping": {
+                "cache": {
+                    "profile-1:node-1": {"label": "12.4 мс", "ok": True},
+                }
+            }
+        }
+
+        self.assertEqual(
+            ping_snapshot_from_status(status_payload, "profile-1", "node-1"),
+            {"label": "12.4 мс", "ok": True},
+        )
+        self.assertIsNone(ping_snapshot_from_status(status_payload, "profile-1", "missing"))
 
 
 if __name__ == "__main__":

@@ -875,12 +875,7 @@ def store_response(
 
 
 def handle_store_snapshot() -> dict[str, Any]:
-    store = ensure_store_ready()
-    return {
-        "ok": True,
-        "store": store_payload(store, APP_PATHS),
-        "status": collect_status(),
-    }
+    return build_runtime_service().collect_store_snapshot()
 
 
 def handle_import_preview(payload: dict[str, Any]) -> dict[str, Any]:
@@ -914,347 +909,115 @@ def handle_import_save(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_routing_import(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     text = str(payload.get("text", ""))
-    result = import_routing_profile(store, APP_PATHS, text, uid=REAL_UID, gid=REAL_GID)
-    message = (
-        f"Routing-профиль '{result['profile']['name']}' "
-        f"{'обновлён' if not result['created'] else 'импортирован'}."
-    )
-    return store_response(
-        store,
-        name="Импорт маршрутизации",
-        ok=True,
-        message=message,
-        details=json.dumps(
-            {
-                "routing_profile_id": result["profile"]["id"],
-                "created": result["created"],
-                "geodata_status": result["geodata"].get("status"),
-            },
-            ensure_ascii=False,
-        ),
-        extra={"routing_profile": result["profile"], "routing_import": result},
-    )
+    return build_runtime_service().import_routing_profile(text)
 
 
 def handle_routing_activate(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         raise ValueError("Не передан profile_id routing-профиля.")
-    profile = activate_routing_profile(store, APP_PATHS, profile_id, uid=REAL_UID, gid=REAL_GID)
-    return store_response(
-        store,
-        name="Активация маршрутизации",
-        ok=True,
-        message=f"Активным сделан routing-профиль '{profile['name']}'.",
-        details=json.dumps({"routing_profile_id": profile_id}, ensure_ascii=False),
-        extra={"routing_profile": profile},
-    )
+    return build_runtime_service().activate_routing_profile(profile_id)
 
 
 def handle_routing_clear_active() -> dict[str, Any]:
-    store = ensure_store_ready()
-    clear_active_routing_profile(store, APP_PATHS)
-    return store_response(
-        store,
-        name="Сброс маршрутизации",
-        ok=True,
-        message="Активный routing-профиль снят, маршрутизация выключена.",
-        details="routing_active_profile_cleared=1",
-    )
+    return build_runtime_service().clear_active_routing_profile()
 
 
 def handle_routing_profile_update(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         raise ValueError("Не передан profile_id routing-профиля.")
     if "enabled" not in payload:
         raise ValueError("Не передан флаг enabled для routing-профиля.")
-    profile = update_routing_profile_enabled(store, APP_PATHS, profile_id, enabled=bool(payload.get("enabled")))
-    return store_response(
-        store,
-        name="Настройки маршрутизации",
-        ok=True,
-        message="Состояние routing-профиля сохранено.",
-        details=json.dumps({"routing_profile_id": profile_id, "enabled": profile["enabled"]}, ensure_ascii=False),
-        extra={"routing_profile": profile},
-    )
+    return build_runtime_service().update_routing_profile_enabled(profile_id, enabled=bool(payload.get("enabled")))
 
 
 def handle_routing_toggle(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     if "enabled" not in payload:
         raise ValueError("Не передан флаг enabled для маршрутизации.")
-    routing = set_routing_enabled(store, APP_PATHS, bool(payload.get("enabled")), uid=REAL_UID, gid=REAL_GID)
-    return store_response(
-        store,
-        name="Master toggle маршрутизации",
-        ok=True,
-        message="Маршрутизация включена." if routing["enabled"] else "Маршрутизация выключена.",
-        details=json.dumps({"enabled": routing["enabled"]}, ensure_ascii=False),
-        extra={"routing": routing},
-    )
+    return build_runtime_service().set_routing_enabled(bool(payload.get("enabled")))
 
 
 def handle_subscription_add(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
-    subscription = add_subscription(store, str(payload.get("name", "")), str(payload.get("url", "")))
-    details_payload: dict[str, Any] = {
-        "subscription_id": subscription["id"],
-        "subscription": subscription,
-        "focus_profile_id": subscription["profile_id"],
-    }
-    try:
-        refresh_result = refresh_subscription(store, subscription["id"])
-        details_payload["refresh"] = refresh_result
-        message = (
-            f"Подписка '{subscription['name']}' добавлена. "
-            f"Сохранено уникальных узлов: {refresh_result['unique_nodes']}."
-        )
-    except ValueError as exc:
-        try:
-            delete_subscription(store, subscription["id"])
-        except ValueError:
-            pass
-        persist_store(store)
-        raise ValueError(f"Подписка не добавлена: {exc}.") from exc
-
-    return store_response(
-        store,
-        name="Добавление подписки",
-        ok=True,
-        message=message,
-        details="\n".join(
-            [
-                f"subscription_id={subscription['id']}",
-                f"profile_id={subscription['profile_id']}",
-                f"refresh_status={details_payload.get('refresh', {}).get('status', 'error')}",
-                f"valid={details_payload.get('refresh', {}).get('valid', 0)}",
-                f"invalid={details_payload.get('refresh', {}).get('invalid', 0)}",
-                f"unique_nodes={details_payload.get('refresh', {}).get('unique_nodes', 0)}",
-                f"duplicate_lines={details_payload.get('refresh', {}).get('duplicate_lines', 0)}",
-            ]
-        ),
-        extra=details_payload,
-    )
+    return build_runtime_service().add_subscription(str(payload.get("name", "")), str(payload.get("url", "")))
 
 
 def handle_subscription_refresh(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     subscription_id = str(payload.get("subscription_id", "")).strip()
     if not subscription_id:
         raise ValueError("Не передан subscription_id.")
-    try:
-        result = refresh_subscription(store, subscription_id)
-    except ValueError as exc:
-        persist_store(store)
-        raise ValueError(f"Подписка не обновлена: {exc}. Сохранена предыдущая версия.") from exc
-    return store_response(
-        store,
-        name="Обновление подписки",
-        ok=True,
-        message=f"Подписка обновлена: сохранено {result['unique_nodes']} уникальных узлов.",
-        details=json.dumps(result, ensure_ascii=False),
-        extra={"refresh": result},
-    )
+    return build_runtime_service().refresh_subscription(subscription_id)
 
 
 def handle_subscription_refresh_all() -> dict[str, Any]:
-    store = ensure_store_ready()
-    result = refresh_all_subscriptions(store)
-    ok = result["error"] == 0
-    message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась."
-    return store_response(
-        store,
-        name="Обновить все подписки",
-        ok=ok,
-        message=message,
-        details=json.dumps(result, ensure_ascii=False),
-        extra={"refresh_all": result},
-    )
+    return build_runtime_service().refresh_all_subscriptions()
 
 
 def handle_subscription_update(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
-    subscription = update_subscription(
-        store,
+    return build_runtime_service().update_subscription(
         str(payload.get("subscription_id", "")).strip(),
         name=payload.get("name"),
         enabled=payload.get("enabled"),
     )
-    return store_response(
-        store,
-        name="Настройки подписки",
-        ok=True,
-        message="Настройки подписки сохранены.",
-        details=json.dumps({"subscription_id": subscription["id"]}, ensure_ascii=False),
-        extra={"subscription": subscription},
-    )
 
 
 def handle_subscription_delete(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     subscription_id = str(payload.get("subscription_id", "")).strip()
     if not subscription_id:
         raise ValueError("Не передан subscription_id.")
-    delete_subscription(store, subscription_id)
-    return store_response(
-        store,
-        name="Удаление подписки",
-        ok=True,
-        message="Подписка и связанный профиль удалены.",
-        details=json.dumps({"subscription_id": subscription_id}, ensure_ascii=False),
-    )
+    return build_runtime_service().delete_subscription(subscription_id)
 
 def handle_selection_activate(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     node_id = str(payload.get("node_id", "")).strip()
     if not profile_id or not node_id:
         raise ValueError("Для активации нужны profile_id и node_id.")
-    node = activate_selection(store, profile_id, node_id)
-    return store_response(
-        store,
-        name="Активация узла",
-        ok=True,
-        message=f"Активным сделан узел '{node['name']}'.",
-        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
-        extra={"node": node},
-    )
+    return build_runtime_service().activate_selection(profile_id, node_id)
 
 
 def handle_profile_update(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
-    profile = update_profile(
-        store,
+    return build_runtime_service().update_profile(
         str(payload.get("profile_id", "")).strip(),
         name=payload.get("name"),
         enabled=payload.get("enabled"),
     )
-    return store_response(
-        store,
-        name="Настройки профиля",
-        ok=True,
-        message="Профиль обновлён.",
-        details=json.dumps({"profile_id": profile["id"]}, ensure_ascii=False),
-        extra={"profile": profile},
-    )
 
 
 def handle_profile_delete(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     if not profile_id:
         raise ValueError("Не передан profile_id.")
-    delete_profile(store, profile_id)
-    return store_response(
-        store,
-        name="Удаление профиля",
-        ok=True,
-        message="Профиль удалён.",
-        details=json.dumps({"profile_id": profile_id}, ensure_ascii=False),
-    )
+    return build_runtime_service().delete_profile(profile_id)
 
 
 def handle_node_update(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     node_id = str(payload.get("node_id", "")).strip()
     if not profile_id or not node_id:
         raise ValueError("Для изменения узла нужны profile_id и node_id.")
-    node = update_node(
-        store,
+    return build_runtime_service().update_node(
         profile_id,
         node_id,
         name=payload.get("name"),
         enabled=payload.get("enabled"),
     )
-    return store_response(
-        store,
-        name="Настройки узла",
-        ok=True,
-        message="Узел обновлён.",
-        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
-        extra={"node": node},
-    )
 
 
 def handle_node_delete(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     node_id = str(payload.get("node_id", "")).strip()
     if not profile_id or not node_id:
         raise ValueError("Для удаления узла нужны profile_id и node_id.")
-    delete_node(store, profile_id, node_id)
-    return store_response(
-        store,
-        name="Удаление узла",
-        ok=True,
-        message="Узел удалён.",
-        details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
-    )
+    return build_runtime_service().delete_node(profile_id, node_id)
 
 
 def handle_node_ping(payload: dict[str, Any]) -> dict[str, Any]:
-    store = ensure_store_ready()
     profile_id = str(payload.get("profile_id", "")).strip()
     node_id = str(payload.get("node_id", "")).strip()
     if not profile_id or not node_id:
         raise ValueError("Для ping нужны profile_id и node_id.")
-
-    profile, node = find_profile_and_node(store, profile_id, node_id)
-    if not profile or not node:
-        raise ValueError("Узел для ping не найден.")
-    if not profile.get("enabled", True):
-        raise ValueError("Профиль отключён.")
-    if not node.get("enabled", True):
-        raise ValueError("Узел отключён.")
-
-    try:
-        result = ping_node(node)
-    except OSError as exc:
-        message = f"Ping не выполнен: {exc}."
-        result = {
-            "host": str(node.get("normalized", {}).get("address") or "—"),
-            "port": node.get("normalized", {}).get("port"),
-            "latency_ms": None,
-            "label": "Ошибка",
-            "timestamp": iso_now(),
-            "ok": False,
-            "error": str(exc),
-        }
-        with PING_CACHE_LOCK:
-            PING_CACHE[ping_cache_key(profile_id, node_id)] = result
-        raise ValueError(message) from exc
-
-    with PING_CACHE_LOCK:
-        PING_CACHE[ping_cache_key(profile_id, node_id)] = result
-
-    remember_action(
-        "Ping узла",
-        True,
-        f"Узел '{node.get('name', 'без имени')}' ответил за {result['label']}.",
-        json.dumps(
-            {
-                "profile_id": profile_id,
-                "node_id": node_id,
-                **result,
-            },
-            ensure_ascii=False,
-        ),
-    )
-    return {
-        "ok": True,
-        "ping": {
-            "profile_id": profile_id,
-            "node_id": node_id,
-            **result,
-        },
-        "status": collect_status(),
-    }
+    return build_runtime_service().ping_node_by_id(profile_id, node_id)
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -4,6 +4,7 @@ import json
 import os
 import pwd
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -17,14 +18,29 @@ from gui_contract import GUI_VERSION
 from subvost_paths import AppPaths, build_app_paths
 from subvost_runtime import node_can_render_runtime, read_json_config
 from subvost_store import (
+    activate_routing_profile as store_activate_routing_profile,
+    activate_selection as store_activate_selection,
+    add_subscription as store_add_subscription,
+    clear_active_routing_profile as store_clear_active_routing_profile,
+    delete_node as store_delete_node,
+    delete_profile as store_delete_profile,
+    delete_subscription as store_delete_subscription,
     ensure_store_initialized,
     get_active_node,
     get_active_routing_profile,
+    import_routing_profile as store_import_routing_profile,
     read_gui_settings,
+    refresh_all_subscriptions as store_refresh_all_subscriptions,
+    refresh_subscription as store_refresh_subscription,
     save_gui_settings,
     save_store,
+    set_routing_enabled as store_set_routing_enabled,
     store_payload,
     sync_generated_runtime,
+    update_node as store_update_node,
+    update_profile as store_update_profile,
+    update_routing_profile_enabled as store_update_routing_profile_enabled,
+    update_subscription as store_update_subscription,
 )
 
 
@@ -228,6 +244,21 @@ class SubvostAppService:
     def ping_cache_snapshot(self) -> dict[str, Any]:
         with self.state.ping_cache_lock:
             return dict(self.state.ping_cache)
+
+    def find_profile_and_node(
+        self,
+        store: dict[str, Any],
+        profile_id: str,
+        node_id: str,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        for profile in store.get("profiles", []):
+            if profile.get("id") != profile_id:
+                continue
+            for node in profile.get("nodes", []):
+                if node.get("id") == node_id:
+                    return profile, node
+            return profile, None
+        return None, None
 
     def load_settings(self) -> dict[str, Any]:
         return read_gui_settings(self.context.app_paths, uid=self.context.real_uid, gid=self.context.real_gid)
@@ -959,6 +990,363 @@ class SubvostAppService:
             "last_action": self.state.last_action.copy(),
             "timestamp": iso_now(),
         }
+
+    def collect_store_snapshot(self) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        return {
+            "ok": True,
+            "store": store_payload(store, self.context.app_paths),
+            "status": self.collect_status(),
+        }
+
+    def build_store_response(
+        self,
+        store: dict[str, Any],
+        *,
+        name: str,
+        ok: bool,
+        message: str,
+        details: str,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.persist_store(store)
+        self.remember_action(name, ok, message, details)
+        payload = {
+            "ok": ok,
+            "message": message,
+            "store": store_payload(store, self.context.app_paths),
+            "status": self.collect_status(),
+        }
+        if extra:
+            payload.update(extra)
+        return payload
+
+    def add_subscription(self, name: str, url: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        subscription = store_add_subscription(store, name, url)
+        details_payload: dict[str, Any] = {
+            "subscription_id": subscription["id"],
+            "subscription": subscription,
+            "focus_profile_id": subscription["profile_id"],
+        }
+        try:
+            refresh_result = store_refresh_subscription(store, subscription["id"])
+            details_payload["refresh"] = refresh_result
+            message = (
+                f"Подписка '{subscription['name']}' добавлена. "
+                f"Сохранено уникальных узлов: {refresh_result['unique_nodes']}."
+            )
+        except ValueError as exc:
+            try:
+                store_delete_subscription(store, subscription["id"])
+            except ValueError:
+                pass
+            self.persist_store(store)
+            raise ValueError(f"Подписка не добавлена: {exc}.") from exc
+
+        return self.build_store_response(
+            store,
+            name="Добавление подписки",
+            ok=True,
+            message=message,
+            details="\n".join(
+                [
+                    f"subscription_id={subscription['id']}",
+                    f"profile_id={subscription['profile_id']}",
+                    f"refresh_status={details_payload.get('refresh', {}).get('status', 'error')}",
+                    f"valid={details_payload.get('refresh', {}).get('valid', 0)}",
+                    f"invalid={details_payload.get('refresh', {}).get('invalid', 0)}",
+                    f"unique_nodes={details_payload.get('refresh', {}).get('unique_nodes', 0)}",
+                    f"duplicate_lines={details_payload.get('refresh', {}).get('duplicate_lines', 0)}",
+                ]
+            ),
+            extra=details_payload,
+        )
+
+    def refresh_subscription(self, subscription_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        try:
+            result = store_refresh_subscription(store, subscription_id)
+        except ValueError as exc:
+            self.persist_store(store)
+            raise ValueError(f"Подписка не обновлена: {exc}. Сохранена предыдущая версия.") from exc
+        return self.build_store_response(
+            store,
+            name="Обновление подписки",
+            ok=True,
+            message=f"Подписка обновлена: сохранено {result['unique_nodes']} уникальных узлов.",
+            details=json.dumps(result, ensure_ascii=False),
+            extra={"refresh": result},
+        )
+
+    def refresh_all_subscriptions(self) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        result = store_refresh_all_subscriptions(store)
+        ok = result["error"] == 0
+        message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась."
+        return self.build_store_response(
+            store,
+            name="Обновить все подписки",
+            ok=ok,
+            message=message,
+            details=json.dumps(result, ensure_ascii=False),
+            extra={"refresh_all": result},
+        )
+
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        name: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        subscription = store_update_subscription(store, subscription_id, name=name, enabled=enabled)
+        return self.build_store_response(
+            store,
+            name="Настройки подписки",
+            ok=True,
+            message="Настройки подписки сохранены.",
+            details=json.dumps({"subscription_id": subscription["id"]}, ensure_ascii=False),
+            extra={"subscription": subscription},
+        )
+
+    def delete_subscription(self, subscription_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        store_delete_subscription(store, subscription_id)
+        return self.build_store_response(
+            store,
+            name="Удаление подписки",
+            ok=True,
+            message="Подписка и связанный профиль удалены.",
+            details=json.dumps({"subscription_id": subscription_id}, ensure_ascii=False),
+        )
+
+    def activate_selection(self, profile_id: str, node_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        node = store_activate_selection(store, profile_id, node_id)
+        return self.build_store_response(
+            store,
+            name="Активация узла",
+            ok=True,
+            message=f"Активным сделан узел '{node['name']}'.",
+            details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+            extra={"node": node},
+        )
+
+    def update_profile(
+        self,
+        profile_id: str,
+        *,
+        name: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        profile = store_update_profile(store, profile_id, name=name, enabled=enabled)
+        return self.build_store_response(
+            store,
+            name="Настройки профиля",
+            ok=True,
+            message="Профиль обновлён.",
+            details=json.dumps({"profile_id": profile["id"]}, ensure_ascii=False),
+            extra={"profile": profile},
+        )
+
+    def delete_profile(self, profile_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        store_delete_profile(store, profile_id)
+        return self.build_store_response(
+            store,
+            name="Удаление профиля",
+            ok=True,
+            message="Профиль удалён.",
+            details=json.dumps({"profile_id": profile_id}, ensure_ascii=False),
+        )
+
+    def update_node(
+        self,
+        profile_id: str,
+        node_id: str,
+        *,
+        name: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        node = store_update_node(store, profile_id, node_id, name=name, enabled=enabled)
+        return self.build_store_response(
+            store,
+            name="Настройки узла",
+            ok=True,
+            message="Узел обновлён.",
+            details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+            extra={"node": node},
+        )
+
+    def delete_node(self, profile_id: str, node_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        store_delete_node(store, profile_id, node_id)
+        return self.build_store_response(
+            store,
+            name="Удаление узла",
+            ok=True,
+            message="Узел удалён.",
+            details=json.dumps({"profile_id": profile_id, "node_id": node_id}, ensure_ascii=False),
+        )
+
+    def ping_node(self, node: dict[str, Any], *, timeout: float = 3.0) -> dict[str, Any]:
+        normalized = node.get("normalized", {}) or {}
+        host = str(normalized.get("address") or "").strip()
+        port = normalized.get("port")
+        if not host or not port:
+            raise ValueError("Для узла не хватает адреса или порта.")
+
+        started = time.perf_counter()
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+
+        return {
+            "host": host,
+            "port": int(port),
+            "latency_ms": elapsed_ms,
+            "label": f"{elapsed_ms:.1f} мс",
+            "timestamp": iso_now(),
+            "ok": True,
+        }
+
+    def ping_node_by_id(self, profile_id: str, node_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        profile, node = self.find_profile_and_node(store, profile_id, node_id)
+        if not profile or not node:
+            raise ValueError("Узел для ping не найден.")
+        if not profile.get("enabled", True):
+            raise ValueError("Профиль отключён.")
+        if not node.get("enabled", True):
+            raise ValueError("Узел отключён.")
+
+        try:
+            result = self.ping_node(node)
+        except OSError as exc:
+            message = f"Ping не выполнен: {exc}."
+            result = {
+                "host": str(node.get("normalized", {}).get("address") or "—"),
+                "port": node.get("normalized", {}).get("port"),
+                "latency_ms": None,
+                "label": "Ошибка",
+                "timestamp": iso_now(),
+                "ok": False,
+                "error": str(exc),
+            }
+            with self.state.ping_cache_lock:
+                self.state.ping_cache[self.ping_cache_key(profile_id, node_id)] = result
+            raise ValueError(message) from exc
+
+        with self.state.ping_cache_lock:
+            self.state.ping_cache[self.ping_cache_key(profile_id, node_id)] = result
+
+        self.remember_action(
+            "Ping узла",
+            True,
+            f"Узел '{node.get('name', 'без имени')}' ответил за {result['label']}.",
+            json.dumps(
+                {
+                    "profile_id": profile_id,
+                    "node_id": node_id,
+                    **result,
+                },
+                ensure_ascii=False,
+            ),
+        )
+        return {
+            "ok": True,
+            "ping": {
+                "profile_id": profile_id,
+                "node_id": node_id,
+                **result,
+            },
+            "status": self.collect_status(),
+        }
+
+    def import_routing_profile(self, text: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        result = store_import_routing_profile(store, self.context.app_paths, text, uid=self.context.real_uid, gid=self.context.real_gid)
+        message = (
+            f"Routing-профиль '{result['profile']['name']}' "
+            f"{'обновлён' if not result['created'] else 'импортирован'}."
+        )
+        return self.build_store_response(
+            store,
+            name="Импорт маршрутизации",
+            ok=True,
+            message=message,
+            details=json.dumps(
+                {
+                    "routing_profile_id": result["profile"]["id"],
+                    "created": result["created"],
+                    "geodata_status": result["geodata"].get("status"),
+                },
+                ensure_ascii=False,
+            ),
+            extra={"routing_profile": result["profile"], "routing_import": result},
+        )
+
+    def activate_routing_profile(self, profile_id: str) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        profile = store_activate_routing_profile(
+            store,
+            self.context.app_paths,
+            profile_id,
+            uid=self.context.real_uid,
+            gid=self.context.real_gid,
+        )
+        return self.build_store_response(
+            store,
+            name="Активация маршрутизации",
+            ok=True,
+            message=f"Активным сделан routing-профиль '{profile['name']}'.",
+            details=json.dumps({"routing_profile_id": profile_id}, ensure_ascii=False),
+            extra={"routing_profile": profile},
+        )
+
+    def clear_active_routing_profile(self) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        store_clear_active_routing_profile(store, self.context.app_paths)
+        return self.build_store_response(
+            store,
+            name="Сброс маршрутизации",
+            ok=True,
+            message="Активный routing-профиль снят, маршрутизация выключена.",
+            details="routing_active_profile_cleared=1",
+        )
+
+    def update_routing_profile_enabled(self, profile_id: str, *, enabled: bool) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        profile = store_update_routing_profile_enabled(store, self.context.app_paths, profile_id, enabled=enabled)
+        return self.build_store_response(
+            store,
+            name="Настройки маршрутизации",
+            ok=True,
+            message="Состояние routing-профиля сохранено.",
+            details=json.dumps({"routing_profile_id": profile["id"], "enabled": profile["enabled"]}, ensure_ascii=False),
+            extra={"routing_profile": profile},
+        )
+
+    def set_routing_enabled(self, enabled: bool) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        routing = store_set_routing_enabled(
+            store,
+            self.context.app_paths,
+            enabled,
+            uid=self.context.real_uid,
+            gid=self.context.real_gid,
+        )
+        return self.build_store_response(
+            store,
+            name="Master toggle маршрутизации",
+            ok=True,
+            message="Маршрутизация включена." if routing["enabled"] else "Маршрутизация выключена.",
+            details=json.dumps({"enabled": routing["enabled"]}, ensure_ascii=False),
+            extra={"routing": routing},
+        )
 
     def start_runtime(self) -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()

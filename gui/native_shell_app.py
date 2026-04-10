@@ -24,9 +24,20 @@ from native_shell_shared import (
     NATIVE_SHELL_TRAY_WATCHER_CANDIDATES,
     NativeShellSettings,
     NativeShellTraySupport,
+    active_node_from_store_snapshot,
+    active_profile_from_store_snapshot,
+    active_routing_profile_from_store_snapshot,
     build_startup_notes,
     build_tray_support,
     native_shell_theme_label,
+    native_shell_action_label,
+    ping_snapshot_from_status,
+    resolve_selected_subscription_id,
+    routing_from_store_snapshot,
+    routing_profiles_from_store_snapshot,
+    selected_profile_from_store_snapshot,
+    selected_subscription_from_store_snapshot,
+    subscriptions_from_store_snapshot,
     should_hide_on_close,
     should_start_hidden,
     tray_action_label,
@@ -216,6 +227,75 @@ button.native-shell-button-danger:disabled {
   opacity: 0.52;
 }
 
+entry.native-shell-entry,
+textview.native-shell-input {
+  background: rgba(13, 16, 22, 0.96);
+  color: @text_primary;
+  border-radius: 12px;
+  border: 1px solid rgba(58, 66, 86, 0.96);
+}
+
+.native-shell-inline-actions {
+  border-spacing: 8px 0;
+}
+
+.native-shell-subscriptions-root,
+.native-shell-subscriptions-right {
+  min-height: 0;
+}
+
+.native-shell-listbox {
+  background: transparent;
+}
+
+.native-shell-list-row {
+  background: rgba(34, 39, 53, 0.58);
+  border-radius: 14px;
+  border: 1px solid rgba(58, 66, 86, 0.6);
+  padding: 14px;
+}
+
+.native-shell-list-row:selected {
+  background: rgba(255, 99, 99, 0.16);
+  border-color: rgba(255, 99, 99, 0.42);
+}
+
+.native-shell-row-title {
+  color: @text_primary;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.native-shell-row-meta {
+  color: @text_secondary;
+  font-size: 12px;
+}
+
+.native-shell-row-copy {
+  color: @text_muted;
+  font-size: 12px;
+}
+
+.native-shell-chip-success {
+  background: rgba(61, 220, 151, 0.16);
+  border-color: rgba(61, 220, 151, 0.42);
+}
+
+.native-shell-chip-warning {
+  background: rgba(255, 184, 77, 0.16);
+  border-color: rgba(255, 184, 77, 0.4);
+}
+
+.native-shell-chip-danger {
+  background: rgba(255, 93, 115, 0.18);
+  border-color: rgba(255, 93, 115, 0.46);
+}
+
+.native-shell-chip-accent {
+  background: rgba(123, 196, 255, 0.16);
+  border-color: rgba(123, 196, 255, 0.44);
+}
+
 textview {
   background: #0D1016;
   color: @text_primary;
@@ -347,6 +427,18 @@ class NativeShellApp:
         self.dashboard_metrics: dict[str, object] = {}
         self.dashboard_action_buttons: dict[str, object] = {}
         self.dashboard_badge_box = None
+        self.last_store_payload: dict[str, Any] | None = None
+        self.selected_subscription_id: str | None = None
+        self.subscription_url_entry = None
+        self.subscription_list_box = None
+        self.node_list_box = None
+        self.routing_profile_list_box = None
+        self.routing_import_buffer = None
+        self.subscription_labels: dict[str, object] = {}
+        self.subscription_action_buttons: dict[str, object] = {}
+        self.routing_action_buttons: dict[str, object] = {}
+        self.subscription_row_click_suppressed = False
+        self.node_row_click_suppressed = False
         self.status_refresh_in_flight = False
         self.action_in_flight: str | None = None
         self.status_refresh_source_id = None
@@ -728,22 +820,674 @@ class NativeShellApp:
         return panel
 
     def build_subscriptions_page(self):
-        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
-        add_css_class(card, "native-shell-panel")
-        card_title = self.Gtk.Label(label="Subscriptions и routing пойдут следующим этапом", xalign=0)
-        add_css_class(card_title, "native-shell-card-title")
-        body = self.Gtk.Label(
-            label=(
-                "Каркас страницы уже сохранён внутри общего native shell. "
-                "Следующий этап добавит импорт URL-подписок, список узлов, ping, routing import и блок `GeoIP/Geosite`."
-            ),
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+
+        action_panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        add_css_class(action_panel, "native-shell-panel")
+        title = self.Gtk.Label(label="Подписки и routing", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        summary = self.Gtk.Label(
+            label="Добавьте первую URL-подписку или обновите уже сохранённые профили.",
             xalign=0,
         )
-        body.set_wrap(True)
-        add_css_class(body, "native-shell-muted")
-        card.append(card_title)
-        card.append(body)
-        return card
+        summary.set_wrap(True)
+        add_css_class(summary, "native-shell-muted")
+        self.subscription_labels["summary"] = summary
+
+        input_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        input_row.set_hexpand(True)
+        entry = self.Gtk.Entry()
+        entry.set_hexpand(True)
+        entry.set_placeholder_text("https://example.com/subscription")
+        add_css_class(entry, "native-shell-entry")
+        entry.connect("activate", lambda *_args: self.on_add_subscription_requested())
+        self.subscription_url_entry = entry
+
+        add_button = self.Gtk.Button(label="Добавить")
+        add_css_class(add_button, "native-shell-button-primary")
+        add_button.connect("clicked", lambda *_args: self.on_add_subscription_requested())
+        self.subscription_action_buttons["subscriptions-add"] = add_button
+
+        refresh_all_button = self.Gtk.Button(label="Обновить все")
+        add_css_class(refresh_all_button, "native-shell-button-secondary")
+        refresh_all_button.connect("clicked", lambda *_args: self.begin_store_action("subscriptions-refresh-all"))
+        self.subscription_action_buttons["subscriptions-refresh-all"] = refresh_all_button
+
+        input_row.append(entry)
+        input_row.append(add_button)
+        input_row.append(refresh_all_button)
+        action_panel.append(title)
+        action_panel.append(summary)
+        action_panel.append(input_row)
+        container.append(action_panel)
+
+        body = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=16)
+        body.set_vexpand(True)
+        add_css_class(body, "native-shell-subscriptions-root")
+        body.append(self.build_subscription_list_panel())
+        right_column = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        right_column.set_hexpand(True)
+        right_column.set_vexpand(True)
+        add_css_class(right_column, "native-shell-subscriptions-right")
+        right_column.append(self.build_nodes_panel())
+        right_column.append(self.build_routing_panel())
+        body.append(right_column)
+        container.append(body)
+        return container
+
+    def build_subscription_list_panel(self):
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel.set_size_request(320, -1)
+        panel.set_hexpand(False)
+        panel.set_vexpand(True)
+        add_css_class(panel, "native-shell-panel")
+
+        title = self.Gtk.Label(label="URL-подписки", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        copy_label = self.Gtk.Label(
+            label="Слева выбирается текущая подписка, справа видны её узлы и routing-панель.",
+            xalign=0,
+        )
+        copy_label.set_wrap(True)
+        add_css_class(copy_label, "native-shell-muted")
+        self.subscription_labels["subscription_copy"] = copy_label
+
+        list_box = self.Gtk.ListBox()
+        list_box.set_selection_mode(self.Gtk.SelectionMode.SINGLE)
+        list_box.set_activate_on_single_click(True)
+        add_css_class(list_box, "native-shell-listbox")
+        list_box.connect("row-activated", self.on_subscription_row_activated)
+        self.subscription_list_box = list_box
+
+        panel.append(title)
+        panel.append(copy_label)
+        panel.append(self.build_list_scroller(list_box))
+        return panel
+
+    def build_nodes_panel(self):
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel.set_hexpand(True)
+        panel.set_vexpand(True)
+        add_css_class(panel, "native-shell-panel")
+
+        head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
+        head.set_hexpand(True)
+        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
+        title = self.Gtk.Label(label="Узлы", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        badge = self.Gtk.Label(label="Нет подписки", xalign=0)
+        add_css_class(badge, "native-shell-badge")
+        add_css_class(badge, "native-shell-chip-warning")
+        title_box.append(title)
+        title_box.append(badge)
+        copy_label = self.Gtk.Label(
+            label="Выберите подписку слева, чтобы загрузить доступные узлы.",
+            xalign=0,
+        )
+        copy_label.set_wrap(True)
+        add_css_class(copy_label, "native-shell-muted")
+        self.subscription_labels["node_panel_title"] = title
+        self.subscription_labels["node_panel_badge"] = badge
+        self.subscription_labels["node_panel_copy"] = copy_label
+        head.append(title_box)
+
+        list_box = self.Gtk.ListBox()
+        list_box.set_selection_mode(self.Gtk.SelectionMode.SINGLE)
+        list_box.set_activate_on_single_click(True)
+        add_css_class(list_box, "native-shell-listbox")
+        list_box.connect("row-activated", self.on_node_row_activated)
+        self.node_list_box = list_box
+
+        panel.append(head)
+        panel.append(copy_label)
+        panel.append(self.build_list_scroller(list_box))
+        return panel
+
+    def build_routing_panel(self):
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel.set_hexpand(True)
+        panel.set_vexpand(True)
+        add_css_class(panel, "native-shell-panel")
+
+        title = self.Gtk.Label(label="Routing", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        badge = self.Gtk.Label(label="Нет профиля", xalign=0)
+        add_css_class(badge, "native-shell-badge")
+        add_css_class(badge, "native-shell-chip-warning")
+        status_line = self.Gtk.Label(label="Профиль маршрутизации ещё не выбран.", xalign=0)
+        status_line.set_wrap(True)
+        add_css_class(status_line, "native-shell-muted")
+        geodata_line = self.Gtk.Label(label="Geodata пока не подготовлена.", xalign=0)
+        geodata_line.set_wrap(True)
+        add_css_class(geodata_line, "native-shell-card-subtitle")
+        self.subscription_labels["routing_badge"] = badge
+        self.subscription_labels["routing_status"] = status_line
+        self.subscription_labels["routing_geodata"] = geodata_line
+
+        import_view = self.Gtk.TextView()
+        import_view.set_wrap_mode(self.Gtk.WrapMode.WORD_CHAR)
+        import_view.set_vexpand(False)
+        import_view.set_size_request(-1, 110)
+        add_css_class(import_view, "native-shell-input")
+        self.routing_import_buffer = import_view.get_buffer()
+        import_scroller = self.Gtk.ScrolledWindow()
+        import_scroller.set_hexpand(True)
+        import_scroller.set_child(import_view)
+
+        action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        import_button = self.Gtk.Button(label="Импортировать")
+        add_css_class(import_button, "native-shell-button-primary")
+        import_button.connect("clicked", lambda *_args: self.on_import_routing_requested())
+        self.routing_action_buttons["routing-import"] = import_button
+
+        toggle_button = self.Gtk.Button(label="Включить routing")
+        add_css_class(toggle_button, "native-shell-button-secondary")
+        toggle_button.connect("clicked", lambda *_args: self.on_toggle_routing_requested())
+        self.routing_action_buttons["routing-toggle"] = toggle_button
+
+        clear_button = self.Gtk.Button(label="Снять активный")
+        add_css_class(clear_button, "native-shell-button-secondary")
+        clear_button.connect("clicked", lambda *_args: self.begin_store_action("routing-clear-active"))
+        self.routing_action_buttons["routing-clear-active"] = clear_button
+
+        action_row.append(import_button)
+        action_row.append(toggle_button)
+        action_row.append(clear_button)
+
+        list_box = self.Gtk.ListBox()
+        list_box.set_selection_mode(self.Gtk.SelectionMode.NONE)
+        add_css_class(list_box, "native-shell-listbox")
+        self.routing_profile_list_box = list_box
+
+        panel.append(title)
+        panel.append(badge)
+        panel.append(status_line)
+        panel.append(geodata_line)
+        panel.append(import_scroller)
+        panel.append(action_row)
+        panel.append(self.build_list_scroller(list_box))
+        return panel
+
+    def build_list_scroller(self, child):
+        scrolled = self.Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.set_child(child)
+        return scrolled
+
+    def clear_list_widget(self, list_widget) -> None:
+        child = list_widget.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            list_widget.remove(child)
+            child = next_child
+
+    def make_badge(self, label: str, tone: str) -> object:
+        badge = self.Gtk.Label(label=label, xalign=0)
+        add_css_class(badge, "native-shell-badge")
+        add_css_class(badge, f"native-shell-chip-{tone}")
+        return badge
+
+    def make_row_text(self, label: str, css_class: str):
+        widget = self.Gtk.Label(label=label, xalign=0)
+        widget.set_wrap(True)
+        add_css_class(widget, css_class)
+        return widget
+
+    def build_subscriptions_empty_row(self, message: str):
+        row = self.Gtk.ListBoxRow()
+        row.set_selectable(False)
+        row.set_activatable(False)
+        content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
+        add_css_class(content, "native-shell-list-row")
+        content.append(self.make_row_text(message, "native-shell-row-copy"))
+        row.set_child(content)
+        return row
+
+    def render_subscriptions_view(self) -> None:
+        store_payload = self.last_store_payload or {}
+        subscriptions = subscriptions_from_store_snapshot(store_payload)
+        selected_subscription = selected_subscription_from_store_snapshot(store_payload, self.selected_subscription_id)
+        selected_profile = selected_profile_from_store_snapshot(store_payload, self.selected_subscription_id)
+        active_node = active_node_from_store_snapshot(store_payload)
+        active_routing_profile = active_routing_profile_from_store_snapshot(store_payload)
+        routing = routing_from_store_snapshot(store_payload)
+        fresh_subscriptions = sum(1 for item in subscriptions if item.get("last_status") == "ok")
+
+        summary_message = (
+            f"{fresh_subscriptions} из {len(subscriptions)} подписок актуальны."
+            if subscriptions
+            else "Добавьте первую подписку по URL."
+        )
+        self.set_subscription_label("summary", summary_message)
+        self.set_subscription_label(
+            "subscription_copy",
+            "Клик по строке выбирает подписку; операции refresh и enable/disable выполняются рядом."
+            if subscriptions
+            else "Сохранённых подписок пока нет.",
+        )
+
+        self.refresh_subscription_rows(subscriptions, selected_subscription)
+        self.refresh_node_rows(selected_profile, selected_subscription, active_node)
+        self.refresh_routing_panel(routing, active_routing_profile)
+        self.refresh_subscriptions_controls()
+
+    def refresh_subscription_rows(
+        self,
+        subscriptions: list[dict[str, Any]],
+        selected_subscription: dict[str, Any] | None,
+    ) -> None:
+        list_box = self.subscription_list_box
+        if list_box is None:
+            return
+
+        self.clear_list_widget(list_box)
+        if not subscriptions:
+            list_box.append(self.build_subscriptions_empty_row("Подписок пока нет."))
+            return
+
+        profiles = (self.last_store_payload or {}).get("store", {}).get("profiles", [])
+        profile_map = {
+            str(profile.get("id")): profile
+            for profile in profiles
+            if isinstance(profile, dict) and profile.get("id")
+        }
+        selected_id = str(selected_subscription.get("id")) if selected_subscription else None
+        selected_row = None
+
+        for subscription in subscriptions:
+            profile = profile_map.get(str(subscription.get("profile_id")))
+            row = self.Gtk.ListBoxRow()
+            row.subscription_id = str(subscription.get("id") or "")
+            row.set_selectable(True)
+            row.set_activatable(True)
+
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+            add_css_class(content, "native-shell-list-row")
+
+            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            header.set_hexpand(True)
+            title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
+            title_box.set_hexpand(True)
+            title_box.append(self.make_row_text(str(subscription.get("name") or "Без имени"), "native-shell-row-title"))
+            title_box.append(self.make_row_text(str(subscription.get("url") or "—"), "native-shell-row-meta"))
+
+            status_tone = "success"
+            status_label = "актуальна"
+            if subscription.get("last_status") == "error":
+                status_tone = "danger"
+                status_label = "ошибка"
+            elif subscription.get("last_status") != "ok":
+                status_tone = "warning"
+                status_label = "ожидает обновления"
+            enabled_label = "включена" if subscription.get("enabled", True) else "выключена"
+            enabled_tone = "accent" if subscription.get("enabled", True) else "danger"
+            node_count = len(profile.get("nodes", [])) if isinstance(profile, dict) else 0
+            badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            badge_row.append(self.make_badge(status_label, status_tone))
+            badge_row.append(self.make_badge(f"узлов {node_count}", "accent"))
+            badge_row.append(self.make_badge(enabled_label, enabled_tone))
+
+            action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            refresh_button = self.Gtk.Button(label="Обновить")
+            add_css_class(refresh_button, "native-shell-button-secondary")
+            refresh_button.set_sensitive(self.action_in_flight is None)
+            refresh_button.connect("clicked", self.on_subscription_action_clicked, "subscription-refresh", row.subscription_id, None)
+            action_row.append(refresh_button)
+
+            toggle_button = self.Gtk.Button(label="Выключить" if subscription.get("enabled", True) else "Включить")
+            add_css_class(toggle_button, "native-shell-button-secondary")
+            toggle_button.set_sensitive(self.action_in_flight is None)
+            toggle_button.connect(
+                "clicked",
+                self.on_subscription_action_clicked,
+                "subscription-toggle",
+                row.subscription_id,
+                not bool(subscription.get("enabled", True)),
+            )
+            action_row.append(toggle_button)
+
+            delete_button = self.Gtk.Button(label="Удалить")
+            add_css_class(delete_button, "native-shell-button-danger")
+            delete_button.set_sensitive(self.action_in_flight is None)
+            delete_button.connect("clicked", self.on_subscription_action_clicked, "subscription-delete", row.subscription_id, None)
+            action_row.append(delete_button)
+
+            header.append(title_box)
+            header.append(badge_row)
+            content.append(header)
+            if subscription.get("last_error"):
+                content.append(self.make_row_text(str(subscription.get("last_error")), "native-shell-row-copy"))
+            else:
+                timestamp = subscription.get("last_success_at")
+                content.append(
+                    self.make_row_text(
+                        f"Последнее обновление: {timestamp or 'ещё не выполнялось'}",
+                        "native-shell-row-copy",
+                    )
+                )
+            content.append(action_row)
+            row.set_child(content)
+            list_box.append(row)
+
+            if selected_id and row.subscription_id == selected_id:
+                selected_row = row
+
+        if selected_row is not None:
+            list_box.select_row(selected_row)
+
+    def refresh_node_rows(
+        self,
+        selected_profile: dict[str, Any] | None,
+        selected_subscription: dict[str, Any] | None,
+        active_node: dict[str, Any] | None,
+    ) -> None:
+        list_box = self.node_list_box
+        if list_box is None:
+            return
+
+        self.clear_list_widget(list_box)
+        if not selected_subscription or not selected_profile:
+            self.set_subscription_label("node_panel_title", "Узлы")
+            self.set_subscription_label("node_panel_badge", "Нет подписки", tone="warning")
+            self.set_subscription_label("node_panel_copy", "Выберите подписку слева, чтобы загрузить доступные узлы.")
+            list_box.append(self.build_subscriptions_empty_row("Для работы с узлами нужна хотя бы одна подписка."))
+            return
+
+        nodes = selected_profile.get("nodes", []) if isinstance(selected_profile.get("nodes"), list) else []
+        ready_nodes = [node for node in nodes if node.get("enabled", True) and not node.get("parse_error")]
+        self.set_subscription_label("node_panel_title", str(selected_subscription.get("name") or "Узлы"))
+        self.set_subscription_label(
+            "node_panel_badge",
+            f"{len(ready_nodes)}/{len(nodes)} готовы",
+            tone="success" if nodes and len(ready_nodes) == len(nodes) else "accent",
+        )
+        self.set_subscription_label("node_panel_copy", "Клик по строке активирует узел, `Ping` проверяет доступность без смены выбора.")
+
+        if not nodes:
+            list_box.append(self.build_subscriptions_empty_row("В этой подписке пока нет узлов."))
+            return
+
+        selected_row = None
+        active_node_id = str(active_node.get("id")) if active_node else None
+        profile_id = str(selected_profile.get("id") or "")
+        for node in nodes:
+            row = self.Gtk.ListBoxRow()
+            row.profile_id = profile_id
+            row.node_id = str(node.get("id") or "")
+            row.node_disabled = bool(node.get("parse_error")) or not bool(node.get("enabled", True))
+            row.set_selectable(True)
+            row.set_activatable(not row.node_disabled)
+
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+            add_css_class(content, "native-shell-list-row")
+
+            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
+            title_box.set_hexpand(True)
+            title_box.append(self.make_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title"))
+            meta = [
+                str(node.get("protocol") or "—").upper(),
+                f"{node.get('normalized', {}).get('address', '—')}:{node.get('normalized', {}).get('port', '—')}",
+            ]
+            network = str(node.get("normalized", {}).get("network") or "").strip()
+            if network:
+                meta.append(f"транспорт={network}")
+            title_box.append(self.make_row_text(" · ".join(meta), "native-shell-row-meta"))
+
+            badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            if active_node_id and row.node_id == active_node_id:
+                badge_row.append(self.make_badge("активен", "accent"))
+                selected_row = row
+            elif row.node_disabled:
+                badge_row.append(self.make_badge("недоступен", "danger"))
+            else:
+                badge_row.append(self.make_badge("готов", "success"))
+
+            ping = ping_snapshot_from_status(self.last_status_payload, profile_id, row.node_id)
+            if ping:
+                badge_row.append(self.make_badge(str(ping.get("label") or "ping"), "success" if ping.get("ok") else "danger"))
+            else:
+                badge_row.append(self.make_badge("ping не проверен", "warning"))
+
+            ping_button = self.Gtk.Button(label="Ping")
+            add_css_class(ping_button, "native-shell-button-secondary")
+            ping_button.set_sensitive(self.action_in_flight is None)
+            ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, row.node_id)
+            header.append(title_box)
+            header.append(badge_row)
+            header.append(ping_button)
+
+            content.append(header)
+            if node.get("parse_error"):
+                content.append(self.make_row_text(f"Ошибка разбора: {node['parse_error']}", "native-shell-row-copy"))
+            row.set_child(content)
+            list_box.append(row)
+
+        if selected_row is not None:
+            list_box.select_row(selected_row)
+
+    def refresh_routing_panel(
+        self,
+        routing: dict[str, Any],
+        active_routing_profile: dict[str, Any] | None,
+    ) -> None:
+        enabled = bool(routing.get("enabled"))
+        ready = bool(routing.get("runtime_ready"))
+        profiles = routing_profiles_from_store_snapshot(self.last_store_payload)
+        geodata = routing.get("geodata") or {}
+
+        badge_value = "Нет профиля"
+        badge_tone = "warning"
+        if enabled and active_routing_profile and ready:
+            badge_value = "Включена"
+            badge_tone = "success"
+        elif enabled:
+            badge_value = "Ошибка"
+            badge_tone = "danger"
+        elif active_routing_profile:
+            badge_value = "Выключена"
+            badge_tone = "accent"
+
+        self.set_subscription_label("routing_badge", badge_value, tone=badge_tone)
+        if active_routing_profile:
+            mode_label = "global proxy" if active_routing_profile.get("global_proxy") else "direct fallback"
+            status_text = (
+                f"Активен профиль '{active_routing_profile['name']}', применяется {active_routing_profile.get('supported_entry_count', 0)} правил, режим {mode_label}."
+                if enabled and ready
+                else f"Выбран профиль '{active_routing_profile['name']}', правил {active_routing_profile.get('supported_entry_count', 0)}, режим {mode_label}."
+            )
+        else:
+            status_text = "Профиль маршрутизации ещё не выбран."
+        self.set_subscription_label("routing_status", status_text)
+
+        geodata_text = "Geodata пока не подготовлена."
+        if geodata.get("ready"):
+            geodata_text = (
+                f"Geodata готова: geoip.dat и geosite.dat доступны в {geodata.get('asset_dir') or 'asset-dir'}."
+            )
+        elif geodata.get("status") == "error":
+            geodata_text = f"Geodata не готова: {geodata.get('error') or 'ошибка загрузки'}."
+        self.set_subscription_label("routing_geodata", geodata_text)
+
+        toggle_button = self.routing_action_buttons.get("routing-toggle")
+        if toggle_button is not None:
+            toggle_button.set_label("Выключить routing" if enabled else "Включить routing")
+
+        list_box = self.routing_profile_list_box
+        if list_box is None:
+            return
+
+        self.clear_list_widget(list_box)
+        if not profiles:
+            list_box.append(self.build_subscriptions_empty_row("Routing-профилей пока нет."))
+            return
+
+        active_id = str(active_routing_profile.get("id")) if active_routing_profile else None
+        for profile in profiles:
+            row = self.Gtk.ListBoxRow()
+            row.set_selectable(False)
+            row.set_activatable(False)
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+            add_css_class(content, "native-shell-list-row")
+
+            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
+            title_box.set_hexpand(True)
+            title_box.append(self.make_row_text(str(profile.get("name") or "Без имени"), "native-shell-row-title"))
+            meta = [
+                f"правил {profile.get('supported_entry_count', 0)}",
+                "global proxy" if profile.get("global_proxy") else "direct fallback",
+                f"источник {profile.get('source_format') or 'json'}",
+            ]
+            title_box.append(self.make_row_text(" · ".join(meta), "native-shell-row-meta"))
+
+            badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            is_active = active_id and str(profile.get("id")) == active_id
+            disabled = not bool(profile.get("enabled", True))
+            if is_active and enabled and ready:
+                badge_row.append(self.make_badge("применяется", "success"))
+            elif is_active:
+                badge_row.append(self.make_badge("выбран", "accent"))
+            elif disabled:
+                badge_row.append(self.make_badge("отключён", "danger"))
+            else:
+                badge_row.append(self.make_badge("готов", "success"))
+
+            action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            if not disabled:
+                activate_button = self.Gtk.Button(label="Текущий" if is_active else "Сделать текущим")
+                add_css_class(activate_button, "native-shell-button-secondary")
+                activate_button.set_sensitive(self.action_in_flight is None)
+                activate_button.connect("clicked", self.on_routing_profile_action_clicked, "routing-activate-profile", str(profile.get("id") or ""), None)
+                action_row.append(activate_button)
+
+            toggle_button = self.Gtk.Button(label="Включить профиль" if disabled else "Отключить профиль")
+            add_css_class(toggle_button, "native-shell-button-danger" if not disabled else "native-shell-button-secondary")
+            toggle_button.set_sensitive(self.action_in_flight is None)
+            toggle_button.connect(
+                "clicked",
+                self.on_routing_profile_action_clicked,
+                "routing-toggle-profile",
+                str(profile.get("id") or ""),
+                disabled,
+            )
+            action_row.append(toggle_button)
+
+            header.append(title_box)
+            header.append(badge_row)
+            content.append(header)
+            content.append(action_row)
+            row.set_child(content)
+            list_box.append(row)
+
+    def set_subscription_label(self, key: str, value: str, *, tone: str | None = None) -> None:
+        label = self.subscription_labels.get(key)
+        if label is None:
+            return
+        label.set_label(value)
+        if tone is not None:
+            for current_tone in ("success", "warning", "danger", "accent"):
+                if hasattr(label, "remove_css_class"):
+                    label.remove_css_class(f"native-shell-chip-{current_tone}")
+            add_css_class(label, f"native-shell-chip-{tone}")
+
+    def on_subscription_row_activated(self, _list_box, row) -> None:
+        if self.subscription_row_click_suppressed or self.action_in_flight:
+            self.subscription_row_click_suppressed = False
+            return
+        subscription_id = str(getattr(row, "subscription_id", "") or "")
+        if not subscription_id:
+            return
+        self.selected_subscription_id = subscription_id
+        self.render_subscriptions_view()
+
+    def reset_subscription_row_suppression(self) -> bool:
+        self.subscription_row_click_suppressed = False
+        return False
+
+    def on_subscription_action_clicked(self, _button, action_id: str, subscription_id: str, enabled_value: object) -> None:
+        self.subscription_row_click_suppressed = True
+        self.GLib.idle_add(self.reset_subscription_row_suppression)
+        kwargs: dict[str, Any] = {"subscription_id": subscription_id}
+        if action_id == "subscription-toggle":
+            kwargs["enabled"] = bool(enabled_value)
+        self.begin_store_action(action_id, **kwargs)
+
+    def on_node_row_activated(self, _list_box, row) -> None:
+        if self.node_row_click_suppressed or self.action_in_flight:
+            self.node_row_click_suppressed = False
+            return
+        profile_id = str(getattr(row, "profile_id", "") or "")
+        node_id = str(getattr(row, "node_id", "") or "")
+        if not profile_id or not node_id or bool(getattr(row, "node_disabled", False)):
+            return
+        self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
+
+    def reset_node_row_suppression(self) -> bool:
+        self.node_row_click_suppressed = False
+        return False
+
+    def on_node_ping_clicked(self, _button, profile_id: str, node_id: str) -> None:
+        self.node_row_click_suppressed = True
+        self.GLib.idle_add(self.reset_node_row_suppression)
+        self.begin_store_action("node-ping", profile_id=profile_id, node_id=node_id)
+
+    def on_routing_profile_action_clicked(self, _button, action_id: str, profile_id: str, enabled_value: object) -> None:
+        kwargs: dict[str, Any] = {"profile_id": profile_id}
+        if action_id == "routing-toggle-profile":
+            kwargs["enabled"] = bool(enabled_value)
+        self.begin_store_action(action_id, **kwargs)
+
+    def on_add_subscription_requested(self) -> None:
+        if self.subscription_url_entry is None:
+            return
+        url = self.subscription_url_entry.get_text().strip()
+        if not url:
+            self.set_status("Укажите URL подписки.")
+            self.append_log("subscriptions", "Добавление подписки отклонено: URL пуст.")
+            return
+        self.begin_store_action("subscriptions-add", name="", url=url)
+
+    def routing_import_text(self) -> str:
+        if self.routing_import_buffer is None:
+            return ""
+        start_iter = self.routing_import_buffer.get_start_iter()
+        end_iter = self.routing_import_buffer.get_end_iter()
+        return self.routing_import_buffer.get_text(start_iter, end_iter, True).strip()
+
+    def on_import_routing_requested(self) -> None:
+        text = self.routing_import_text()
+        if not text:
+            self.set_status("Вставьте routing-профиль для импорта.")
+            self.append_log("routing", "Импорт routing отклонён: поле пустое.")
+            return
+        self.begin_store_action("routing-import", text=text)
+
+    def on_toggle_routing_requested(self) -> None:
+        routing = routing_from_store_snapshot(self.last_store_payload)
+        self.begin_store_action("routing-toggle", enabled=not bool(routing.get("enabled")))
+
+    def refresh_subscriptions_controls(self) -> None:
+        busy = self.action_in_flight is not None
+        subscriptions = subscriptions_from_store_snapshot(self.last_store_payload)
+        active_routing_profile = active_routing_profile_from_store_snapshot(self.last_store_payload)
+        routing = routing_from_store_snapshot(self.last_store_payload)
+
+        if self.subscription_url_entry is not None:
+            self.subscription_url_entry.set_sensitive(not busy)
+        for action_id, button in self.subscription_action_buttons.items():
+            if action_id == "subscriptions-refresh-all":
+                button.set_sensitive(not busy and bool(subscriptions))
+            else:
+                button.set_sensitive(not busy)
+        for action_id, button in self.routing_action_buttons.items():
+            if action_id == "routing-toggle":
+                button.set_sensitive(not busy and (bool(active_routing_profile) or bool(routing.get("enabled"))))
+            elif action_id == "routing-clear-active":
+                button.set_sensitive(not busy and bool(active_routing_profile))
+            else:
+                button.set_sensitive(not busy)
 
     def build_log_page(self):
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
@@ -765,7 +1509,6 @@ class NativeShellApp:
         text_view.set_cursor_visible(False)
         text_view.set_monospace(True)
         self.log_buffer = text_view.get_buffer()
-        self.refresh_log_view()
         scrolled.set_child(text_view)
         container.append(title)
         container.append(summary)
@@ -868,6 +1611,9 @@ class NativeShellApp:
     def on_stub_button_clicked(self, _button, action_id: str) -> None:
         self.trigger_action(action_id, source="window")
 
+    def action_label(self, action_id: str) -> str:
+        return native_shell_action_label(action_id)
+
     def trigger_action(self, action_id: str, *, source: str) -> None:
         if action_id == "show-window":
             self.show_window(reason=source)
@@ -886,16 +1632,18 @@ class NativeShellApp:
 
     def begin_runtime_action(self, action_id: str, *, source: str) -> None:
         if self.action_in_flight:
-            current_label = tray_action_label(self.action_in_flight)
+            current_label = self.action_label(self.action_in_flight)
             self.set_status(f"Уже выполняется действие: {current_label}.")
-            self.append_log(source, f"{tray_action_label(action_id)} пропущен: занято действием {current_label}.")
+            self.append_log(source, f"{self.action_label(action_id)} пропущен: занято действием {current_label}.")
             return
 
-        action_label = tray_action_label(action_id)
+        action_label = self.action_label(action_id)
         self.action_in_flight = action_id
         self.set_status(f"{action_label}: выполняется через общий service-layer…")
         self.append_log(source, f"{action_label}: действие передано в общий runtime-service.")
         self.refresh_dashboard_controls()
+        self.refresh_subscriptions_controls()
+        self.render_subscriptions_view()
         worker = threading.Thread(
             target=self.run_runtime_action_worker,
             args=(action_id, source),
@@ -922,12 +1670,11 @@ class NativeShellApp:
         self.GLib.idle_add(self.finish_runtime_action, action_id, source, True, payload)
 
     def finish_runtime_action(self, action_id: str, source: str, ok: bool, payload: object) -> bool:
-        action_label = tray_action_label(action_id)
+        action_label = self.action_label(action_id)
         self.action_in_flight = None
         if ok:
             status_payload = payload if isinstance(payload, dict) else {}
-            self.last_status_payload = status_payload
-            self.update_dashboard_from_status(status_payload)
+            self.apply_status_payload(status_payload)
             message = str(status_payload.get("last_action", {}).get("message") or f"{action_label}: выполнено.")
             self.set_status(message)
             self.append_log(source, f"{action_label}: {message}")
@@ -937,6 +1684,97 @@ class NativeShellApp:
             self.append_log(source, f"{action_label}: ошибка: {message}")
             self.request_status_refresh(reason=f"{action_id}-error")
         self.refresh_dashboard_controls()
+        self.refresh_subscriptions_controls()
+        return False
+
+    def begin_store_action(self, action_id: str, *, source: str = "window", **kwargs: Any) -> None:
+        if self.action_in_flight:
+            current_label = self.action_label(self.action_in_flight)
+            self.set_status(f"Уже выполняется действие: {current_label}.")
+            self.append_log(source, f"{self.action_label(action_id)} пропущен: занято действием {current_label}.")
+            return
+
+        action_label = self.action_label(action_id)
+        self.action_in_flight = action_id
+        self.set_status(f"{action_label}: выполняется через общий service-layer…")
+        self.append_log(source, f"{action_label}: действие передано в общий store/routing-service.")
+        self.refresh_dashboard_controls()
+        self.refresh_subscriptions_controls()
+        self.render_subscriptions_view()
+        worker = threading.Thread(
+            target=self.run_store_action_worker,
+            args=(action_id, source, kwargs),
+            daemon=True,
+        )
+        worker.start()
+
+    def run_store_action_worker(self, action_id: str, source: str, kwargs: dict[str, Any]) -> None:
+        action_handlers = {
+            "subscriptions-add": lambda: self.runtime_service.add_subscription(str(kwargs.get("name", "")), str(kwargs.get("url", ""))),
+            "subscriptions-refresh-all": self.runtime_service.refresh_all_subscriptions,
+            "subscription-refresh": lambda: self.runtime_service.refresh_subscription(str(kwargs["subscription_id"])),
+            "subscription-toggle": lambda: self.runtime_service.update_subscription(
+                str(kwargs["subscription_id"]),
+                enabled=bool(kwargs["enabled"]),
+            ),
+            "subscription-delete": lambda: self.runtime_service.delete_subscription(str(kwargs["subscription_id"])),
+            "node-activate": lambda: self.runtime_service.activate_selection(str(kwargs["profile_id"]), str(kwargs["node_id"])),
+            "node-ping": lambda: self.runtime_service.ping_node_by_id(str(kwargs["profile_id"]), str(kwargs["node_id"])),
+            "routing-import": lambda: self.runtime_service.import_routing_profile(str(kwargs["text"])),
+            "routing-toggle": lambda: self.runtime_service.set_routing_enabled(bool(kwargs["enabled"])),
+            "routing-clear-active": self.runtime_service.clear_active_routing_profile,
+            "routing-activate-profile": lambda: self.runtime_service.activate_routing_profile(str(kwargs["profile_id"])),
+            "routing-toggle-profile": lambda: self.runtime_service.update_routing_profile_enabled(
+                str(kwargs["profile_id"]),
+                enabled=bool(kwargs["enabled"]),
+            ),
+        }
+        handler = action_handlers.get(action_id)
+        if handler is None:
+            self.GLib.idle_add(self.finish_store_action, action_id, source, False, "Неизвестное действие.")
+            return
+
+        try:
+            payload = handler()
+        except Exception as exc:
+            self.GLib.idle_add(self.finish_store_action, action_id, source, False, str(exc))
+            return
+        self.GLib.idle_add(self.finish_store_action, action_id, source, True, payload)
+
+    def finish_store_action(self, action_id: str, source: str, ok: bool, payload: object) -> bool:
+        action_label = self.action_label(action_id)
+        self.action_in_flight = None
+        if ok and isinstance(payload, dict):
+            if action_id == "subscriptions-add":
+                subscription = payload.get("subscription")
+                if isinstance(subscription, dict) and subscription.get("id"):
+                    self.selected_subscription_id = str(subscription["id"])
+                if self.subscription_url_entry is not None:
+                    self.subscription_url_entry.set_text("")
+            elif action_id == "routing-import" and self.routing_import_buffer is not None:
+                self.routing_import_buffer.set_text("")
+
+            if "store" in payload:
+                self.apply_combined_snapshot(payload)
+            else:
+                status_payload = payload.get("status")
+                if isinstance(status_payload, dict):
+                    self.apply_status_payload(status_payload)
+            message = str(
+                payload.get("message")
+                or payload.get("status", {}).get("last_action", {}).get("message")
+                or payload.get("last_action", {}).get("message")
+                or f"{action_label}: выполнено."
+            )
+            self.set_status(message)
+            self.append_log(source, f"{action_label}: {message}")
+        else:
+            message = str(payload)
+            self.set_status(f"{action_label}: {message}")
+            self.append_log(source, f"{action_label}: ошибка: {message}")
+            self.request_status_refresh(reason=f"{action_id}-error")
+        self.refresh_dashboard_controls()
+        self.refresh_subscriptions_controls()
         return False
 
     def start_status_polling(self) -> None:
@@ -963,7 +1801,7 @@ class NativeShellApp:
 
     def run_status_refresh_worker(self, reason: str, silent: bool) -> None:
         try:
-            payload = self.runtime_service.collect_status()
+            payload = self.runtime_service.collect_store_snapshot()
         except Exception as exc:
             self.GLib.idle_add(self.finish_status_refresh, reason, False, str(exc), silent)
             return
@@ -972,18 +1810,41 @@ class NativeShellApp:
     def finish_status_refresh(self, reason: str, ok: bool, payload: object, silent: bool) -> bool:
         self.status_refresh_in_flight = False
         if ok and isinstance(payload, dict):
-            self.last_status_payload = payload
-            self.update_dashboard_from_status(payload)
+            self.apply_combined_snapshot(payload)
             if not silent and self.action_in_flight is None:
-                self.set_status(self.status_message_from_payload(payload))
+                status_payload = payload.get("status") if isinstance(payload.get("status"), dict) else {}
+                self.set_status(self.status_message_from_payload(status_payload))
             return False
 
         if not silent:
             message = str(payload)
-            self.set_status(f"Не удалось обновить статус bundle: {message}")
-            self.append_log("status", f"Ошибка обновления Dashboard ({reason}): {message}")
+            self.set_status(f"Не удалось обновить снимок bundle: {message}")
+            self.append_log("status", f"Ошибка обновления Dashboard / Subscriptions ({reason}): {message}")
         self.refresh_dashboard_controls()
+        self.refresh_subscriptions_controls()
         return False
+
+    def apply_status_payload(self, payload: dict[str, Any]) -> None:
+        self.last_status_payload = payload
+        self.update_dashboard_from_status(payload)
+        self.render_subscriptions_view()
+
+    def apply_store_payload(self, payload: dict[str, Any]) -> None:
+        self.last_store_payload = payload
+        self.selected_subscription_id = resolve_selected_subscription_id(payload, self.selected_subscription_id)
+        self.render_subscriptions_view()
+
+    def apply_combined_snapshot(self, payload: dict[str, Any]) -> None:
+        status_payload = payload.get("status") if isinstance(payload.get("status"), dict) else None
+        store_payload = payload.get("store") if isinstance(payload.get("store"), dict) else None
+
+        if status_payload is not None:
+            self.last_status_payload = status_payload
+            self.update_dashboard_from_status(status_payload)
+        if store_payload is not None:
+            self.last_store_payload = store_payload
+            self.selected_subscription_id = resolve_selected_subscription_id(store_payload, self.selected_subscription_id)
+        self.render_subscriptions_view()
 
     def status_message_from_payload(self, payload: dict[str, Any]) -> str:
         last_action = payload.get("last_action", {}) or {}
@@ -1142,7 +2003,7 @@ class NativeShellApp:
             diag_button.set_tooltip_text("Снять диагностический дамп bundle.")
 
         if is_busy:
-            self.set_dashboard_label("action_hint", f"Выполняется: {tray_action_label(self.action_in_flight or '')}.")
+            self.set_dashboard_label("action_hint", f"Выполняется: {self.action_label(self.action_in_flight or '')}.")
             return
 
         if runtime.get("start_blocked"):
