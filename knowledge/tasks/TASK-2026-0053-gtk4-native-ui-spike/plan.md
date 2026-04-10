@@ -6,8 +6,8 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053` |
 | Parent ID | `—` |
-| Версия плана | `5` |
-| Дата обновления | `2026-04-09` |
+| Версия плана | `6` |
+| Дата обновления | `2026-04-10` |
 
 ## Цель
 
@@ -221,6 +221,13 @@
 - `gui_server.py` переведён на thin-wrapper store/routing handlers поверх service-layer и сохранил совместимый `/api/store` и action-response shape;
 - `Subscriptions` в native shell больше не является placeholder: экран работает с URL-подписками, выбором узла, отдельным `Ping`, routing import и статусом `GeoIP/Geosite` без внутренних `HTTP` вызовов.
 
+### Что уже подтверждено в рамках `TASK-2026-0053.4`
+
+- `python3 -m unittest tests.test_native_shell_shared tests.test_native_shell_app tests.test_subvost_app_service tests.test_gui_server`
+- `python3 -m py_compile gui/native_shell_shared.py gui/native_shell_app.py gui/subvost_app_service.py gui/gui_server.py`
+- `gui/native_shell_shared.py` теперь собирает headless helper-слой для фильтрации логов, выбора последней ошибки и экспортного текста;
+- `gui/native_shell_app.py` хранит shell-журнал структурированно и показывает рабочий `Log` с источниками `native shell` и `bundle/runtime`, фильтром по уровню и действиями `Скопировать`/`Экспорт`;
+- повторный прогон service-layer и web-backend тестов подтвердил, что этап `Log` не сломал контур `TASK-2026-0053.3`.
 
 ## Шаги
 
@@ -233,7 +240,7 @@
 - [x] Реализовать `Dashboard` с runtime-статусом, текущим узлом, метриками и действиями `Старт / Стоп / Диагностика`
 - [x] Заложить в `Subscriptions` routing import и `GeoIP/Geosite` блоки уже на уровне UI-макета, даже если backend ещё не подключён
 - [x] Реализовать `Subscriptions` с подписками, узлами, `ping` и routing-профилями
-- [ ] Реализовать `Log` с фильтрацией и экспортом
+- [x] Реализовать `Log` с фильтрацией и экспортом
 - [x] Реализовать минимальное окно настроек для `v1`
 - [ ] Пройти ручной smoke и только после этого принимать решение о переключении launcher-а
 

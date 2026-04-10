@@ -245,6 +245,74 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertTrue(app.controls_refreshed)
         self.assertTrue(app.subscriptions_controls_refreshed)
 
+    def test_visible_log_text_respects_filter_and_separates_sources(self) -> None:
+        app = self.make_app()
+        app.log_filter = "error"
+        app.shell_log_entries = [
+            {
+                "timestamp": "2026-04-10T10:05:00",
+                "name": "tray",
+                "level": "warning",
+                "message": "Tray helper завершился.",
+                "details": "",
+                "source": "shell",
+            }
+        ]
+        app.last_status_payload = {
+            "logs": {
+                "entries": [
+                    {
+                        "timestamp": "2026-04-10T10:04:00",
+                        "name": "xray",
+                        "level": "error",
+                        "message": "fatal: runtime crashed",
+                        "details": "traceback",
+                        "source": "file",
+                    }
+                ]
+            }
+        }
+
+        rendered = app.visible_log_text()
+
+        self.assertIn("Фильтр: Ошибки", rendered)
+        self.assertIn("=== Native shell (0) ===", rendered)
+        self.assertIn("=== Bundle и runtime (1) ===", rendered)
+        self.assertIn("fatal: runtime crashed", rendered)
+        self.assertNotIn("Tray helper завершился.", rendered)
+
+    def test_export_visible_log_writes_file_into_log_dir(self) -> None:
+        app = self.make_app()
+        app.append_log = lambda source, message: app.log_lines.append((source, message))
+        app.log_lines = []
+        app.last_status_payload = {
+            "logs": {
+                "entries": [
+                    {
+                        "timestamp": "2026-04-10T10:04:00",
+                        "name": "xray",
+                        "level": "error",
+                        "message": "fatal: runtime crashed",
+                        "details": "",
+                        "source": "file",
+                    }
+                ]
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_dir = Path(temp_dir)
+            app.runtime_service = SimpleNamespace(context=SimpleNamespace(log_dir=log_dir))
+
+            app.export_visible_log()
+
+            exports = sorted(log_dir.glob("native-shell-log-export-*.log"))
+            self.assertEqual(len(exports), 1)
+            self.assertIn("fatal: runtime crashed", exports[0].read_text(encoding="utf-8"))
+            self.assertEqual(app.last_log_export_path, exports[0])
+            self.assertIn(str(exports[0]), app.status_message)
+            self.assertTrue(any("экспортирован" in message.lower() for _source, message in app.log_lines))
+
 
 if __name__ == "__main__":
     unittest.main()

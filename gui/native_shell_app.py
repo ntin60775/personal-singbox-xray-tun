@@ -16,6 +16,7 @@ from native_shell_shared import (
     NATIVE_SHELL_APPINDICATOR_CANDIDATES,
     NATIVE_SHELL_CONTROL_INTERFACE,
     NATIVE_SHELL_CONTROL_OBJECT_PATH,
+    NATIVE_SHELL_LOG_FILTER_VALUES,
     NATIVE_SHELL_PAGES,
     NATIVE_SHELL_THEME_LABELS,
     NATIVE_SHELL_THEME_VALUES,
@@ -27,10 +28,18 @@ from native_shell_shared import (
     active_node_from_store_snapshot,
     active_profile_from_store_snapshot,
     active_routing_profile_from_store_snapshot,
+    build_native_shell_log_text,
     build_startup_notes,
     build_tray_support,
+    filter_log_entries,
+    log_entries_from_status,
+    latest_error_from_log_entries,
     native_shell_theme_label,
     native_shell_action_label,
+    native_shell_log_filter_label,
+    native_shell_log_level_label,
+    native_shell_log_source_label,
+    normalize_native_shell_log_filter,
     ping_snapshot_from_status,
     resolve_selected_subscription_id,
     routing_from_store_snapshot,
@@ -42,7 +51,7 @@ from native_shell_shared import (
     should_start_hidden,
     tray_action_label,
 )
-from subvost_app_service import ServiceState, SubvostAppService, build_default_service
+from subvost_app_service import ServiceState, SubvostAppService, build_default_service, log_level_from_text
 
 
 GUI_DIR = Path(__file__).resolve().parent
@@ -410,12 +419,20 @@ class NativeShellApp:
         self.settings = NativeShellSettings.from_mapping(self.runtime_service.load_settings())
         self.log_path = self.settings_paths.store_dir / NATIVE_SHELL_LOG_FILENAME
         self.log_lines: list[str] = []
+        self.shell_log_entries: list[dict[str, Any]] = []
         self.app = self.Gtk.Application(application_id=NATIVE_SHELL_APP_ID, flags=self.Gio.ApplicationFlags.FLAGS_NONE)
         self.window = None
         self.settings_window = None
         self.status_label = None
         self.log_buffer = None
         self.log_summary_label = None
+        self.log_meta_label = None
+        self.log_export_label = None
+        self.log_copy_button = None
+        self.log_export_button = None
+        self.log_filter = "all"
+        self.log_filter_buttons: dict[str, object] = {}
+        self.last_log_export_path: Path | None = None
         self.control_registration_id = None
         self.control_node_info = self.Gio.DBusNodeInfo.new_for_xml(CONTROL_INTROSPECTION_XML)
         self.tray_process: subprocess.Popen[str] | None = None
@@ -1490,17 +1507,57 @@ class NativeShellApp:
                 button.set_sensitive(not busy)
 
     def build_log_page(self):
-        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
         add_css_class(container, "native-shell-panel")
-        title = self.Gtk.Label(label="Shell log", xalign=0)
+
+        title = self.Gtk.Label(label="Log и ошибки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Здесь остаётся локальный журнал native shell и результаты runtime-действий этого окна.",
+            label="Здесь собраны события native shell, backend action-log и runtime tail текущего bundle.",
             xalign=0,
         )
         summary.set_wrap(True)
         add_css_class(summary, "native-shell-muted")
         self.log_summary_label = summary
+
+        meta = self.Gtk.Label(
+            label="Фильтр: Все. Источники будут показаны после первого refresh snapshot.",
+            xalign=0,
+        )
+        meta.set_wrap(True)
+        add_css_class(meta, "native-shell-muted")
+        self.log_meta_label = meta
+
+        export_label = self.Gtk.Label(
+            label=f"Экспорт: {self.resolve_log_export_dir()}",
+            xalign=0,
+        )
+        export_label.set_wrap(True)
+        add_css_class(export_label, "native-shell-muted")
+        self.log_export_label = export_label
+
+        toolbar = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        toolbar.set_hexpand(True)
+
+        for filter_id in NATIVE_SHELL_LOG_FILTER_VALUES:
+            button = self.Gtk.Button(label=native_shell_log_filter_label(filter_id))
+            add_css_class(button, "native-shell-button-secondary")
+            button.connect("clicked", lambda *_args, value=filter_id: self.on_log_filter_selected(value))
+            self.log_filter_buttons[filter_id] = button
+            toolbar.append(button)
+
+        copy_button = self.Gtk.Button(label="Скопировать")
+        add_css_class(copy_button, "native-shell-button-secondary")
+        copy_button.connect("clicked", lambda *_args: self.copy_visible_log_to_clipboard())
+        self.log_copy_button = copy_button
+        toolbar.append(copy_button)
+
+        export_button = self.Gtk.Button(label="Экспорт")
+        add_css_class(export_button, "native-shell-button-primary")
+        export_button.connect("clicked", lambda *_args: self.export_visible_log())
+        self.log_export_button = export_button
+        toolbar.append(export_button)
+
         scrolled = self.Gtk.ScrolledWindow()
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
@@ -1509,11 +1566,92 @@ class NativeShellApp:
         text_view.set_cursor_visible(False)
         text_view.set_monospace(True)
         self.log_buffer = text_view.get_buffer()
+        self.refresh_log_view()
         scrolled.set_child(text_view)
         container.append(title)
         container.append(summary)
+        container.append(meta)
+        container.append(export_label)
+        container.append(toolbar)
         container.append(scrolled)
         return container
+
+    def on_log_filter_selected(self, level_filter: str) -> None:
+        self.log_filter = normalize_native_shell_log_filter(level_filter)
+        self.refresh_log_view()
+
+    def current_bundle_log_entries(self) -> list[dict[str, Any]]:
+        return log_entries_from_status(getattr(self, "last_status_payload", None))
+
+    def current_shell_log_entries(self) -> list[dict[str, Any]]:
+        entries = getattr(self, "shell_log_entries", None)
+        return list(entries) if isinstance(entries, list) else []
+
+    def visible_log_entries(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        normalized_filter = normalize_native_shell_log_filter(getattr(self, "log_filter", "all"))
+        shell_entries = filter_log_entries(self.current_shell_log_entries(), normalized_filter)
+        bundle_entries = filter_log_entries(self.current_bundle_log_entries(), normalized_filter)
+        return shell_entries, bundle_entries
+
+    def visible_log_text(self) -> str:
+        normalized_filter = normalize_native_shell_log_filter(getattr(self, "log_filter", "all"))
+        return build_native_shell_log_text(
+            bundle_entries=self.current_bundle_log_entries(),
+            shell_entries=self.current_shell_log_entries(),
+            level_filter=normalized_filter,
+        )
+
+    def resolve_log_export_dir(self) -> Path:
+        runtime_service = getattr(self, "runtime_service", None)
+        context = getattr(runtime_service, "context", None)
+        log_dir = getattr(context, "log_dir", None)
+        if isinstance(log_dir, Path):
+            return log_dir
+        log_path = getattr(self, "log_path", None)
+        if isinstance(log_path, Path):
+            return log_path.parent
+        return GUI_DIR.parent / "logs"
+
+    def copy_visible_log_to_clipboard(self) -> None:
+        shell_entries, bundle_entries = self.visible_log_entries()
+        if not shell_entries and not bundle_entries:
+            self.set_status("Видимый лог пуст: копировать нечего.")
+            return
+
+        display = self.Gdk.Display.get_default() if hasattr(self, "Gdk") else None
+        if display is None:
+            message = "Буфер обмена недоступен: GTK display не активен."
+            self.set_status(message)
+            self.append_log("log", message)
+            return
+
+        clipboard = display.get_clipboard()
+        provider = self.Gdk.ContentProvider.new_for_value(self.visible_log_text())
+        if not clipboard.set_content(provider):
+            message = "Буфер обмена отклонил содержимое лога."
+            self.set_status(message)
+            self.append_log("log", message)
+            return
+
+        message = "Видимый лог скопирован в буфер обмена."
+        self.set_status(message)
+        self.append_log("log", message)
+
+    def export_visible_log(self) -> None:
+        shell_entries, bundle_entries = self.visible_log_entries()
+        if not shell_entries and not bundle_entries:
+            self.set_status("Видимый лог пуст: экспортировать нечего.")
+            return
+
+        export_dir = self.resolve_log_export_dir()
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_path = export_dir / f"native-shell-log-export-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+        export_path.write_text(self.visible_log_text() + "\n", encoding="utf-8")
+        self.last_log_export_path = export_path
+        message = f"Видимый лог экспортирован: {export_path}"
+        self.set_status(message)
+        self.append_log("log", message)
+        self.refresh_log_view()
 
     def build_settings_window(self):
         window = self.Gtk.Window(transient_for=self.window, title="Настройки native shell")
@@ -1828,11 +1966,13 @@ class NativeShellApp:
         self.last_status_payload = payload
         self.update_dashboard_from_status(payload)
         self.render_subscriptions_view()
+        self.refresh_log_view()
 
     def apply_store_payload(self, payload: dict[str, Any]) -> None:
         self.last_store_payload = payload
         self.selected_subscription_id = resolve_selected_subscription_id(payload, self.selected_subscription_id)
         self.render_subscriptions_view()
+        self.refresh_log_view()
 
     def apply_combined_snapshot(self, payload: dict[str, Any]) -> None:
         status_payload = payload.get("status") if isinstance(payload.get("status"), dict) else None
@@ -1845,6 +1985,7 @@ class NativeShellApp:
             self.last_store_payload = store_payload
             self.selected_subscription_id = resolve_selected_subscription_id(store_payload, self.selected_subscription_id)
         self.render_subscriptions_view()
+        self.refresh_log_view()
 
     def status_message_from_payload(self, payload: dict[str, Any]) -> str:
         last_action = payload.get("last_action", {}) or {}
@@ -2117,8 +2258,18 @@ class NativeShellApp:
             return
 
     def append_log(self, source: str, message: str) -> None:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        line = f"[{timestamp}] [{source}] {message}"
+        now = datetime.now()
+        entry = {
+            "timestamp": now.isoformat(timespec="seconds"),
+            "name": source,
+            "level": log_level_from_text(message),
+            "message": message,
+            "details": "",
+            "source": "shell",
+        }
+        self.shell_log_entries.append(entry)
+        self.shell_log_entries = self.shell_log_entries[-200:]
+        line = f"[{now.strftime('%H:%M:%S')}] [{source}] {message}"
         self.log_lines.append(line)
         self.log_lines = self.log_lines[-200:]
         if self.settings.file_logs_enabled:
@@ -2128,9 +2279,48 @@ class NativeShellApp:
         self.refresh_log_view()
 
     def refresh_log_view(self) -> None:
-        if self.log_buffer is None:
-            return
-        self.log_buffer.set_text("\n".join(self.log_lines))
+        normalized_filter = normalize_native_shell_log_filter(getattr(self, "log_filter", "all"))
+        self.log_filter = normalized_filter
+        shell_entries, bundle_entries = self.visible_log_entries()
+        all_entries = self.current_shell_log_entries() + self.current_bundle_log_entries()
+        latest_error = latest_error_from_log_entries(all_entries)
+        last_action = (getattr(self, "last_status_payload", None) or {}).get("last_action", {}) or {}
+
+        if self.log_buffer is not None:
+            self.log_buffer.set_text(self.visible_log_text())
+
+        if self.log_summary_label is not None:
+            if latest_error:
+                source_label = native_shell_log_source_label(latest_error.get("source"))
+                level_label = native_shell_log_level_label(latest_error.get("level"))
+                self.log_summary_label.set_label(
+                    f"Последняя ошибка: {level_label} · {source_label} · {latest_error.get('message')}"
+                )
+            elif last_action.get("message"):
+                self.log_summary_label.set_label(f"Последнее действие: {last_action.get('message')}")
+            else:
+                self.log_summary_label.set_label("Ошибок пока нет. Последних действий тоже нет.")
+
+        if self.log_meta_label is not None:
+            self.log_meta_label.set_label(
+                "Фильтр: "
+                f"{native_shell_log_filter_label(normalized_filter)}. "
+                f"Native shell: {len(shell_entries)}. "
+                f"Bundle/runtime: {len(bundle_entries)}."
+            )
+
+        if self.log_export_label is not None:
+            export_path = self.last_log_export_path or self.resolve_log_export_dir()
+            self.log_export_label.set_label(f"Экспорт: {export_path}")
+
+        for filter_id, button in getattr(self, "log_filter_buttons", {}).items():
+            button.set_sensitive(filter_id != normalized_filter)
+
+        has_entries = bool(shell_entries or bundle_entries)
+        if self.log_copy_button is not None:
+            self.log_copy_button.set_sensitive(has_entries)
+        if self.log_export_button is not None:
+            self.log_export_button.set_sensitive(has_entries)
 
     def set_status(self, message: str) -> None:
         if self.status_label is not None:

@@ -11,10 +11,15 @@ sys.path.insert(0, str(REPO_ROOT / "gui"))
 from native_shell_shared import (  # noqa: E402
     NativeShellSettings,
     active_routing_profile_from_store_snapshot,
+    build_native_shell_log_text,
     build_startup_notes,
     build_tray_support,
+    filter_log_entries,
+    latest_error_from_log_entries,
+    log_entries_from_status,
     native_shell_theme_label,
     native_shell_action_label,
+    native_shell_log_filter_label,
     normalize_native_shell_theme,
     ping_snapshot_from_status,
     resolve_selected_subscription_id,
@@ -146,6 +151,63 @@ class NativeShellSharedTests(unittest.TestCase):
             {"label": "12.4 мс", "ok": True},
         )
         self.assertIsNone(ping_snapshot_from_status(status_payload, "profile-1", "missing"))
+
+    def test_log_helpers_filter_and_render_sections(self) -> None:
+        bundle_entries = [
+            {
+                "timestamp": "2026-04-10T10:00:00",
+                "name": "Старт",
+                "level": "info",
+                "message": "Runtime запущен.",
+                "details": "",
+                "source": "action",
+            },
+            {
+                "timestamp": None,
+                "name": "xray",
+                "level": "error",
+                "message": "failed to resolve host",
+                "details": "traceback line",
+                "source": "file",
+            },
+        ]
+        shell_entries = [
+            {
+                "timestamp": "2026-04-10T10:01:00",
+                "name": "tray",
+                "level": "warning",
+                "message": "Tray helper завершился.",
+                "details": "",
+                "source": "shell",
+            }
+        ]
+
+        rendered = build_native_shell_log_text(
+            bundle_entries=bundle_entries,
+            shell_entries=shell_entries,
+            level_filter="warning",
+        )
+
+        self.assertEqual(native_shell_log_filter_label("warning"), "Предупреждения")
+        self.assertEqual(filter_log_entries(bundle_entries, "error"), [bundle_entries[1]])
+        self.assertIn("=== Native shell (1) ===", rendered)
+        self.assertIn("=== Bundle и runtime (0) ===", rendered)
+        self.assertIn("Tray helper завершился.", rendered)
+
+    def test_log_helpers_pick_latest_error_and_read_entries_from_status(self) -> None:
+        status_payload = {
+            "logs": {
+                "entries": [
+                    {"timestamp": None, "level": "error", "message": "runtime error", "source": "file"},
+                    {"timestamp": "2026-04-10T10:02:00", "level": "error", "message": "shell error", "source": "shell"},
+                ]
+            }
+        }
+
+        entries = log_entries_from_status(status_payload)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(latest_error_from_log_entries(entries)["message"], "shell error")
 
 
 if __name__ == "__main__":

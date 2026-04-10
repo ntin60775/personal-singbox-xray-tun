@@ -15,7 +15,7 @@
 | Ответственный | `Codex` |
 | Ветка | `topic/gtk4-native-ui-spike` |
 | Дата создания | `2026-04-08` |
-| Дата обновления | `2026-04-09` |
+| Дата обновления | `2026-04-10` |
 
 ## Цель
 
@@ -84,9 +84,9 @@
 
 | Область | Что меняется |
 |---------|--------------|
-| Код / сервисы | Появились общий runtime/service-layer и рабочий `Dashboard` поверх первого native-shell контура `GTK4` |
+| Код / сервисы | Собраны общий runtime/service-layer и все три рабочих native-экрана: `Dashboard`, `Subscriptions`, `Log` |
 | Документация | Базовая идея переведена в рабочую постановку с `v1 scope`, ограничениями и критериями приёмки |
-| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и уже закрыты shell/tray и service-layer + `Dashboard` этапы |
+| Архитектура будущей реализации | Зафиксирован native `GTK4` путь поверх существующего Python backend-контракта и уже закрыты shell/tray, service-layer, `Dashboard`, `Subscriptions` и `Log` этапы |
 | UX-контракт | Уточнены реальные сущности UI: `xray/TUN`, подписки, узлы, routing, `pkexec`-действия, диагностика |
 | Визуальный контракт | Базовый dark reference закреплён за `Raycast` с адаптацией под desktop utility, а не под web-dashboard |
 
@@ -98,6 +98,7 @@
 - первая реализованная подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/`
 - вторая реализованная подзадача: `subtasks/TASK-2026-0053.2-dashboard-and-shared-service-layer/`
 - третья реализованная подзадача: `subtasks/TASK-2026-0053.3-subscriptions-vertical-slice/`
+- четвёртая реализованная подзадача: `subtasks/TASK-2026-0053.4-log-vertical-slice/`
 - visual-contract подзадача: `subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/`
 - текущий runtime-контур: `README.md`
 - текущий web GUI backend: `gui/gui_server.py`
@@ -108,7 +109,7 @@
 
 ## Текущий этап
 
-Задача остаётся в активной реализации, но третий рабочий этап уже закрыт: после `TASK-2026-0053.2` с общим runtime/service-layer подзадача `TASK-2026-0053.3` довела `Subscriptions` до полноценного vertical slice поверх того же `subvost_app_service.py`. Нативный клиент теперь умеет показывать store snapshot, добавлять и обновлять URL-подписки, выбирать узлы, делать отдельный `ping` и работать с routing-профилями без внутренних `HTTP` вызовов. Визуальное направление `Raycast` остаётся активным контрактом для оставшихся этапов. После закрытия `TASK-2026-0053.3` у родительской задачи осталось два этапа: полноценный `Log` и единый финальный manual smoke с решением по launcher-роллаута.
+Функциональная реализация `TASK-2026-0053` закрыта: после `TASK-2026-0053.3` подзадача `TASK-2026-0053.4` довела `Log` до полноценного vertical slice поверх того же native shell и существующего service-layer snapshot. Нативный клиент теперь покрывает `Dashboard`, `Subscriptions` и `Log` без внутренних `HTTP` вызовов. Визуальное направление `Raycast` остаётся активным контрактом, но у родительской задачи остался только единый финальный manual smoke и решение о launcher-роллауте.
 
 ## Стратегия проверки
 

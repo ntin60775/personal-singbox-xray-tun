@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 
@@ -43,6 +44,29 @@ NATIVE_SHELL_STORE_ACTION_LABELS = {
     "routing-activate-profile": "Активация маршрутизации",
     "routing-toggle-profile": "Состояние routing-профиля",
 }
+NATIVE_SHELL_LOG_FILTER_VALUES = (
+    "all",
+    "error",
+    "warning",
+    "info",
+)
+NATIVE_SHELL_LOG_FILTER_LABELS = {
+    "all": "Все",
+    "error": "Ошибки",
+    "warning": "Предупреждения",
+    "info": "Инфо",
+}
+NATIVE_SHELL_LOG_LEVEL_LABELS = {
+    "error": "Ошибка",
+    "warning": "Предупреждение",
+    "info": "Событие",
+}
+NATIVE_SHELL_LOG_SOURCE_LABELS = {
+    "shell": "Native shell",
+    "action": "Bundle action",
+    "file": "Runtime log",
+}
+
 
 @dataclass(frozen=True)
 class NativeShellPage:
@@ -154,6 +178,31 @@ def native_shell_action_label(action_id: str) -> str:
     if tray_label != action_id:
         return tray_label
     return NATIVE_SHELL_STORE_ACTION_LABELS.get(action_id, action_id)
+
+
+def normalize_native_shell_log_filter(value: object) -> str:
+    candidate = str(value or "").strip().lower()
+    if candidate in NATIVE_SHELL_LOG_FILTER_VALUES:
+        return candidate
+    return "all"
+
+
+def native_shell_log_filter_label(value: object) -> str:
+    return NATIVE_SHELL_LOG_FILTER_LABELS[normalize_native_shell_log_filter(value)]
+
+
+def native_shell_log_level_label(value: object) -> str:
+    candidate = str(value or "info").strip().lower() or "info"
+    return NATIVE_SHELL_LOG_LEVEL_LABELS.get(candidate, NATIVE_SHELL_LOG_LEVEL_LABELS["info"])
+
+
+def native_shell_log_source_label(value: object) -> str:
+    candidate = str(value or "").strip().lower()
+    if candidate in NATIVE_SHELL_LOG_SOURCE_LABELS:
+        return NATIVE_SHELL_LOG_SOURCE_LABELS[candidate]
+    if candidate:
+        return candidate
+    return "system"
 
 
 def select_indicator_candidate(versions_by_namespace: dict[str, set[str]] | None = None) -> tuple[str, str, str] | None:
@@ -269,6 +318,99 @@ def active_routing_profile_from_store_snapshot(store_payload: dict[str, Any] | N
     payload = store_payload or {}
     active_profile = payload.get("active_routing_profile")
     return active_profile if isinstance(active_profile, dict) else None
+
+
+def log_entries_from_status(status_payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload = status_payload or {}
+    logs_payload = payload.get("logs")
+    if not isinstance(logs_payload, dict):
+        return []
+    entries = logs_payload.get("entries")
+    return entries if isinstance(entries, list) else []
+
+
+def filter_log_entries(entries: list[dict[str, Any]] | None, level_filter: object) -> list[dict[str, Any]]:
+    normalized_filter = normalize_native_shell_log_filter(level_filter)
+    result: list[dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        level = str(entry.get("level") or "info").strip().lower() or "info"
+        if normalized_filter == "all" or level == normalized_filter:
+            result.append(entry)
+    return result
+
+
+def format_native_shell_log_timestamp(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "без времени"
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return raw.replace("T", " ")
+
+
+def format_native_shell_log_entry(entry: dict[str, Any]) -> str:
+    timestamp = format_native_shell_log_timestamp(entry.get("timestamp"))
+    level_label = native_shell_log_level_label(entry.get("level"))
+    source_label = native_shell_log_source_label(entry.get("source"))
+    name = str(entry.get("name") or "system")
+    message = str(entry.get("message") or "").strip() or "Сообщение отсутствует."
+    lines = [
+        f"{timestamp} | {level_label} | {source_label} | {name}",
+        message,
+    ]
+    details = str(entry.get("details") or "").strip()
+    if details:
+        lines.extend(f"> {line}" if line else ">" for line in details.splitlines())
+    return "\n".join(lines)
+
+
+def build_native_shell_log_text(
+    *,
+    bundle_entries: list[dict[str, Any]] | None,
+    shell_entries: list[dict[str, Any]] | None,
+    level_filter: object,
+) -> str:
+    normalized_filter = normalize_native_shell_log_filter(level_filter)
+    filtered_shell = filter_log_entries(shell_entries, normalized_filter)
+    filtered_bundle = filter_log_entries(bundle_entries, normalized_filter)
+    sections = [
+        ("Native shell", filtered_shell),
+        ("Bundle и runtime", filtered_bundle),
+    ]
+    chunks = [f"Фильтр: {native_shell_log_filter_label(normalized_filter)}"]
+    for title, entries in sections:
+        chunks.append("")
+        chunks.append(f"=== {title} ({len(entries)}) ===")
+        if not entries:
+            chunks.append("нет записей")
+            continue
+        for entry in entries:
+            chunks.append(format_native_shell_log_entry(entry))
+            chunks.append("")
+        if chunks[-1] == "":
+            chunks.pop()
+    return "\n".join(chunks).strip()
+
+
+def latest_error_from_log_entries(entries: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    latest_entry: dict[str, Any] | None = None
+    latest_key: tuple[int, str, int] | None = None
+    for index, entry in enumerate(entries or []):
+        if not isinstance(entry, dict):
+            continue
+        level = str(entry.get("level") or "info").strip().lower() or "info"
+        if level != "error":
+            continue
+        timestamp = str(entry.get("timestamp") or "").strip()
+        sort_key = (1 if timestamp else 0, timestamp, index)
+        if latest_key is None or sort_key > latest_key:
+            latest_key = sort_key
+            latest_entry = entry
+    return latest_entry
 
 
 def resolve_selected_subscription_id(
