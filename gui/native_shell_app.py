@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -853,7 +854,9 @@ class NativeShellApp:
         uptime_label.set_visible(False)
         self.dashboard_labels["hero_uptime"] = uptime_label
 
-        traffic_label = self.Gtk.Label(label="↓ — ↑ —", xalign=0)
+        traffic_label = self.Gtk.Label(label="Принято: —  Отправлено: —", xalign=0)
+        if hasattr(traffic_label, "set_use_markup"):
+            traffic_label.set_use_markup(True)
         add_css_class(traffic_label, "native-shell-status-pill")
         traffic_label.set_visible(False)
         self.dashboard_labels["hero_traffic"] = traffic_label
@@ -926,7 +929,9 @@ class NativeShellApp:
 
         traffic_panel, traffic_body = self.build_named_panel("Объём данных")
         traffic_panel.set_hexpand(True)
-        traffic_value = self.Gtk.Label(label="Принято (RX): —\nОтправлено (TX): —", xalign=0)
+        traffic_value = self.Gtk.Label(label="Принято: —\nОтправлено: —", xalign=0)
+        if hasattr(traffic_value, "set_use_markup"):
+            traffic_value.set_use_markup(True)
         traffic_value.set_wrap(True)
         add_css_class(traffic_value, "native-shell-value-muted")
         self.dashboard_metrics["traffic"] = traffic_value
@@ -1348,11 +1353,34 @@ class NativeShellApp:
             return ""
         now = datetime.now(started_at.tzinfo) if started_at.tzinfo else datetime.now()
         elapsed = max(0, int((now - started_at).total_seconds()))
-        hours, remainder = divmod(elapsed, 3600)
+        total_days, remainder = divmod(elapsed, 86400)
+        hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
-        if hours:
-            return f"{hours}:{minutes:02d}:{seconds:02d}"
-        return f"{minutes:02d}:{seconds:02d}"
+        if total_days == 0:
+            if hours:
+                return f"{hours}:{minutes:02d}:{seconds:02d}"
+            return f"{minutes:02d}:{seconds:02d}"
+
+        day_units = [
+            ("г", 365),
+            ("мес", 30),
+            ("нед", 7),
+            ("д", 1),
+        ]
+        prefix_parts: list[str] = []
+        remaining_days = total_days
+        for suffix, unit_days in day_units:
+            value_part, remaining_days = divmod(remaining_days, unit_days)
+            if value_part <= 0:
+                continue
+            prefix_parts.append(f"{value_part}{suffix}")
+            if len(prefix_parts) == 2:
+                break
+
+        time_suffix = f"{hours}:{minutes:02d}:{seconds:02d}"
+        if prefix_parts:
+            return " ".join(prefix_parts + [time_suffix])
+        return time_suffix
 
     def format_dns_for_interface(self, value: str) -> str:
         servers = [item.strip() for item in str(value or "").split(",") if item.strip()]
@@ -1361,6 +1389,48 @@ class NativeShellApp:
         if len(servers) == 1:
             return servers[0]
         return f"{servers[0]}\n      " + "\n      ".join(servers[1:])
+
+    def set_widget_markup(self, widget, markup: str, plain_text: str) -> None:
+        if widget is None:
+            return
+        if hasattr(widget, "set_markup"):
+            widget.set_markup(markup)
+        elif hasattr(widget, "set_label"):
+            widget.set_label(plain_text)
+
+    def dashboard_speed_text(self, traffic: dict[str, Any]) -> str:
+        rx_label = str(traffic.get("rx_rate_label") or "—")
+        tx_label = str(traffic.get("tx_rate_label") or "—")
+        return f"Принято: {rx_label}  Отправлено: {tx_label}"
+
+    def dashboard_speed_markup(self, traffic: dict[str, Any]) -> str:
+        rx_label = escape(str(traffic.get("rx_rate_label") or "—"))
+        tx_label = escape(str(traffic.get("tx_rate_label") or "—"))
+        return (
+            f'<span foreground="#7BC4FF" weight="700">Принято:</span> '
+            f'<span foreground="#F3F6FB" weight="700">{rx_label}</span>  '
+            f'<span foreground="#FF8A6B" weight="700">Отправлено:</span> '
+            f'<span foreground="#F3F6FB" weight="700">{tx_label}</span>'
+        )
+
+    def dashboard_volume_text(self, traffic: dict[str, Any]) -> str:
+        rx_total = str(traffic.get("rx_total_label") or "—")
+        tx_total = str(traffic.get("tx_total_label") or "—")
+        return f"Принято: {rx_total}\nОтправлено: {tx_total}"
+
+    def dashboard_volume_markup(self, traffic: dict[str, Any]) -> str:
+        rx_total = escape(str(traffic.get("rx_total_label") or "—"))
+        tx_total = escape(str(traffic.get("tx_total_label") or "—"))
+        return (
+            f'<span foreground="#7BC4FF" weight="700">Принято:</span> '
+            f'<span foreground="#F3F6FB" weight="700">{rx_total}</span>\n'
+            f'<span foreground="#FF8A6B" weight="700">Отправлено:</span> '
+            f'<span foreground="#F3F6FB" weight="700">{tx_total}</span>'
+        )
+
+    def apply_dashboard_volume_markup(self, traffic: dict[str, Any]) -> None:
+        widget = getattr(self, "dashboard_metrics", {}).get("traffic")
+        self.set_widget_markup(widget, self.dashboard_volume_markup(traffic), self.dashboard_volume_text(traffic))
 
     def refresh_dashboard_live_status_line(self) -> None:
         payload = self.last_status_payload or {}
@@ -1386,9 +1456,9 @@ class NativeShellApp:
         tx_label = str(traffic.get("tx_rate_label") or "—")
         show_traffic = active_connection or ownership == "foreign"
         if show_traffic and (rx_label != "—" or tx_label != "—"):
-            traffic_text = f"↓ {rx_label} ↑ {tx_label}"
+            traffic_text = self.dashboard_speed_text(traffic)
         if traffic_label is not None:
-            traffic_label.set_label(traffic_text)
+            self.set_widget_markup(traffic_label, self.dashboard_speed_markup(traffic), traffic_text)
             traffic_label.set_visible(bool(traffic_text))
 
         if meta_box is not None and hasattr(meta_box, "set_visible"):
@@ -2712,13 +2782,8 @@ class NativeShellApp:
         self.dashboard_dns_server_count = dns_count
         self.refresh_dashboard_interface_metric()
 
-        self.set_metric_value(
-            "traffic",
-            (
-                f"Принято (RX): {traffic.get('rx_total_label') or '—'}\n"
-                f"Отправлено (TX): {traffic.get('tx_total_label') or '—'}"
-            ),
-        )
+        self.set_metric_value("traffic", self.dashboard_volume_text(traffic))
+        self.apply_dashboard_volume_markup(traffic)
         self.refresh_dashboard_live_status_line()
 
         self.refresh_dashboard_badges(

@@ -517,6 +517,77 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(app.combine_rate_and_total("43.1 KB/s", "5.2 GB"), "43.1 KB/s\nВсего: 5.2 GB")
 
+    def test_dashboard_speed_text_uses_full_russian_labels(self) -> None:
+        app = self.make_app()
+
+        text = app.dashboard_speed_text(
+            {
+                "rx_rate_label": "43.1 KB/s",
+                "tx_rate_label": "1.7 KB/s",
+            }
+        )
+
+        self.assertEqual(text, "Принято: 43.1 KB/s  Отправлено: 1.7 KB/s")
+
+    def test_dashboard_volume_text_removes_rx_tx_abbreviations(self) -> None:
+        app = self.make_app()
+
+        text = app.dashboard_volume_text(
+            {
+                "rx_total_label": "5.2 GB",
+                "tx_total_label": "432.9 MB",
+            }
+        )
+
+        self.assertEqual(text, "Принято: 5.2 GB\nОтправлено: 432.9 MB")
+
+    def test_update_dashboard_from_status_formats_volume_without_rx_tx(self) -> None:
+        app = self.make_app()
+        captured: dict[str, object] = {}
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
+        app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
+        app.refresh_dashboard_badges = lambda **kwargs: None
+        app.refresh_dashboard_controls = lambda: None
+        app.update_dashboard_conflict_bar = lambda runtime: None
+        app.update_dashboard_state_icon = lambda summary, runtime: None
+        app.refresh_dashboard_live_status_line = lambda: None
+        app.update_diagnostics_from_status = lambda **kwargs: None
+        app.apply_dashboard_volume_markup = lambda traffic: captured.__setitem__("markup", traffic)
+        app.dashboard_labels = {
+            "hero_active": FakeButton(),
+            "hero_subscription": FakeButton(),
+        }
+
+        app.update_dashboard_from_status(
+            {
+                "summary": {"state": "running", "label": "Подключено", "tun_line": "tun0 готов", "dns_line": "1.1.1.1"},
+                "settings": {},
+                "processes": {"tun_present": True, "tun_interface": "tun0"},
+                "runtime": {},
+                "connection": {"protocol_label": "VLESS", "active_name": "Финляндия", "tun_interface": "tun0"},
+                "routing": {"enabled": False},
+                "traffic": {
+                    "available": True,
+                    "rx_rate_bytes_per_sec": 1536.0,
+                    "tx_rate_bytes_per_sec": 512.0,
+                    "rx_total_label": "5.2 GB",
+                    "tx_total_label": "432.9 MB",
+                },
+                "artifacts": {},
+                "active_node": {"name": "Финляндия"},
+                "last_action": {},
+                "project_root": "/tmp/project",
+                "logs": {},
+            }
+        )
+
+        self.assertEqual(captured["markup"]["rx_total_label"], "5.2 GB")
+        self.assertEqual(
+            captured["metric:traffic"],
+            "Принято: 5.2 GB\nОтправлено: 432.9 MB",
+        )
+
     def test_refresh_dashboard_live_status_line_shows_duration_for_active_connection(self) -> None:
         app = self.make_app()
         uptime_widget = FakeButton()
@@ -553,8 +624,52 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(uptime_widget.label, "⏱ 12:34")
         self.assertTrue(uptime_widget.visible)
-        self.assertEqual(traffic_widget.label, "↓ 43.1 KB/s ↑ 1.7 KB/s")
+        self.assertEqual(traffic_widget.label, "Принято: 43.1 KB/s  Отправлено: 1.7 KB/s")
         self.assertTrue(meta_box.visible)
+
+    def test_format_connection_duration_keeps_time_for_days(self) -> None:
+        app = self.make_app()
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 15, 7, 41, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            formatted = app.format_connection_duration("2026-04-10T10:00:00")
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(formatted, "1д 5:07:41")
+
+    def test_format_connection_duration_keeps_time_for_weeks_and_years(self) -> None:
+        app = self.make_app()
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 17, 7, 40, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            weeks_formatted = app.format_connection_duration("2026-03-25T12:00:00")
+            years_formatted = app.format_connection_duration("2025-02-10T12:00:00")
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(weeks_formatted, "2нед 3д 5:07:40")
+        self.assertEqual(years_formatted, "1г 2мес 5:07:40")
 
     def test_refresh_dashboard_live_status_line_keeps_traffic_for_foreign_connection(self) -> None:
         app = self.make_app()
@@ -595,7 +710,7 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(uptime_widget.label, "⏱ 12:34")
         self.assertTrue(uptime_widget.visible)
-        self.assertEqual(traffic_widget.label, "↓ 43.1 KB/s ↑ 1.7 KB/s")
+        self.assertEqual(traffic_widget.label, "Принято: 43.1 KB/s  Отправлено: 1.7 KB/s")
         self.assertTrue(traffic_widget.visible)
         self.assertTrue(meta_box.visible)
 
