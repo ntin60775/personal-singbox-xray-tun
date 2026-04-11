@@ -251,6 +251,15 @@ stackswitcher button:checked {
   font-size: 12px;
 }
 
+.native-shell-status-badge-label {
+  color: @text_primary;
+  font-size: 12px;
+}
+
+.native-shell-status-badge-icon {
+  color: @text_primary;
+}
+
 .native-shell-badge-running {
   background: rgba(61, 220, 151, 0.18);
   border-color: rgba(61, 220, 151, 0.45);
@@ -579,7 +588,11 @@ class NativeShellApp:
         self.dashboard_takeover_button = None
         self.diagnostic_takeover_button = None
         self.dashboard_dns_button = None
+        self.dashboard_dns_compact_text = "—"
         self.dashboard_dns_full_text = "—"
+        self.dashboard_dns_server_count = 0
+        self.dashboard_dns_expanded = False
+        self.dashboard_tun_line = "—"
         self.diagnostic_labels: dict[str, object] = {}
         self.last_store_payload: dict[str, Any] | None = None
         self.selected_subscription_id: str | None = None
@@ -831,14 +844,6 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(panel, "native-shell-panel")
 
-        detail = self.Gtk.Label(
-            label="Состояние подключения, выбранный узел и служебные признаки собраны на одной вкладке.",
-            xalign=0,
-        )
-        detail.set_wrap(True)
-        add_css_class(detail, "native-shell-muted")
-        self.dashboard_labels["hero_detail"] = detail
-
         primary_button = self.Gtk.Button(label="Подключиться")
         add_css_class(primary_button, "native-shell-button-primary")
         primary_button.connect("clicked", self.on_dashboard_primary_action_clicked)
@@ -855,25 +860,14 @@ class NativeShellApp:
         self.dashboard_action_buttons["open-subscriptions"] = nodes_button
 
         action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        action_row.set_hexpand(True)
+        action_row.set_homogeneous(True)
+        primary_button.set_hexpand(True)
+        diagnostics_button.set_hexpand(True)
+        nodes_button.set_hexpand(True)
         action_row.append(primary_button)
         action_row.append(diagnostics_button)
         action_row.append(nodes_button)
-
-        summary = self.Gtk.Label(
-            label="Главное действие доступно сразу: запуск, остановка или переход к выбору узла.",
-            xalign=0,
-        )
-        summary.set_wrap(True)
-        add_css_class(summary, "native-shell-card-subtitle")
-        self.dashboard_labels["action_summary"] = summary
-
-        hint = self.Gtk.Label(
-            label="Запрос прав появится только при запуске, остановке подключения или снятии дампа в диагностике.",
-            xalign=0,
-        )
-        hint.set_wrap(True)
-        add_css_class(hint, "native-shell-muted")
-        self.dashboard_labels["action_hint"] = hint
 
         self.status_label = self.Gtk.Label(xalign=0)
         self.status_label.set_wrap(True)
@@ -936,12 +930,9 @@ class NativeShellApp:
         states_head.append(badges_box)
 
         panel.append(self.build_dashboard_status_row())
-        panel.append(detail)
         panel.append(action_row)
-        panel.append(summary)
-        panel.append(hint)
-        panel.append(self.status_label)
         panel.append(info_bar)
+        panel.append(self.status_label)
         panel.append(details_row)
         panel.append(states_head)
         container.append(panel)
@@ -1238,6 +1229,25 @@ class NativeShellApp:
         badge = self.Gtk.Label(label=label, xalign=0)
         add_css_class(badge, "native-shell-badge")
         add_css_class(badge, f"native-shell-chip-{tone}")
+        return badge
+
+    def make_status_badge(self, label: str, tone: str, icon_name: str) -> object:
+        badge = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
+        add_css_class(badge, "native-shell-badge")
+        add_css_class(badge, f"native-shell-chip-{tone}")
+
+        icon = self.Gtk.Image()
+        if hasattr(icon, "set_from_icon_name"):
+            icon.set_from_icon_name(icon_name)
+        elif hasattr(icon, "set_icon_name"):
+            icon.set_icon_name(icon_name)
+        add_css_class(icon, "native-shell-status-badge-icon")
+
+        text = self.Gtk.Label(label=label, xalign=0)
+        add_css_class(text, "native-shell-status-badge-label")
+
+        badge.append(icon)
+        badge.append(text)
         return badge
 
     def make_row_text(self, label: str, css_class: str):
@@ -2266,6 +2276,8 @@ class NativeShellApp:
             return str(last_action["message"])
         runtime = payload.get("runtime", {}) or {}
         if runtime.get("start_blocked"):
+            if str(runtime.get("ownership") or "") == "foreign":
+                return "Снимок состояния обновлён."
             return self.concise_runtime_block_message(runtime, for_status=True)
         return str(payload.get("summary", {}).get("description") or "Состояние обновлено.")
 
@@ -2315,9 +2327,14 @@ class NativeShellApp:
         self.append_log("window", message)
 
     def on_show_dashboard_dns_clicked(self, _button) -> None:
+        if int(getattr(self, "dashboard_dns_server_count", 0) or 0) <= 1:
+            return
+        self.dashboard_dns_expanded = not bool(getattr(self, "dashboard_dns_expanded", False))
+        self.refresh_dashboard_interface_metric()
         dns_text = getattr(self, "dashboard_dns_full_text", "—")
-        self.set_status(f"DNS: {dns_text}")
-        self.append_log("window", f"Показан полный список DNS: {dns_text}")
+        message = "DNS раскрыт полностью." if self.dashboard_dns_expanded else "DNS снова свёрнут."
+        self.set_status(message)
+        self.append_log("window", f"{message} {dns_text}")
 
     def on_dashboard_primary_action_clicked(self, _button) -> None:
         action_id = getattr(self, "dashboard_primary_action_id", None)
@@ -2390,23 +2407,18 @@ class NativeShellApp:
                 "action_id": "stop-runtime",
                 "button_label": "Отключить",
                 "summary": f"Сейчас подключено через узел: {node_label}.",
-                "hint": "Запрос прав появится только при остановке подключения.",
+                "hint": "",
                 "variant": "danger",
                 "enabled": True,
                 "tooltip": "Остановить текущее подключение и восстановить DNS.",
             }
 
         if runtime.get("start_blocked"):
-            blocked_summary = (
-                "Подключением управляет другой экземпляр."
-                if ownership == "foreign"
-                else "Источник подключения пока не подтверждён."
-            )
             return {
                 "action_id": None,
-                "button_label": "Подключение недоступно",
-                "summary": blocked_summary,
-                "hint": self.concise_runtime_block_message(runtime, for_action_hint=True),
+                "button_label": "Подключиться",
+                "summary": f"Выбран узел: {node_label}." if node_name else "Подключение временно недоступно.",
+                "hint": "" if ownership == "foreign" else "Источник подключения пока не подтверждён.",
                 "variant": "secondary",
                 "enabled": False,
                 "tooltip": self.concise_runtime_block_message(runtime, for_action_hint=True),
@@ -2416,9 +2428,9 @@ class NativeShellApp:
             routing_error = str(runtime.get("routing_error") or "Маршрутизация ещё не готова.")
             return {
                 "action_id": None,
-                "button_label": "Подключение недоступно",
-                "summary": "Сначала исправьте состояние маршрутизации.",
-                "hint": routing_error,
+                "button_label": "Подключиться",
+                "summary": f"Выбран узел: {node_label}." if node_name else "Подключение временно недоступно.",
+                "hint": "Сначала исправьте состояние маршрутизации.",
                 "variant": "secondary",
                 "enabled": False,
                 "tooltip": routing_error,
@@ -2426,22 +2438,21 @@ class NativeShellApp:
 
         if not node_name:
             return {
-                "action_id": "open-subscriptions",
-                "button_label": "Выбрать узел",
-                "summary": "Узел для подключения ещё не выбран.",
-                "hint": "Откройте экран «Узлы и подписки» и выберите узел для следующего запуска.",
+                "action_id": None,
+                "button_label": "Подключиться",
+                "summary": "Выберите узел на вкладке «Узлы».",
+                "hint": "",
                 "variant": "secondary",
-                "enabled": True,
-                "tooltip": "Открыть экран выбора узла и подписок.",
+                "enabled": False,
+                "tooltip": "Сначала выберите узел на вкладке «Узлы».",
             }
 
         if runtime.get("start_ready"):
-            button_label = f"Подключиться к {node_name}" if node_name else "Подключиться"
             return {
                 "action_id": "start-runtime",
-                "button_label": button_label,
+                "button_label": "Подключиться",
                 "summary": f"Готово к запуску через узел: {node_label}.",
-                "hint": "Можно запускать подключение сразу из этого экрана.",
+                "hint": "",
                 "variant": "primary",
                 "enabled": True,
                 "tooltip": str(runtime.get("next_start_reason") or "Запустить подключение через общий сервисный слой."),
@@ -2450,9 +2461,9 @@ class NativeShellApp:
         next_reason = str(runtime.get("next_start_reason") or "Подключение пока не готово.")
         return {
             "action_id": None,
-            "button_label": "Подключение недоступно",
+            "button_label": "Подключиться",
             "summary": f"Выбран узел: {node_label}.",
-            "hint": next_reason,
+            "hint": "",
             "variant": "secondary",
             "enabled": False,
             "tooltip": next_reason,
@@ -2481,15 +2492,37 @@ class NativeShellApp:
         else:
             add_css_class(label, "native-shell-status-dot-stopped")
 
-    def format_dns_summary(self, value: object) -> tuple[str, str]:
+    def format_dns_summary(self, value: object) -> tuple[str, str, int]:
         raw = str(value or "").strip()
         servers = [item.strip() for item in raw.split(",") if item.strip()]
         if not servers:
-            return "—", "—"
+            return "—", "—", 0
         full = ", ".join(servers)
         if len(servers) == 1:
-            return full, full
-        return f"{servers[0]} · ещё {len(servers) - 1}", full
+            return full, full, 1
+        return f"{servers[0]} + ещё {len(servers) - 1}", full, len(servers)
+
+    def refresh_dashboard_interface_metric(self) -> None:
+        tun_line = getattr(self, "dashboard_tun_line", "—")
+        compact_dns = getattr(self, "dashboard_dns_compact_text", "—")
+        full_dns = getattr(self, "dashboard_dns_full_text", "—")
+        dns_count = int(getattr(self, "dashboard_dns_server_count", 0) or 0)
+        expanded = bool(getattr(self, "dashboard_dns_expanded", False))
+
+        dns_value = full_dns if expanded and full_dns != "—" else compact_dns
+        self.set_metric_value("interface", f"TUN: {tun_line}\nDNS: {dns_value}")
+
+        if self.dashboard_dns_button is None:
+            return
+
+        has_multiple_dns = dns_count > 1 and full_dns != "—"
+        self.dashboard_dns_button.set_visible(has_multiple_dns)
+        self.dashboard_dns_button.set_sensitive(has_multiple_dns)
+        self.dashboard_dns_button.set_tooltip_text(full_dns)
+        if not has_multiple_dns:
+            self.dashboard_dns_button.set_label("Показать все")
+            return
+        self.dashboard_dns_button.set_label("Свернуть DNS" if expanded else f"Показать все ({dns_count})")
 
     def update_dashboard_conflict_bar(self, runtime: dict[str, Any]) -> None:
         if self.dashboard_conflict_bar is None or self.dashboard_conflict_label is None:
@@ -2502,8 +2535,9 @@ class NativeShellApp:
         if not visible:
             return
         self.dashboard_conflict_label.set_label(
-            f"Подключением управляет другой экземпляр. Путь активного bundle: {state_root}."
+            f"Активное подключение уже запущено из другого bundle. Путь: {self.shorten_text(state_root, 84)}"
         )
+        self.dashboard_conflict_label.set_tooltip_text(state_root)
         if self.dashboard_takeover_button is not None:
             self.dashboard_takeover_button.set_sensitive(True)
 
@@ -2519,11 +2553,11 @@ class NativeShellApp:
         last_action = payload.get("last_action", {}) or {}
 
         self.update_dashboard_state_icon(summary, runtime)
-        self.set_dashboard_label("hero_state", self.user_facing_runtime_state_label(summary, runtime))
-        hero_detail = str(summary.get("description") or "Состояние подключения обновлено.")
-        if runtime.get("start_blocked") and summary.get("state") != "running":
-            hero_detail = self.concise_runtime_block_message(runtime)
-        self.set_dashboard_label("hero_detail", hero_detail)
+        dashboard_state = self.user_facing_runtime_state_label(summary, runtime)
+        if str(runtime.get("ownership") or "") == "foreign":
+            dashboard_state = "Подключение недоступно"
+        self.set_dashboard_label("hero_state", dashboard_state)
+        self.set_dashboard_label("hero_detail", "")
 
         _node_name, node_label = self.connection_target_label(payload)
         self.set_dashboard_label("hero_active", self.shorten_text(node_label, 64))
@@ -2532,24 +2566,25 @@ class NativeShellApp:
             f"↓ {traffic.get('rx_rate_label') or '—'} ↑ {traffic.get('tx_rate_label') or '—'}",
         )
         tun_line = str(summary.get("tun_line") or connection.get("tun_interface") or "—")
+        self.dashboard_tun_line = tun_line
         self.set_dashboard_label("hero_tun", self.shorten_text(tun_line, 26))
 
-        dns_summary, dns_full = self.format_dns_summary(summary.get("dns_line") or connection.get("dns_servers") or "—")
+        dns_summary, dns_full, dns_count = self.format_dns_summary(summary.get("dns_line") or connection.get("dns_servers") or "—")
+        if dns_full != getattr(self, "dashboard_dns_full_text", "—"):
+            self.dashboard_dns_expanded = False
+        self.dashboard_dns_compact_text = dns_summary
         self.dashboard_dns_full_text = dns_full
-        if self.dashboard_dns_button is not None:
-            self.dashboard_dns_button.set_sensitive(dns_full != "—")
-            self.dashboard_dns_button.set_tooltip_text(dns_full)
+        self.dashboard_dns_server_count = dns_count
+        self.refresh_dashboard_interface_metric()
 
         self.set_metric_value(
             "traffic",
             (
-                f"RX: {traffic.get('rx_rate_label') or '—'} (Всего: {traffic.get('rx_total_label') or '—'})\n"
-                f"TX: {traffic.get('tx_rate_label') or '—'} (Всего: {traffic.get('tx_total_label') or '—'})"
+                f"RX: {traffic.get('rx_rate_label') or '—'}\n"
+                f"Всего: {traffic.get('rx_total_label') or '—'}\n"
+                f"TX: {traffic.get('tx_rate_label') or '—'}\n"
+                f"Всего: {traffic.get('tx_total_label') or '—'}"
             ),
-        )
-        self.set_metric_value(
-            "interface",
-            f"TUN: {tun_line}\nDNS: {dns_summary}",
         )
 
         self.refresh_dashboard_badges(
@@ -2722,19 +2757,29 @@ class NativeShellApp:
         routing_enabled = bool(routing.get("enabled") and routing.get("runtime_ready"))
         routing_profile = routing.get("active_profile", {}) or {}
         routing_name = str(routing_profile.get("name") or "").strip()
-        routing_label = f"✔ маршрут {routing_name}" if routing_enabled and routing_name else "✔ маршрут"
+        routing_label = f"Маршрут {routing_name}" if routing_enabled and routing_name else "Маршрут активен"
         routing_tone = "success"
+        routing_icon = "emblem-ok-symbolic"
         if not routing_enabled:
-            routing_label = f"✘ маршрут {routing_name}" if routing_name else "✘ маршрут"
+            routing_label = f"Маршрут {routing_name}" if routing_name else "Маршрут не активен"
             routing_tone = "danger" if routing.get("enabled") else "warning"
+            routing_icon = "window-close-symbolic" if routing.get("enabled") else "dialog-warning-symbolic"
 
         badge_specs = (
-            (f"✔ {tun_interface} найден" if tun_present else f"✘ {tun_interface} не найден", "success" if tun_present else "danger"),
-            ("✔ логирование" if file_logs_enabled else "✘ логирование", "success" if file_logs_enabled else "warning"),
-            (routing_label, routing_tone),
+            (
+                f"{tun_interface} найден" if tun_present else f"{tun_interface} не найден",
+                "success" if tun_present else "danger",
+                "emblem-ok-symbolic" if tun_present else "window-close-symbolic",
+            ),
+            (
+                "Логирование включено" if file_logs_enabled else "Логирование выключено",
+                "success" if file_logs_enabled else "warning",
+                "emblem-ok-symbolic" if file_logs_enabled else "dialog-warning-symbolic",
+            ),
+            (routing_label, routing_tone, routing_icon),
         )
-        for label, tone in badge_specs:
-            self.dashboard_badge_box.append(self.make_badge(label, tone))
+        for label, tone, icon_name in badge_specs:
+            self.dashboard_badge_box.append(self.make_status_badge(label, tone, icon_name))
 
     def refresh_dashboard_controls(self) -> None:
         is_busy = getattr(self, "action_in_flight", None) is not None

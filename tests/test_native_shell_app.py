@@ -61,6 +61,7 @@ class FakeButton:
         self.sensitive = True
         self.tooltip = None
         self.variant = None
+        self.visible = True
 
     def set_label(self, value: str) -> None:
         self.label = value
@@ -70,6 +71,9 @@ class FakeButton:
 
     def set_tooltip_text(self, value: str) -> None:
         self.tooltip = value
+
+    def set_visible(self, value: bool) -> None:
+        self.visible = bool(value)
 
 
 class NativeShellAppTests(unittest.TestCase):
@@ -113,7 +117,11 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_takeover_button = None
         app.diagnostic_takeover_button = None
         app.dashboard_dns_button = None
+        app.dashboard_dns_compact_text = "—"
         app.dashboard_dns_full_text = "—"
+        app.dashboard_dns_server_count = 0
+        app.dashboard_dns_expanded = False
+        app.dashboard_tun_line = "—"
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
@@ -319,8 +327,8 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(captured["hero_state"], "Подключением управляет другой экземпляр")
-        self.assertEqual(captured["hero_detail"], "Это окно не управляет чужим подключением.")
+        self.assertEqual(captured["hero_state"], "Подключение недоступно")
+        self.assertEqual(captured["hero_detail"], "")
         self.assertEqual(captured["hero_active"], "Node · VLESS")
         self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
         self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
@@ -350,11 +358,8 @@ class NativeShellAppTests(unittest.TestCase):
 
         app.refresh_dashboard_controls()
 
-        self.assertEqual(
-            captured["action_hint"],
-            "Откройте диагностику: там виден путь к активному экземпляру и можно снять дамп.",
-        )
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключение недоступно")
+        self.assertEqual(captured["action_hint"], "")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться")
         self.assertFalse(app.dashboard_action_buttons["primary-connect"].sensitive)
 
     def test_refresh_dashboard_controls_exposes_connect_button_for_last_selected_node(self) -> None:
@@ -379,10 +384,11 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_dashboard_controls()
 
         self.assertEqual(app.dashboard_primary_action_id, "start-runtime")
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться к Финляндия")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться")
         self.assertTrue(app.dashboard_action_buttons["primary-connect"].sensitive)
         self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "primary")
         self.assertEqual(captured["action_summary"], "Готово к запуску через узел: Финляндия · VLESS.")
+        self.assertEqual(captured["action_hint"], "")
 
     def test_refresh_dashboard_controls_switches_primary_button_to_disconnect(self) -> None:
         app = self.make_app()
@@ -420,7 +426,16 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(message, "Сейчас подключением управляет другой экземпляр Subvost.")
+        self.assertEqual(message, "Снимок состояния обновлён.")
+
+    def test_format_dns_summary_collapses_extra_addresses(self) -> None:
+        app = self.make_app()
+
+        summary, full, count = app.format_dns_summary("192.168.100.1, 1.1.1.1, 8.8.8.8, 9.9.9.9")
+
+        self.assertEqual(summary, "192.168.100.1 + ещё 3")
+        self.assertEqual(full, "192.168.100.1, 1.1.1.1, 8.8.8.8, 9.9.9.9")
+        self.assertEqual(count, 4)
 
     def test_show_page_switches_stack_child(self) -> None:
         class FakeStack:
