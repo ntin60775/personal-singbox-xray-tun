@@ -112,6 +112,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_action_buttons = {}
         app.dashboard_primary_action_id = None
         app.dashboard_badge_box = None
+        app.dashboard_status_meta_box = None
         app.dashboard_conflict_bar = None
         app.dashboard_conflict_label = None
         app.dashboard_takeover_button = None
@@ -122,6 +123,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_dns_server_count = 0
         app.dashboard_dns_expanded = False
         app.dashboard_tun_line = "—"
+        app.dashboard_uptime_source_id = None
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
@@ -328,7 +330,6 @@ class NativeShellAppTests(unittest.TestCase):
         )
 
         self.assertEqual(captured["hero_state"], "Подключение недоступно")
-        self.assertEqual(captured["hero_detail"], "")
         self.assertEqual(captured["hero_active"], "Node · VLESS")
         self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
         self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
@@ -412,7 +413,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_dashboard_controls()
 
         self.assertEqual(app.dashboard_primary_action_id, "stop-runtime")
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Отключить")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Отключиться")
         self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "danger")
         self.assertEqual(captured["action_summary"], "Сейчас подключено через узел: Финляндия · VLESS.")
 
@@ -434,7 +435,10 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_dashboard_controls = lambda: None
         app.update_dashboard_conflict_bar = lambda runtime: None
         app.update_dashboard_state_icon = lambda summary, runtime: None
-        app.dashboard_labels = {"hero_active": FakeButton()}
+        app.dashboard_labels = {
+            "hero_active": FakeButton(),
+            "hero_subscription": FakeButton(),
+        }
 
         app.update_dashboard_from_status(
             {
@@ -451,7 +455,8 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(captured["hero_active"], "Финляндия · VLESS (подписка: sub.subvost.fun)")
+        self.assertEqual(captured["hero_active"], "Финляндия · VLESS")
+        self.assertEqual(captured["hero_subscription"], "Подписка: sub.subvost.fun")
 
     def test_status_message_from_payload_humanizes_foreign_instance_conflict(self) -> None:
         app = self.make_app()
@@ -502,7 +507,7 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(
             captured["interface"],
-            "TUN: tun0 готов\nDNS: 192.168.100.1, fe80::1%eth0, 192.168.1.1, fe80::52ff:20ff:fe52:1234",
+            "TUN: tun0 готов\nDNS: 192.168.100.1\n      fe80::1%eth0\n      192.168.1.1\n      fe80::52ff:20ff:fe52:1234",
         )
         self.assertFalse(dns_button.visible)
         self.assertFalse(dns_button.sensitive)
@@ -511,6 +516,45 @@ class NativeShellAppTests(unittest.TestCase):
         app = self.make_app()
 
         self.assertEqual(app.combine_rate_and_total("43.1 KB/s", "5.2 GB"), "43.1 KB/s\nВсего: 5.2 GB")
+
+    def test_refresh_dashboard_live_status_line_shows_duration_for_active_connection(self) -> None:
+        app = self.make_app()
+        uptime_widget = FakeButton()
+        traffic_widget = FakeButton()
+        meta_box = FakeButton()
+        app.dashboard_labels = {
+            "hero_uptime": uptime_widget,
+            "hero_traffic": traffic_widget,
+        }
+        app.dashboard_status_meta_box = meta_box
+        app.last_status_payload = {
+            "summary": {"state": "running"},
+            "runtime": {"connected_since": "2026-04-11T12:00:00"},
+            "processes": {"xray_alive": True, "tun_present": True},
+            "traffic": {"rx_rate_label": "43.1 KB/s", "tx_rate_label": "1.7 KB/s"},
+        }
+
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 12, 12, 34, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            app.refresh_dashboard_live_status_line()
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(uptime_widget.label, "⏱ 12:34")
+        self.assertTrue(uptime_widget.visible)
+        self.assertEqual(traffic_widget.label, "↓ 43.1 KB/s ↑ 1.7 KB/s")
+        self.assertTrue(meta_box.visible)
 
     def test_show_page_switches_stack_child(self) -> None:
         class FakeStack:
