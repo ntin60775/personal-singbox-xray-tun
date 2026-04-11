@@ -4,6 +4,7 @@ __pycache__/
 /.codex
 /.playwright-cli/
 /output/playwright/
+/package-lock.json
 
 *~
 *.swp
