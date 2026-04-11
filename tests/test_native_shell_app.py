@@ -65,8 +65,6 @@ class NativeShellAppTests(unittest.TestCase):
         app.tray_process = object()
         app.log_lines = []
         app.allow_close = False
-        app.initial_gtk_dark_theme_preference = None
-        app.did_capture_initial_theme_preference = False
         app.append_log = lambda source, message: app.log_lines.append((source, message))
         app.set_status = lambda message: setattr(app, "status_message", message)
         app.refresh_status_after_settings_change = lambda: setattr(app, "refresh_called", True)
@@ -90,7 +88,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.last_log_export_path = None
         return app
 
-    def test_apply_theme_preference_restores_initial_system_preference(self) -> None:
+    def test_apply_theme_preference_forces_dark_contract(self) -> None:
         fake_settings = FakeGtkSettings(dark_preference=True)
 
         class FakeGtkModule:
@@ -105,8 +103,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.apply_theme_preference("light")
         app.apply_theme_preference("system")
 
-        self.assertEqual(app.initial_gtk_dark_theme_preference, True)
-        self.assertEqual(fake_settings.calls, [False, True])
+        self.assertEqual(fake_settings.calls, [True, True])
 
     def test_handle_tray_helper_failure_shows_hidden_window(self) -> None:
         app = self.make_app()

@@ -47,7 +47,7 @@ class NativeShellSharedTests(unittest.TestCase):
         self.assertTrue(settings.file_logs_enabled)
         self.assertTrue(settings.close_to_tray)
         self.assertFalse(settings.start_minimized_to_tray)
-        self.assertEqual(settings.theme, "system")
+        self.assertEqual(settings.theme, "dark")
 
     def test_select_indicator_candidate_prefers_ayatana(self) -> None:
         candidate = select_indicator_candidate(
@@ -95,6 +95,8 @@ class NativeShellSharedTests(unittest.TestCase):
 
     def test_theme_label_and_action_label_use_known_mappings(self) -> None:
         self.assertEqual(normalize_native_shell_theme(" DARK "), "dark")
+        self.assertEqual(normalize_native_shell_theme("light"), "dark")
+        self.assertEqual(normalize_native_shell_theme("system"), "dark")
         self.assertEqual(native_shell_theme_label("dark"), "Тёмная")
         self.assertEqual(tray_action_label("capture-diagnostics"), "Снять диагностику")
         self.assertEqual(native_shell_action_label("subscription-refresh"), "Обновление подписки")

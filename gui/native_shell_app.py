@@ -18,8 +18,6 @@ from native_shell_shared import (
     NATIVE_SHELL_CONTROL_OBJECT_PATH,
     NATIVE_SHELL_LOG_FILTER_VALUES,
     NATIVE_SHELL_PAGES,
-    NATIVE_SHELL_THEME_LABELS,
-    NATIVE_SHELL_THEME_VALUES,
     NATIVE_SHELL_TITLE,
     NATIVE_SHELL_TRAY_ACTIONS,
     NATIVE_SHELL_TRAY_WATCHER_CANDIDATES,
@@ -40,6 +38,7 @@ from native_shell_shared import (
     native_shell_log_level_label,
     native_shell_log_source_label,
     normalize_native_shell_log_filter,
+    normalize_native_shell_theme,
     ping_snapshot_from_status,
     resolve_selected_subscription_id,
     routing_from_store_snapshot,
@@ -73,8 +72,8 @@ CONTROL_INTROSPECTION_XML = f"""
   </interface>
 </node>
 """.strip()
-DEFAULT_WINDOW_WIDTH = 1100
-DEFAULT_WINDOW_HEIGHT = 760
+DEFAULT_WINDOW_WIDTH = 1180
+DEFAULT_WINDOW_HEIGHT = 820
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -104,7 +103,7 @@ window {
 
 .native-shell-root {
   color: @text_primary;
-  padding: 20px;
+  padding: 16px;
   background:
     radial-gradient(circle at top left, rgba(255, 99, 99, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(21, 24, 33, 0.96), rgba(16, 18, 24, 0.98));
@@ -112,10 +111,10 @@ window {
 
 .native-shell-panel {
   background: rgba(27, 31, 42, 0.92);
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(58, 66, 86, 0.72);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
-  padding: 20px;
+  padding: 16px;
 }
 
 .native-shell-muted {
@@ -129,13 +128,13 @@ window {
 
 .native-shell-page-title {
   color: @text_primary;
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 700;
 }
 
 .native-shell-card-title {
   color: @text_primary;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -158,7 +157,7 @@ window {
 
 .native-shell-value-large {
   color: @text_primary;
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
 }
 
@@ -197,7 +196,7 @@ window {
   background: rgba(34, 39, 53, 0.82);
   border-radius: 14px;
   border: 1px solid rgba(58, 66, 86, 0.72);
-  padding: 14px;
+  padding: 12px;
 }
 
 button {
@@ -248,9 +247,37 @@ textview.native-shell-input {
   border-spacing: 8px 0;
 }
 
+.native-shell-page-scroll,
+.native-shell-log-scroller {
+  background: transparent;
+}
+
 .native-shell-subscriptions-root,
 .native-shell-subscriptions-right {
   min-height: 0;
+}
+
+.native-shell-sidebar {
+  background: rgba(13, 16, 22, 0.74);
+  border-radius: 14px;
+  border: 1px solid rgba(58, 66, 86, 0.7);
+  padding: 8px;
+}
+
+stacksidebar.native-shell-sidebar row {
+  min-height: 0;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: rgba(34, 39, 53, 0.54);
+}
+
+stacksidebar.native-shell-sidebar row:selected,
+stacksidebar.native-shell-sidebar row:hover {
+  background: rgba(255, 99, 99, 0.18);
+}
+
+stacksidebar.native-shell-sidebar label {
+  color: @text_primary;
 }
 
 .native-shell-listbox {
@@ -306,6 +333,12 @@ textview.native-shell-input {
 }
 
 textview {
+  background: #0D1016;
+  color: @text_primary;
+}
+
+textview.native-shell-log-view,
+textview.native-shell-log-view text {
   background: #0D1016;
   color: @text_primary;
 }
@@ -438,7 +471,6 @@ class NativeShellApp:
         self.tray_process: subprocess.Popen[str] | None = None
         self.allow_close = False
         self.did_initial_activation = False
-        self.theme_dropdown = None
         self.settings_switches: dict[str, object] = {}
         self.dashboard_labels: dict[str, object] = {}
         self.dashboard_metrics: dict[str, object] = {}
@@ -460,8 +492,6 @@ class NativeShellApp:
         self.action_in_flight: str | None = None
         self.status_refresh_source_id = None
         self.last_status_payload: dict[str, Any] | None = None
-        self.initial_gtk_dark_theme_preference: bool | None = None
-        self.did_capture_initial_theme_preference = False
 
         self.app.connect("activate", self.on_activate)
         self.app.connect("shutdown", self.on_shutdown)
@@ -579,7 +609,8 @@ class NativeShellApp:
             self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-        root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=18)
+        root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        root.set_vexpand(True)
         add_css_class(root, "native-shell-root")
         header = self.build_header_bar()
         status_panel = self.build_status_panel()
@@ -596,9 +627,9 @@ class NativeShellApp:
         header.set_show_title_buttons(True)
 
         title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=2)
-        title_label = self.Gtk.Label(label="GTK4 Native Shell", xalign=0)
+        title_label = self.Gtk.Label(label="Subvost GTK4 Shell", xalign=0)
         add_css_class(title_label, "native-shell-card-title")
-        subtitle_label = self.Gtk.Label(label="Desktop control shell for Subvost Xray TUN", xalign=0)
+        subtitle_label = self.Gtk.Label(label="Компактный desktop-контур для Xray TUN", xalign=0)
         add_css_class(subtitle_label, "native-shell-muted")
         title_box.append(title_label)
         title_box.append(subtitle_label)
@@ -610,17 +641,13 @@ class NativeShellApp:
         return header
 
     def build_status_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
         add_css_class(panel, "native-shell-panel")
-        add_css_class(panel, "native-shell-hero")
 
-        title_label = self.Gtk.Label(label="Dashboard уже подключён к общему service-layer", xalign=0)
-        add_css_class(title_label, "native-shell-page-title")
+        title_label = self.Gtk.Label(label="Статус shell", xalign=0)
+        add_css_class(title_label, "native-shell-card-title")
         description_label = self.Gtk.Label(
-            label=(
-                "GTK4 shell больше не живёт на stub-действиях: статус, ownership-guard и runtime-операции "
-                "идут через тот же Python orchestration-layer, что и web GUI."
-            ),
+            label="Статус, tray и runtime-действия идут через общий service-layer.",
             xalign=0,
         )
         description_label.set_wrap(True)
@@ -647,6 +674,7 @@ class NativeShellApp:
 
     def build_stack(self):
         outer = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=16)
+        outer.set_vexpand(True)
         add_css_class(outer, "native-shell-panel")
 
         stack = self.Gtk.Stack()
@@ -656,7 +684,8 @@ class NativeShellApp:
 
         sidebar = self.Gtk.StackSidebar()
         sidebar.set_stack(stack)
-        sidebar.set_size_request(220, -1)
+        sidebar.set_size_request(184, -1)
+        add_css_class(sidebar, "native-shell-sidebar")
         outer.append(sidebar)
 
         for page in NATIVE_SHELL_PAGES:
@@ -667,10 +696,10 @@ class NativeShellApp:
 
     def build_page(self, page):
         page_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
-        page_box.set_margin_top(8)
-        page_box.set_margin_bottom(8)
-        page_box.set_margin_start(8)
-        page_box.set_margin_end(8)
+        page_box.set_margin_top(6)
+        page_box.set_margin_bottom(6)
+        page_box.set_margin_start(6)
+        page_box.set_margin_end(6)
 
         title_label = self.Gtk.Label(label=page.title, xalign=0)
         add_css_class(title_label, "native-shell-page-title")
@@ -686,20 +715,26 @@ class NativeShellApp:
             page_box.append(self.build_subscriptions_page())
         elif page.page_id == "log":
             page_box.append(self.build_log_page())
-        return page_box
+
+        scrolled = self.Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        add_css_class(scrolled, "native-shell-page-scroll")
+        scrolled.set_child(page_box)
+        return scrolled
 
     def build_dashboard_page(self):
-        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
 
-        hero = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        hero = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
         add_css_class(hero, "native-shell-panel")
         add_css_class(hero, "native-shell-hero")
-        hero_title = self.Gtk.Label(label="Runtime overview", xalign=0)
+        hero_title = self.Gtk.Label(label="Runtime", xalign=0)
         add_css_class(hero_title, "native-shell-card-title")
         hero_state = self.Gtk.Label(label="Обновляю состояние…", xalign=0)
         add_css_class(hero_state, "native-shell-value-large")
         hero_detail = self.Gtk.Label(
-            label="Service-layer собирает статус bundle, ownership и runtime-метрики.",
+            label="Bundle status, ownership и ключевые действия без отдельного backend-контура.",
             xalign=0,
         )
         hero_detail.set_wrap(True)
@@ -718,7 +753,7 @@ class NativeShellApp:
         self.dashboard_labels["hero_active"] = hero_active
         self.dashboard_badge_box = badge_box
 
-        split = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=16)
+        split = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         split.append(self.build_dashboard_action_panel())
         split.append(self.build_dashboard_metrics_panel())
 
@@ -731,14 +766,8 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Основные действия", xalign=0)
+        title = self.Gtk.Label(label="Действия runtime", xalign=0)
         add_css_class(title, "native-shell-card-title")
-        subtitle = self.Gtk.Label(
-            label="Root-запрос должен появляться только на runtime-действиях через `pkexec`.",
-            xalign=0,
-        )
-        subtitle.set_wrap(True)
-        add_css_class(subtitle, "native-shell-muted")
 
         action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         button_styles = {
@@ -754,13 +783,12 @@ class NativeShellApp:
             action_row.append(button)
 
         hint = self.Gtk.Label(
-            label="Действия синхронизированы с тем же backend-контрактом, который обслуживает web GUI.",
+            label="Root-запрос нужен только для `Старт`, `Стоп` и `Диагностика`.",
             xalign=0,
         )
         hint.set_wrap(True)
         add_css_class(hint, "native-shell-card-subtitle")
         panel.append(title)
-        panel.append(subtitle)
         panel.append(action_row)
         panel.append(hint)
         self.dashboard_labels["action_hint"] = hint
@@ -770,7 +798,7 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Live metrics", xalign=0)
+        title = self.Gtk.Label(label="Сводка", xalign=0)
         add_css_class(title, "native-shell-card-title")
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
 
@@ -805,7 +833,7 @@ class NativeShellApp:
     def build_dashboard_details_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Runtime context", xalign=0)
+        title = self.Gtk.Label(label="Контекст runtime", xalign=0)
         add_css_class(title, "native-shell-card-title")
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
 
@@ -837,14 +865,14 @@ class NativeShellApp:
         return panel
 
     def build_subscriptions_page(self):
-        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
 
         action_panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(action_panel, "native-shell-panel")
         title = self.Gtk.Label(label="Подписки и routing", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Добавьте первую URL-подписку или обновите уже сохранённые профили.",
+            label="Добавьте URL-подписку или обновите уже сохранённые профили.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -878,7 +906,7 @@ class NativeShellApp:
         action_panel.append(input_row)
         container.append(action_panel)
 
-        body = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=16)
+        body = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         body.set_vexpand(True)
         add_css_class(body, "native-shell-subscriptions-root")
         body.append(self.build_subscription_list_panel())
@@ -894,7 +922,7 @@ class NativeShellApp:
 
     def build_subscription_list_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        panel.set_size_request(320, -1)
+        panel.set_size_request(280, -1)
         panel.set_hexpand(False)
         panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
@@ -902,7 +930,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="URL-подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         copy_label = self.Gtk.Label(
-            label="Слева выбирается текущая подписка, справа видны её узлы и routing-панель.",
+            label="Слева выбирается подписка, справа доступны узлы и routing.",
             xalign=0,
         )
         copy_label.set_wrap(True)
@@ -1507,13 +1535,13 @@ class NativeShellApp:
                 button.set_sensitive(not busy)
 
     def build_log_page(self):
-        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(container, "native-shell-panel")
 
         title = self.Gtk.Label(label="Log и ошибки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Здесь собраны события native shell, backend action-log и runtime tail текущего bundle.",
+            label="События native shell, backend action-log и runtime tail текущего bundle.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -1561,10 +1589,12 @@ class NativeShellApp:
         scrolled = self.Gtk.ScrolledWindow()
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
+        add_css_class(scrolled, "native-shell-log-scroller")
         text_view = self.Gtk.TextView()
         text_view.set_editable(False)
         text_view.set_cursor_visible(False)
         text_view.set_monospace(True)
+        add_css_class(text_view, "native-shell-log-view")
         self.log_buffer = text_view.get_buffer()
         self.refresh_log_view()
         scrolled.set_child(text_view)
@@ -1655,21 +1685,18 @@ class NativeShellApp:
 
     def build_settings_window(self):
         window = self.Gtk.Window(transient_for=self.window, title="Настройки native shell")
-        window.set_default_size(540, 420)
+        window.set_default_size(480, 340)
         window.set_modal(False)
 
         root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
+        root.set_margin_top(16)
+        root.set_margin_bottom(16)
+        root.set_margin_start(16)
+        root.set_margin_end(16)
         add_css_class(root, "native-shell-root")
 
         intro = self.Gtk.Label(
-            label=(
-                "Минимальная оболочка настроек для v1. Здесь сохраняются только shell-параметры, "
-                "без сетевых, runtime и routing-настроек."
-            ),
+            label="Только shell-параметры: tray, локальные логи и фиксированный тёмный контракт.",
             xalign=0,
         )
         intro.set_wrap(True)
@@ -1693,20 +1720,18 @@ class NativeShellApp:
         add_css_class(theme_title, "native-shell-card-title")
         theme_hint = self.Gtk.Label(
             label=(
-                "Для GTK4 shell поддерживаются системный, светлый и тёмный режимы. "
-                "Системный режим восстанавливает исходное GTK-предпочтение сессии."
+                "Сейчас shell работает только в тёмном режиме. "
+                "Сохранённые legacy-значения `system` и `light` автоматически приводятся к тёмному контракту."
             ),
             xalign=0,
         )
         theme_hint.set_wrap(True)
         add_css_class(theme_hint, "native-shell-muted")
-        theme_model = self.Gtk.StringList.new([NATIVE_SHELL_THEME_LABELS[value] for value in NATIVE_SHELL_THEME_VALUES])
-        self.theme_dropdown = self.Gtk.DropDown(model=theme_model)
-        self.theme_dropdown.set_selected(NATIVE_SHELL_THEME_VALUES.index(self.settings.theme))
-        self.theme_dropdown.connect("notify::selected", self.on_theme_changed)
+        theme_value = self.Gtk.Label(label=native_shell_theme_label(self.settings.theme), xalign=0)
+        add_css_class(theme_value, "native-shell-card-subtitle")
         theme_box.append(theme_title)
         theme_box.append(theme_hint)
-        theme_box.append(self.theme_dropdown)
+        theme_box.append(theme_value)
         root.append(theme_box)
 
         tray_note = self.Gtk.Label(
@@ -2200,14 +2225,6 @@ class NativeShellApp:
             self.append_log("settings", f"Настройка file_logs_enabled изменена: {int(value)}.")
         self.refresh_status_after_settings_change()
 
-    def on_theme_changed(self, dropdown, _param_spec) -> None:
-        theme = NATIVE_SHELL_THEME_VALUES[dropdown.get_selected()]
-        self.settings.theme = theme
-        self.apply_theme_preference(theme)
-        self.persist_settings()
-        self.append_log("settings", f"Theme изменена: {native_shell_theme_label(theme)}.")
-        self.refresh_status_after_settings_change()
-
     def refresh_status_after_settings_change(self) -> None:
         if self.tray_support.available:
             self.set_status(
@@ -2227,33 +2244,15 @@ class NativeShellApp:
             theme=self.settings.theme,
         )
 
-    def capture_initial_theme_preference(self, settings) -> None:
-        if self.did_capture_initial_theme_preference:
-            return
-        self.did_capture_initial_theme_preference = True
-        get_property = getattr(settings, "get_property", None)
-        if get_property is None:
-            return
-        try:
-            self.initial_gtk_dark_theme_preference = bool(get_property("gtk-application-prefer-dark-theme"))
-        except (TypeError, ValueError):
-            self.initial_gtk_dark_theme_preference = None
-
     def apply_theme_preference(self, theme: str) -> None:
         settings = self.Gtk.Settings.get_default()
         if settings is None:
             return
-        self.capture_initial_theme_preference(settings)
         try:
-            if theme == "dark":
-                value = True
-            elif theme == "light":
-                value = False
-            elif self.initial_gtk_dark_theme_preference is not None:
-                value = self.initial_gtk_dark_theme_preference
-            else:
-                return
-            settings.set_property("gtk-application-prefer-dark-theme", value)
+            settings.set_property(
+                "gtk-application-prefer-dark-theme",
+                normalize_native_shell_theme(theme) == "dark",
+            )
         except (TypeError, ValueError):
             return
 

@@ -10,12 +10,12 @@
 | Ключ в путях | `TASK-2026-0053.6` |
 | Технический ключ для новых именуемых сущностей | `gtk4-compact-ux-defect-pass` |
 | Краткое имя | `gtk4-compact-ux-defect-pass` |
-| Статус | `готова к работе` |
+| Статус | `на проверке` |
 | Приоритет | `высокий` |
 | Ответственный | `Codex` |
 | Ветка | `topic/gtk4-native-ui-spike` |
 | Дата создания | `2026-04-10` |
-| Дата обновления | `2026-04-10` |
+| Дата обновления | `2026-04-11` |
 
 ## Цель
 
@@ -59,16 +59,17 @@
 - в архиве зафиксированы экран `2560x1440`, окно `2892x1999` и `WM_NORMAL_HINTS` minimum size `2892x1999`, то есть shell сам требовал геометрию больше экрана;
 - попытка уменьшить окно до `1400x980` не изменила geometry, поэтому `resize` был признан фактически неработающим;
 - архивный план отдельно фиксировал UX-дефекты: oversized geometry, неработающий `resize/maximize`, бесполезный верхний banner, светлый `StackSidebar`, белую `Log` surface, misleading theme selector и недоступность части header-`CTA`;
-- исходный план существовал только в архивах Codex-сессий и не был перенесён в репозиторий; текущая сессия восстанавливает его как полноценную подзадачу с raw-артефактами.
+- исходный план существовал только в архивах Codex-сессий и не был перенесён в репозиторий; сначала подзадача была восстановлена в knowledge, а в текущей реализации поверх этого контура внесён кодовый UX-pass;
+- в этой автоматизированной сессии launcher `./open-subvost-gtk-ui.sh --disable-tray` не смог пройти живой smoke, потому что `Gtk` не увидел доступный display, хотя переменная `DISPLAY` была объявлена.
 
 ## Затронутые области
 
 | Область | Что меняется |
 |---------|--------------|
-| `GTK4` geometry / layout | Нужно уменьшить default/minimum size и убрать давление oversized-layout на окно |
-| Визуальный контракт | `Sidebar`, `Log` и `Settings` должны вернуться к консистентному тёмному виду |
-| Тексты и плотность | `Dashboard` должен остаться рабочим экраном, а не полотном пояснений |
-| Knowledge / ручной smoke | Восстановлены task-контур и артефакты ручного smoke |
+| `GTK4` geometry / layout | Уменьшены nominal size, плотность отступов и давление page-layout на размер окна; страницы переведены на scroll-friendly контракт |
+| Визуальный контракт | `Sidebar`, `Log` и `Settings` переведены к одному тёмному виду, selector темы убран |
+| Тексты и плотность | `Dashboard` и служебные copy-блоки сокращены до краткого рабочего контекста |
+| Тесты и knowledge | Обновлены native-shell unit-тесты, `task.md`, `plan.md` и реестр задач |
 
 ## Связанные материалы
 
@@ -81,7 +82,7 @@
 
 ## Текущий этап
 
-Подзадача восстановлена из архивного плана и готова к реализации. В текущей сессии перенесены knowledge-артефакты и raw `PNG`; кодовые правки `GTK4` UI ещё не начинались.
+Кодовые правки `GTK4` UI выполнены и переведены в стадию проверки. Пройдены `unittest`, `py_compile`, `bash -n` и `git diff --check`; живой GTK smoke на доступном display и обновление screenshot-артефактов остаются следующим этапом.
 
 ## Стратегия проверки
 
@@ -89,6 +90,7 @@
 
 - `python3 -m unittest tests.test_native_shell_app tests.test_native_shell_shared tests.test_subvost_app_service tests.test_gui_server`;
 - `python3 -m py_compile gui/native_shell_app.py gui/native_shell_shared.py gui/subvost_app_service.py gui/gui_server.py`;
+- `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `git diff --check`;
 - локализационная проверка новых и обновлённых Markdown-файлов через `markdown-localization-guard`.
 
 ### Остаётся на ручную проверку
@@ -111,4 +113,8 @@
 
 ## Итог
 
-Подзадача восстановлена как потерянное продолжение после архивного ручного smoke от `2026-04-10`. В рамках текущей сессии оформлены `task.md`, `plan.md`, `smoke-summary.md`, перенесены raw screenshot-артефакты и синхронизирован knowledge-контур; реализация UX-исправлений остаётся следующим этапом.
+Подзадача больше не находится в состоянии «только восстановлена»: в `gui/native_shell_app.py` пересобран компактный shell-контракт. Главные изменения: страницы завернуты в scroll-friendly layout, уменьшены nominal size и плотность отступов, сокращены banner/copy-блоки, `Dashboard` уплотнён, sidebar сужен, а `Log` получил явный тёмный `TextView`/scroller-контракт.
+
+В `Settings` убран misleading selector темы и зафиксирован честный `dark-only` режим, а `gui/native_shell_shared.py` теперь безопасно приводит legacy-значения `theme` к тёмному контракту без расширения persisted-поля. Обновлены `tests/test_native_shell_app.py` и `tests/test_native_shell_shared.py`, а полный регрессионный прогон `tests.test_native_shell_app`, `tests.test_native_shell_shared`, `tests.test_subvost_app_service` и `tests.test_gui_server` проходит успешно.
+
+Статус оставлен `на проверке`, а не `завершена`, потому что повторный живой GTK smoke в этой сессии не был подтверждён: `./open-subvost-gtk-ui.sh --disable-tray` завершился ошибкой `Gtk не видит доступный display, хотя DISPLAY/WAYLAND объявлены`. До финального закрытия подзадачи остаются реальная проверка geometry/resize на живом display и обновление screenshot-артефактов.

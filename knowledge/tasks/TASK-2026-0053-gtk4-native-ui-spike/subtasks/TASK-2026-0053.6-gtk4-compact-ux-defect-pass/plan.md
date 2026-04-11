@@ -11,8 +11,8 @@
 |------|----------|
 | ID задачи | `TASK-2026-0053.6` |
 | Parent ID | `TASK-2026-0053` |
-| Версия плана | `1` |
-| Дата обновления | `2026-04-10` |
+| Версия плана | `2` |
+| Дата обновления | `2026-04-11` |
 
 ## Цель
 
@@ -87,6 +87,7 @@
 
 - `python3 -m unittest tests.test_native_shell_app tests.test_native_shell_shared tests.test_subvost_app_service tests.test_gui_server`;
 - `python3 -m py_compile gui/native_shell_app.py gui/native_shell_shared.py gui/subvost_app_service.py gui/gui_server.py`;
+- `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `git diff --check`;
 - `python3 ~/.agents/skills/markdown-localization-guard/scripts/markdown_localization_guard.py` для новых и обновлённых Markdown-файлов подзадачи, родителя и `registry.md`.
 
 ### Что остаётся на ручную проверку
@@ -104,13 +105,22 @@
 
 - [x] Восстановить подзадачу и перенести архивные smoke-артефакты в knowledge-контур
 - [x] Синхронизировать `registry.md` и родительские `task.md` / `plan.md`
-- [ ] Исправить geometry и minimum size окна
-- [ ] Перепаковать `Dashboard` в компактную верхнюю часть без прокрутки
-- [ ] Убрать бесполезный banner и технические поясняющие тексты
-- [ ] Привести `Sidebar`, `Log` и `Settings` к одному тёмному визуальному контракту
-- [ ] Зафиксировать честный `dark-only` theme contract
+- [x] Исправить geometry и minimum size окна
+- [x] Перепаковать `Dashboard` в компактную верхнюю часть без прокрутки
+- [x] Убрать бесполезный banner и технические поясняющие тексты
+- [x] Привести `Sidebar`, `Log` и `Settings` к одному тёмному визуальному контракту
+- [x] Зафиксировать честный `dark-only` theme contract
+- [x] Прогнать кодовые и статические проверки
 - [ ] Прогнать повторный smoke на `Dashboard / Subscriptions / Log / Settings`
-- [ ] Закрыть подзадачу и обновить knowledge по фактическому результату
+- [x] Синхронизировать итоговый статус и результат в knowledge
+
+## Фактический результат реализации
+
+- `gui/native_shell_app.py` переведён на более компактный shell-контракт: уменьшены nominal size и отступы, верхний статусный блок больше не играет роль giant banner, страницы получили `ScrolledWindow`, а `Dashboard` перестроен в вертикальный компактный flow.
+- `Subscriptions` и `Log` ужаты по плотности, sidebar стал уже и получил явный тёмный CSS-контракт; для `Log` добавлен собственный dark `TextView`/scroller стиль.
+- Окно `Settings` уменьшено и упрощено: selector темы удалён, вместо него показывается честный `dark-only` статус с пояснением про legacy-значения.
+- `gui/native_shell_shared.py` теперь нормализует любые сохранённые значения `theme` к `dark`, не расширяя persisted-поле и не меняя launcher/D-Bus contract.
+- Обновлены `tests/test_native_shell_app.py` и `tests/test_native_shell_shared.py`; полный прогон `tests.test_native_shell_app`, `tests.test_native_shell_shared`, `tests.test_subvost_app_service`, `tests.test_gui_server` прошёл успешно.
 
 ## Критерии завершения
 
@@ -119,3 +129,7 @@
 - `Dashboard` не тратит экран на лишнюю поясняющую прозу и giant banner;
 - визуальный контракт тёмной темы консистентен на `Sidebar / Log / Settings`;
 - новый ручной smoke приложен и подтверждает устранение исходных UX-дефектов.
+
+## Остаточный риск
+
+Автоматизированная сессия не подтвердила живой `GTK` smoke: попытка запуска `./open-subvost-gtk-ui.sh --disable-tray` завершилась ошибкой `Gtk не видит доступный display, хотя DISPLAY/WAYLAND объявлены`. Поэтому geometry, `resize/maximize` и отсутствие visual-регрессий ещё нужно подтвердить на реальном display с `xwininfo`, `wmctrl`, `xprop` и новыми screenshot-артефактами.

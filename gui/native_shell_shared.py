@@ -21,13 +21,9 @@ NATIVE_SHELL_THEME_SYSTEM = "system"
 NATIVE_SHELL_THEME_LIGHT = "light"
 NATIVE_SHELL_THEME_DARK = "dark"
 NATIVE_SHELL_THEME_VALUES = (
-    NATIVE_SHELL_THEME_SYSTEM,
-    NATIVE_SHELL_THEME_LIGHT,
     NATIVE_SHELL_THEME_DARK,
 )
 NATIVE_SHELL_THEME_LABELS = {
-    NATIVE_SHELL_THEME_SYSTEM: "Системная",
-    NATIVE_SHELL_THEME_LIGHT: "Светлая",
     NATIVE_SHELL_THEME_DARK: "Тёмная",
 }
 NATIVE_SHELL_STORE_ACTION_LABELS = {
@@ -79,17 +75,17 @@ NATIVE_SHELL_PAGES = (
     NativeShellPage(
         "dashboard",
         "Dashboard",
-        "Главная operational-плоскость: runtime-статус, метрики, ownership и действия `Старт / Стоп / Диагностика`.",
+        "Короткий сводный экран: статус bundle, активный узел и действия `Старт / Стоп / Диагностика`.",
     ),
     NativeShellPage(
         "subscriptions",
         "Subscriptions",
-        "Рабочий экран подписок: URL-импорт, список узлов, отдельный ping и routing-профили.",
+        "URL-подписки, узлы и routing без отдельного backend-контура.",
     ),
     NativeShellPage(
         "log",
         "Log",
-        "Локальный журнал native shell и результаты runtime-действий этого окна.",
+        "Ошибки и события native shell, bundle и runtime в одном журнале.",
     ),
 )
 
@@ -117,7 +113,7 @@ class NativeShellSettings:
     file_logs_enabled: bool = False
     close_to_tray: bool = False
     start_minimized_to_tray: bool = False
-    theme: str = NATIVE_SHELL_THEME_SYSTEM
+    theme: str = NATIVE_SHELL_THEME_DARK
 
     @classmethod
     def from_mapping(cls, payload: dict[str, object] | None) -> "NativeShellSettings":
@@ -148,10 +144,8 @@ class NativeShellTraySupport:
 
 
 def normalize_native_shell_theme(value: object) -> str:
-    candidate = str(value or "").strip().lower()
-    if candidate in NATIVE_SHELL_THEME_VALUES:
-        return candidate
-    return NATIVE_SHELL_THEME_SYSTEM
+    _ = value
+    return NATIVE_SHELL_THEME_DARK
 
 
 def native_shell_theme_label(theme: str) -> str:
