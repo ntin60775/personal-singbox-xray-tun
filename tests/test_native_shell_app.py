@@ -318,6 +318,8 @@ class NativeShellAppTests(unittest.TestCase):
                     "active_name": "Node",
                     "remote_endpoint": "edge.example.com:443",
                     "remote_sni": "edge.example.com",
+                    "tun_interface": "tun0",
+                    "dns_servers": "1.1.1.1, 8.8.8.8",
                 },
                 "routing": {"enabled": False},
                 "traffic": {},
@@ -333,6 +335,8 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(captured["hero_active"], "Node · VLESS")
         self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
         self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
+        self.assertIn("TUN: tun0 готов", captured["diag:diagnostic_connection"])
+        self.assertIn("DNS: 1.1.1.1, 8.8.8.8", captured["diag:diagnostic_connection"])
 
     def test_refresh_dashboard_controls_uses_compact_foreign_bundle_action_hint(self) -> None:
         app = self.make_app()

@@ -942,18 +942,7 @@ class NativeShellApp:
         self.dashboard_metrics["traffic"] = traffic_value
         traffic_body.append(traffic_value)
 
-        interface_panel, interface_body = self.build_named_panel("Интерфейс")
-        interface_panel.set_hexpand(True)
-        interface_value = self.Gtk.Label(label="TUN: —\nDNS: —", xalign=0)
-        if hasattr(interface_value, "set_use_markup"):
-            interface_value.set_use_markup(True)
-        interface_value.set_wrap(True)
-        add_css_class(interface_value, "native-shell-value-muted")
-        self.dashboard_metrics["interface"] = interface_value
-        interface_body.append(interface_value)
-
         details_row.append(traffic_panel)
-        details_row.append(interface_panel)
 
         states_head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         states_head.set_hexpand(True)
@@ -2922,6 +2911,8 @@ class NativeShellApp:
         ) or "—"
         remote_endpoint = str(connection.get("remote_endpoint") or "—")
         remote_sni = str(connection.get("remote_sni") or "—")
+        tun_label = str(summary.get("tun_line") or connection.get("tun_interface") or "—")
+        dns_label = str(connection.get("dns_servers") or summary.get("dns_line") or "—")
         routing_text = "Маршрутизация отключена"
         if routing.get("enabled") and routing.get("runtime_ready"):
             routing_text = f"Маршрутизация: {routing.get('active_profile', {}).get('name') or 'активна'}"
@@ -2929,7 +2920,14 @@ class NativeShellApp:
             routing_text = f"Маршрутизация: ошибка ({routing.get('runtime_error') or 'служебный режим не готов'})"
         self.set_diagnostic_label(
             "diagnostic_connection",
-            f"Протокол: {transport}\nАдрес: {remote_endpoint}\nSNI: {remote_sni}\n{routing_text}",
+            (
+                f"Протокол: {transport}\n"
+                f"Адрес: {remote_endpoint}\n"
+                f"SNI: {remote_sni}\n"
+                f"TUN: {tun_label}\n"
+                f"DNS: {dns_label}\n"
+                f"{routing_text}"
+            ),
         )
 
         config_origin = self.user_facing_config_origin_label(runtime.get("config_origin"))
