@@ -206,7 +206,7 @@ stackswitcher button:checked {
 }
 
 .native-shell-status-pill-traffic {
-  min-width: 320px;
+  min-width: 360px;
 }
 
 .native-shell-status-dot {
@@ -861,6 +861,7 @@ class NativeShellApp:
         traffic_label = self.Gtk.Label(label="Принято: —  Отправлено: —", xalign=0)
         if hasattr(traffic_label, "set_use_markup"):
             traffic_label.set_use_markup(True)
+        traffic_label.set_wrap(True)
         add_css_class(traffic_label, "native-shell-status-pill")
         add_css_class(traffic_label, "native-shell-status-pill-traffic")
         traffic_label.set_visible(False)
@@ -929,21 +930,6 @@ class NativeShellApp:
         self.dashboard_conflict_label = info_label
         self.dashboard_takeover_button = takeover_button
 
-        details_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
-        details_row.set_hexpand(True)
-
-        traffic_panel, traffic_body = self.build_named_panel("Объём данных")
-        traffic_panel.set_hexpand(True)
-        traffic_value = self.Gtk.Label(label="Принято: —\nОтправлено: —", xalign=0)
-        if hasattr(traffic_value, "set_use_markup"):
-            traffic_value.set_use_markup(True)
-        traffic_value.set_wrap(True)
-        add_css_class(traffic_value, "native-shell-value-muted")
-        self.dashboard_metrics["traffic"] = traffic_value
-        traffic_body.append(traffic_value)
-
-        details_row.append(traffic_panel)
-
         states_head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         states_head.set_hexpand(True)
         states_title = self.Gtk.Label(label="Статусы", xalign=0)
@@ -958,7 +944,6 @@ class NativeShellApp:
         panel.append(action_row)
         panel.append(info_bar)
         panel.append(self.status_label)
-        panel.append(details_row)
         panel.append(states_head)
         container.append(panel)
         return container
@@ -1430,39 +1415,29 @@ class NativeShellApp:
         elif hasattr(widget, "set_label"):
             widget.set_label(plain_text)
 
-    def dashboard_speed_text(self, traffic: dict[str, Any]) -> str:
+    def dashboard_traffic_text(self, traffic: dict[str, Any]) -> str:
         rx_label = str(traffic.get("rx_rate_label") or "—")
         tx_label = str(traffic.get("tx_rate_label") or "—")
-        return f"Принято: {rx_label}  Отправлено: {tx_label}"
-
-    def dashboard_speed_markup(self, traffic: dict[str, Any]) -> str:
-        rx_label = escape(str(traffic.get("rx_rate_label") or "—"))
-        tx_label = escape(str(traffic.get("tx_rate_label") or "—"))
-        return (
-            f'<span foreground="#7BC4FF" weight="700">Принято:</span> '
-            f'<span foreground="#F3F6FB" weight="700">{rx_label}</span>  '
-            f'<span foreground="#FF8A6B" weight="700">Отправлено:</span> '
-            f'<span foreground="#F3F6FB" weight="700">{tx_label}</span>'
-        )
-
-    def dashboard_volume_text(self, traffic: dict[str, Any]) -> str:
         rx_total = str(traffic.get("rx_total_label") or "—")
         tx_total = str(traffic.get("tx_total_label") or "—")
-        return f"Принято: {rx_total}\nОтправлено: {tx_total}"
+        return (
+            f"Скорость: {rx_label} ↓ · {tx_label} ↑\n"
+            f"Объём: {rx_total} ↓ · {tx_total} ↑"
+        )
 
-    def dashboard_volume_markup(self, traffic: dict[str, Any]) -> str:
+    def dashboard_traffic_markup(self, traffic: dict[str, Any]) -> str:
+        rx_label = escape(str(traffic.get("rx_rate_label") or "—"))
+        tx_label = escape(str(traffic.get("tx_rate_label") or "—"))
         rx_total = escape(str(traffic.get("rx_total_label") or "—"))
         tx_total = escape(str(traffic.get("tx_total_label") or "—"))
         return (
-            f'<span foreground="#7BC4FF" weight="700">Принято:</span> '
-            f'<span foreground="#F3F6FB" weight="700">{rx_total}</span>\n'
-            f'<span foreground="#FF8A6B" weight="700">Отправлено:</span> '
-            f'<span foreground="#F3F6FB" weight="700">{tx_total}</span>'
+            f'<span foreground="#B7C0D4" weight="700">Скорость:</span> '
+            f'<span foreground="#7BC4FF" weight="700">{rx_label} ↓</span> · '
+            f'<span foreground="#FF8A6B" weight="700">{tx_label} ↑</span>\n'
+            f'<span foreground="#B7C0D4" weight="700">Объём:</span> '
+            f'<span foreground="#7BC4FF" weight="700">{rx_total} ↓</span> · '
+            f'<span foreground="#FF8A6B" weight="700">{tx_total} ↑</span>'
         )
-
-    def apply_dashboard_volume_markup(self, traffic: dict[str, Any]) -> None:
-        widget = getattr(self, "dashboard_metrics", {}).get("traffic")
-        self.set_widget_markup(widget, self.dashboard_volume_markup(traffic), self.dashboard_volume_text(traffic))
 
     def refresh_dashboard_live_status_line(self) -> None:
         payload = self.last_status_payload or {}
@@ -1486,11 +1461,13 @@ class NativeShellApp:
         traffic_text = ""
         rx_label = str(traffic.get("rx_rate_label") or "—")
         tx_label = str(traffic.get("tx_rate_label") or "—")
+        rx_total = str(traffic.get("rx_total_label") or "—")
+        tx_total = str(traffic.get("tx_total_label") or "—")
         show_traffic = active_connection or ownership == "foreign"
-        if show_traffic and (rx_label != "—" or tx_label != "—"):
-            traffic_text = self.dashboard_speed_text(traffic)
+        if show_traffic and any(value != "—" for value in (rx_label, tx_label, rx_total, tx_total)):
+            traffic_text = self.dashboard_traffic_text(traffic)
         if traffic_label is not None:
-            self.set_widget_markup(traffic_label, self.dashboard_speed_markup(traffic), traffic_text)
+            self.set_widget_markup(traffic_label, self.dashboard_traffic_markup(traffic), traffic_text)
             traffic_label.set_visible(bool(traffic_text))
 
         if meta_box is not None and hasattr(meta_box, "set_visible"):
@@ -2816,8 +2793,6 @@ class NativeShellApp:
         self.dashboard_dns_server_count = dns_count
         self.refresh_dashboard_interface_metric()
 
-        self.set_metric_value("traffic", self.dashboard_volume_text(traffic))
-        self.apply_dashboard_volume_markup(traffic)
         self.refresh_dashboard_live_status_line()
 
         self.refresh_dashboard_badges(
