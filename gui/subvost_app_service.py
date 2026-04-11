@@ -854,8 +854,9 @@ class SubvostAppService:
         xray_pid = runtime_info["xray_pid"]
         xray_alive = runtime_info["xray_alive"]
         tun_present = runtime_info["tun_present"]
-        stack_is_live = runtime_info["owned_stack_is_live"]
-        active_xray_config_path = self.resolve_active_xray_config_path(store, state, stack_is_live=stack_is_live)
+        owned_stack_is_live = runtime_info["owned_stack_is_live"]
+        stack_is_live = runtime_info["stack_is_live"]
+        active_xray_config_path = self.resolve_active_xray_config_path(store, state, stack_is_live=owned_stack_is_live)
         xray = read_json_config(active_xray_config_path)
         stack_status = self.describe_stack_status(
             xray_alive=xray_alive,
@@ -890,7 +891,7 @@ class SubvostAppService:
         runtime_state = self.describe_runtime_state(
             store,
             state,
-            stack_is_live=stack_is_live,
+            stack_is_live=owned_stack_is_live,
             runtime_info=runtime_info,
             active_profile=active_profile,
             active_node=active_node,

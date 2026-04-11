@@ -556,6 +556,49 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(traffic_widget.label, "↓ 43.1 KB/s ↑ 1.7 KB/s")
         self.assertTrue(meta_box.visible)
 
+    def test_refresh_dashboard_live_status_line_keeps_traffic_for_foreign_connection(self) -> None:
+        app = self.make_app()
+        uptime_widget = FakeButton()
+        traffic_widget = FakeButton()
+        meta_box = FakeButton()
+        app.dashboard_labels = {
+            "hero_uptime": uptime_widget,
+            "hero_traffic": traffic_widget,
+        }
+        app.dashboard_status_meta_box = meta_box
+        app.last_status_payload = {
+            "summary": {"state": "degraded"},
+            "runtime": {
+                "ownership": "foreign",
+                "connected_since": "2026-04-11T12:00:00",
+            },
+            "processes": {"xray_alive": True, "tun_present": True},
+            "traffic": {"rx_rate_label": "43.1 KB/s", "tx_rate_label": "1.7 KB/s"},
+        }
+
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 12, 12, 34, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            app.refresh_dashboard_live_status_line()
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(uptime_widget.label, "⏱ 12:34")
+        self.assertTrue(uptime_widget.visible)
+        self.assertEqual(traffic_widget.label, "↓ 43.1 KB/s ↑ 1.7 KB/s")
+        self.assertTrue(traffic_widget.visible)
+        self.assertTrue(meta_box.visible)
+
     def test_show_page_switches_stack_child(self) -> None:
         class FakeStack:
             def __init__(self) -> None:

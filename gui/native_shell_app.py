@@ -1373,15 +1373,20 @@ class NativeShellApp:
         traffic_label = getattr(self, "dashboard_labels", {}).get("hero_traffic")
         meta_box = getattr(self, "dashboard_status_meta_box", None)
         active_connection = self.dashboard_connection_is_active(summary, runtime, processes)
+        ownership = str(runtime.get("ownership") or "")
 
-        uptime_text = self.format_connection_duration(runtime.get("connected_since")) if active_connection else ""
+        show_uptime = active_connection or ownership == "foreign"
+        uptime_text = self.format_connection_duration(runtime.get("connected_since")) if show_uptime else ""
         if uptime_label is not None:
             uptime_label.set_label(f"⏱ {uptime_text}" if uptime_text else "")
             uptime_label.set_visible(bool(uptime_text))
 
         traffic_text = ""
-        if active_connection:
-            traffic_text = f"↓ {traffic.get('rx_rate_label') or '—'} ↑ {traffic.get('tx_rate_label') or '—'}"
+        rx_label = str(traffic.get("rx_rate_label") or "—")
+        tx_label = str(traffic.get("tx_rate_label") or "—")
+        show_traffic = active_connection or ownership == "foreign"
+        if show_traffic and (rx_label != "—" or tx_label != "—"):
+            traffic_text = f"↓ {rx_label} ↑ {tx_label}"
         if traffic_label is not None:
             traffic_label.set_label(traffic_text)
             traffic_label.set_visible(bool(traffic_text))
