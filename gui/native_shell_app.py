@@ -296,6 +296,8 @@ button.native-shell-button-primary {
   background-color: @accent_primary;
   border-color: @accent_primary;
   color: #0E1117;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 116, 116, 0.2);
 }
 
 button.native-shell-button-primary:hover {
@@ -307,6 +309,8 @@ button.native-shell-button-secondary {
   background-color: rgba(34, 39, 53, 0.96);
   border-color: rgba(58, 66, 86, 0.96);
   color: @text_primary;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(91, 102, 126, 0.42);
 }
 
 button.native-shell-button-danger {
@@ -314,6 +318,8 @@ button.native-shell-button-danger {
   background-color: rgba(255, 93, 115, 0.18);
   border-color: rgba(255, 93, 115, 0.52);
   color: @text_primary;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(255, 93, 115, 0.16);
 }
 
 button.native-shell-button-secondary:disabled,
@@ -821,6 +827,7 @@ class NativeShellApp:
 
         node_label = self.Gtk.Label(label="Узел не выбран", xalign=0)
         node_label.set_hexpand(True)
+        node_label.set_wrap(True)
         add_css_class(node_label, "native-shell-statusline-meta")
         self.dashboard_labels["hero_active"] = node_label
 
@@ -828,15 +835,10 @@ class NativeShellApp:
         add_css_class(traffic_label, "native-shell-status-pill")
         self.dashboard_labels["hero_traffic"] = traffic_label
 
-        tun_label = self.Gtk.Label(label="TUN: —", xalign=0)
-        add_css_class(tun_label, "native-shell-status-pill")
-        self.dashboard_labels["hero_tun"] = tun_label
-
         row.append(icon_label)
         row.append(state_label)
         row.append(node_label)
         row.append(traffic_label)
-        row.append(tun_label)
         return row
 
     def build_dashboard_page(self):
@@ -846,16 +848,19 @@ class NativeShellApp:
 
         primary_button = self.Gtk.Button(label="Подключиться")
         add_css_class(primary_button, "native-shell-button-primary")
+        primary_button.set_tooltip_text("Запустить подключение через выбранный узел.")
         primary_button.connect("clicked", self.on_dashboard_primary_action_clicked)
         self.dashboard_action_buttons["primary-connect"] = primary_button
 
         diagnostics_button = self.Gtk.Button(label="Диагностика")
         add_css_class(diagnostics_button, "native-shell-button-secondary")
+        diagnostics_button.set_tooltip_text("Открыть диагностику подключения и служебные файлы.")
         diagnostics_button.connect("clicked", lambda *_args: self.show_page("log"))
         self.dashboard_action_buttons["open-diagnostics"] = diagnostics_button
 
         nodes_button = self.Gtk.Button(label="Узлы")
         add_css_class(nodes_button, "native-shell-button-secondary")
+        nodes_button.set_tooltip_text("Перейти к выбору узлов и подписок.")
         nodes_button.connect("clicked", lambda *_args: self.show_page("subscriptions"))
         self.dashboard_action_buttons["open-subscriptions"] = nodes_button
 
@@ -1277,6 +1282,30 @@ class NativeShellApp:
         if parsed is not None:
             host = parsed.netloc or parsed.path.split("/")[0]
         return host or name or "Без имени"
+
+    def active_subscription_display_name(self) -> str:
+        store_payload = self.last_store_payload or {}
+        active_profile = active_profile_from_store_snapshot(store_payload) or {}
+        subscriptions = subscriptions_from_store_snapshot(store_payload)
+        source_subscription_id = str(active_profile.get("source_subscription_id") or "").strip()
+        profile_id = str(active_profile.get("id") or "").strip()
+
+        matched_subscription = None
+        if source_subscription_id:
+            matched_subscription = next(
+                (item for item in subscriptions if str(item.get("id") or "").strip() == source_subscription_id),
+                None,
+            )
+        if matched_subscription is None and profile_id:
+            matched_subscription = next(
+                (item for item in subscriptions if str(item.get("profile_id") or "").strip() == profile_id),
+                None,
+            )
+        if matched_subscription is None:
+            matched_subscription = selected_subscription_from_store_snapshot(store_payload, self.selected_subscription_id)
+        if not isinstance(matched_subscription, dict):
+            return ""
+        return self.subscription_display_name(matched_subscription)
 
     def build_icon_button(self, icon_name: str, tooltip: str, *, label: str | None = None, variant: str = "secondary"):
         button = self.Gtk.Button(label=label) if label else self.Gtk.Button()
@@ -2506,23 +2535,16 @@ class NativeShellApp:
         tun_line = getattr(self, "dashboard_tun_line", "—")
         compact_dns = getattr(self, "dashboard_dns_compact_text", "—")
         full_dns = getattr(self, "dashboard_dns_full_text", "—")
-        dns_count = int(getattr(self, "dashboard_dns_server_count", 0) or 0)
-        expanded = bool(getattr(self, "dashboard_dns_expanded", False))
-
-        dns_value = full_dns if expanded and full_dns != "—" else compact_dns
+        dns_value = full_dns if full_dns != "—" else compact_dns
         self.set_metric_value("interface", f"TUN: {tun_line}\nDNS: {dns_value}")
 
         if self.dashboard_dns_button is None:
             return
 
-        has_multiple_dns = dns_count > 1 and full_dns != "—"
-        self.dashboard_dns_button.set_visible(has_multiple_dns)
-        self.dashboard_dns_button.set_sensitive(has_multiple_dns)
+        self.dashboard_dns_button.set_visible(False)
+        self.dashboard_dns_button.set_sensitive(False)
         self.dashboard_dns_button.set_tooltip_text(full_dns)
-        if not has_multiple_dns:
-            self.dashboard_dns_button.set_label("Показать все")
-            return
-        self.dashboard_dns_button.set_label("Свернуть DNS" if expanded else f"Показать все ({dns_count})")
+        self.dashboard_dns_button.set_label("Показать все")
 
     def update_dashboard_conflict_bar(self, runtime: dict[str, Any]) -> None:
         if self.dashboard_conflict_bar is None or self.dashboard_conflict_label is None:
@@ -2560,14 +2582,21 @@ class NativeShellApp:
         self.set_dashboard_label("hero_detail", "")
 
         _node_name, node_label = self.connection_target_label(payload)
-        self.set_dashboard_label("hero_active", self.shorten_text(node_label, 64))
+        subscription_label = self.active_subscription_display_name()
+        active_connection_label = node_label
+        if subscription_label and node_label != "узел не выбран":
+            active_connection_label = f"{node_label} (подписка: {subscription_label})"
+        shortened_active_label = self.shorten_text(active_connection_label, 96)
+        self.set_dashboard_label("hero_active", shortened_active_label)
+        hero_active_widget = getattr(self, "dashboard_labels", {}).get("hero_active")
+        if hero_active_widget is not None:
+            hero_active_widget.set_tooltip_text(active_connection_label if shortened_active_label != active_connection_label else None)
         self.set_dashboard_label(
             "hero_traffic",
             f"↓ {traffic.get('rx_rate_label') or '—'} ↑ {traffic.get('tx_rate_label') or '—'}",
         )
         tun_line = str(summary.get("tun_line") or connection.get("tun_interface") or "—")
         self.dashboard_tun_line = tun_line
-        self.set_dashboard_label("hero_tun", self.shorten_text(tun_line, 26))
 
         dns_summary, dns_full, dns_count = self.format_dns_summary(summary.get("dns_line") or connection.get("dns_servers") or "—")
         if dns_full != getattr(self, "dashboard_dns_full_text", "—"):
@@ -2798,16 +2827,24 @@ class NativeShellApp:
             primary_button.set_sensitive(bool(spec["enabled"]))
             primary_button.set_tooltip_text(str(spec["tooltip"]))
             self.set_button_variant(primary_button, str(spec["variant"]))
+            if hasattr(primary_button, "set_visible"):
+                primary_button.set_visible(True)
 
         if open_nodes_button is not None:
+            open_nodes_button.set_label("Узлы")
             open_nodes_button.set_sensitive(True)
+            if hasattr(open_nodes_button, "set_visible"):
+                open_nodes_button.set_visible(True)
 
         if diag_button is not None:
             diag_button.set_sensitive(not is_busy)
             diag_button.set_tooltip_text("Снять диагностический дамп текущего подключения.")
 
         if open_diag_button is not None:
+            open_diag_button.set_label("Диагностика")
             open_diag_button.set_sensitive(True)
+            if hasattr(open_diag_button, "set_visible"):
+                open_diag_button.set_visible(True)
 
         self.set_dashboard_label("action_summary", str(spec["summary"]))
         self.set_dashboard_label("action_hint", str(spec["hint"]))

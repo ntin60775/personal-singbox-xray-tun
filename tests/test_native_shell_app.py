@@ -416,6 +416,43 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "danger")
         self.assertEqual(captured["action_summary"], "Сейчас подключено через узел: Финляндия · VLESS.")
 
+    def test_update_dashboard_appends_subscription_to_active_node_line(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.last_store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1", "url": "https://sub.subvost.fun/profile"},
+                ],
+            },
+            "active_profile": {"id": "profile-1", "source_subscription_id": "sub-1"},
+        }
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
+        app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
+        app.refresh_dashboard_badges = lambda **kwargs: captured.__setitem__("badges", str(kwargs))
+        app.refresh_dashboard_controls = lambda: None
+        app.update_dashboard_conflict_bar = lambda runtime: None
+        app.update_dashboard_state_icon = lambda summary, runtime: None
+        app.dashboard_labels = {"hero_active": FakeButton()}
+
+        app.update_dashboard_from_status(
+            {
+                "summary": {"state": "stopped", "label": "Остановлено", "tun_line": "tun0 готов", "dns_line": "1.1.1.1"},
+                "runtime": {},
+                "connection": {"protocol_label": "VLESS", "active_name": "Финляндия"},
+                "routing": {"enabled": False},
+                "traffic": {},
+                "artifacts": {},
+                "active_node": {"name": "Финляндия"},
+                "last_action": {},
+                "project_root": "/tmp/project",
+                "logs": {},
+            }
+        )
+
+        self.assertEqual(captured["hero_active"], "Финляндия · VLESS (подписка: sub.subvost.fun)")
+
     def test_status_message_from_payload_humanizes_foreign_instance_conflict(self) -> None:
         app = self.make_app()
 
@@ -436,6 +473,44 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(summary, "192.168.100.1 + ещё 3")
         self.assertEqual(full, "192.168.100.1, 1.1.1.1, 8.8.8.8, 9.9.9.9")
         self.assertEqual(count, 4)
+
+    def test_active_subscription_display_name_prefers_active_profile_source(self) -> None:
+        app = self.make_app()
+        app.last_store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1", "url": "https://sub.subvost.fun/profile"},
+                ],
+            },
+            "active_profile": {"id": "profile-1", "source_subscription_id": "sub-1"},
+        }
+
+        self.assertEqual(app.active_subscription_display_name(), "sub.subvost.fun")
+
+    def test_refresh_dashboard_interface_metric_shows_full_dns_and_hides_button(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        dns_button = FakeButton()
+        app.dashboard_dns_button = dns_button
+        app.set_metric_value = lambda key, value: captured.__setitem__(key, value)
+        app.dashboard_tun_line = "tun0 готов"
+        app.dashboard_dns_compact_text = "192.168.100.1 + ещё 3"
+        app.dashboard_dns_full_text = "192.168.100.1, fe80::1%eth0, 192.168.1.1, fe80::52ff:20ff:fe52:1234"
+        app.dashboard_dns_server_count = 4
+
+        app.refresh_dashboard_interface_metric()
+
+        self.assertEqual(
+            captured["interface"],
+            "TUN: tun0 готов\nDNS: 192.168.100.1, fe80::1%eth0, 192.168.1.1, fe80::52ff:20ff:fe52:1234",
+        )
+        self.assertFalse(dns_button.visible)
+        self.assertFalse(dns_button.sensitive)
+
+    def test_combine_rate_and_total_keeps_russian_total_label(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.combine_rate_and_total("43.1 KB/s", "5.2 GB"), "43.1 KB/s\nВсего: 5.2 GB")
 
     def test_show_page_switches_stack_child(self) -> None:
         class FakeStack:
