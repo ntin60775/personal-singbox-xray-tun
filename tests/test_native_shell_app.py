@@ -507,10 +507,24 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(
             captured["interface"],
-            "TUN: tun0 готов\nDNS: 192.168.100.1\n      fe80::1%eth0\n      192.168.1.1\n      fe80::52ff:20ff:fe52:1234",
+            "TUN: tun0 готов\nDNS (4):\n  Основной: 192.168.100.1\n  Доп.: fe80::1%eth0\n  Доп.: 192.168.1.1\n  Доп.: fe80::52ff:20ff:fe52:1234",
         )
         self.assertFalse(dns_button.visible)
         self.assertFalse(dns_button.sensitive)
+
+    def test_dashboard_interface_text_keeps_single_dns_compact(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.dashboard_interface_text("tun0 готов", "192.168.100.1"), "TUN: tun0 готов\nDNS: 192.168.100.1")
+
+    def test_dashboard_interface_markup_highlights_primary_dns(self) -> None:
+        app = self.make_app()
+
+        markup = app.dashboard_interface_markup("tun0 готов", "192.168.100.1, 1.1.1.1")
+
+        self.assertIn("DNS (2):", markup)
+        self.assertIn("Основной:", markup)
+        self.assertIn("#7BC4FF", markup)
 
     def test_combine_rate_and_total_keeps_russian_total_label(self) -> None:
         app = self.make_app()

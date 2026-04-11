@@ -205,6 +205,10 @@ stackswitcher button:checked {
   padding: 7px 12px;
 }
 
+.native-shell-status-pill-traffic {
+  min-width: 320px;
+}
+
 .native-shell-status-dot {
   font-size: 18px;
   font-weight: 700;
@@ -858,6 +862,7 @@ class NativeShellApp:
         if hasattr(traffic_label, "set_use_markup"):
             traffic_label.set_use_markup(True)
         add_css_class(traffic_label, "native-shell-status-pill")
+        add_css_class(traffic_label, "native-shell-status-pill-traffic")
         traffic_label.set_visible(False)
         self.dashboard_labels["hero_traffic"] = traffic_label
 
@@ -940,6 +945,8 @@ class NativeShellApp:
         interface_panel, interface_body = self.build_named_panel("Интерфейс")
         interface_panel.set_hexpand(True)
         interface_value = self.Gtk.Label(label="TUN: —\nDNS: —", xalign=0)
+        if hasattr(interface_value, "set_use_markup"):
+            interface_value.set_use_markup(True)
         interface_value.set_wrap(True)
         add_css_class(interface_value, "native-shell-value-muted")
         self.dashboard_metrics["interface"] = interface_value
@@ -1382,13 +1389,49 @@ class NativeShellApp:
             return " ".join(prefix_parts + [time_suffix])
         return time_suffix
 
-    def format_dns_for_interface(self, value: str) -> str:
-        servers = [item.strip() for item in str(value or "").split(",") if item.strip()]
+    def parse_dns_servers(self, value: str) -> list[str]:
+        return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+    def dashboard_interface_text(self, tun_line: str, dns_value: str) -> str:
+        servers = self.parse_dns_servers(dns_value)
         if not servers:
-            return "—"
+            return f"TUN: {tun_line}\nDNS: —"
         if len(servers) == 1:
-            return servers[0]
-        return f"{servers[0]}\n      " + "\n      ".join(servers[1:])
+            return f"TUN: {tun_line}\nDNS: {servers[0]}"
+        rows = [f"TUN: {tun_line}", f"DNS ({len(servers)}):", f"  Основной: {servers[0]}"]
+        rows.extend(f"  Доп.: {server}" for server in servers[1:])
+        return "\n".join(rows)
+
+    def dashboard_interface_markup(self, tun_line: str, dns_value: str) -> str:
+        servers = self.parse_dns_servers(dns_value)
+        escaped_tun = escape(tun_line)
+        if not servers:
+            return f"TUN: {escaped_tun}\nDNS: —"
+        if len(servers) == 1:
+            return f"TUN: {escaped_tun}\nDNS: {escape(servers[0])}"
+
+        rows = [
+            f"TUN: {escaped_tun}",
+            f'<span foreground="#B7C0D4" weight="700">DNS ({len(servers)}):</span>',
+            (
+                '  <span foreground="#7BC4FF" weight="700">Основной:</span> '
+                f'<span foreground="#F3F6FB" weight="700">{escape(servers[0])}</span>'
+            ),
+        ]
+        rows.extend(
+            '  <span foreground="#B7C0D4">Доп.:</span> '
+            f'<span foreground="#F3F6FB">{escape(server)}</span>'
+            for server in servers[1:]
+        )
+        return "\n".join(rows)
+
+    def apply_dashboard_interface_markup(self, tun_line: str, dns_value: str) -> None:
+        widget = getattr(self, "dashboard_metrics", {}).get("interface")
+        self.set_widget_markup(
+            widget,
+            self.dashboard_interface_markup(tun_line, dns_value),
+            self.dashboard_interface_text(tun_line, dns_value),
+        )
 
     def set_widget_markup(self, widget, markup: str, plain_text: str) -> None:
         if widget is None:
@@ -2702,7 +2745,9 @@ class NativeShellApp:
         compact_dns = getattr(self, "dashboard_dns_compact_text", "—")
         full_dns = getattr(self, "dashboard_dns_full_text", "—")
         dns_value = full_dns if full_dns != "—" else compact_dns
-        self.set_metric_value("interface", f"TUN: {tun_line}\nDNS: {self.format_dns_for_interface(dns_value)}")
+        interface_text = self.dashboard_interface_text(tun_line, dns_value)
+        self.set_metric_value("interface", interface_text)
+        self.apply_dashboard_interface_markup(tun_line, dns_value)
 
         if self.dashboard_dns_button is None:
             return
