@@ -613,10 +613,8 @@ class NativeShellApp:
         root.set_vexpand(True)
         add_css_class(root, "native-shell-root")
         header = self.build_header_bar()
-        status_panel = self.build_status_panel()
         stack = self.build_stack()
 
-        root.append(status_panel)
         root.append(stack)
         window.set_titlebar(header)
         window.set_child(root)
@@ -640,18 +638,12 @@ class NativeShellApp:
         header.pack_end(settings_button)
         return header
 
-    def build_status_panel(self):
+    def build_dashboard_status_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
         add_css_class(panel, "native-shell-panel")
 
         title_label = self.Gtk.Label(label="Статус shell", xalign=0)
         add_css_class(title_label, "native-shell-card-title")
-        description_label = self.Gtk.Label(
-            label="Статус, tray и runtime-действия идут через общий service-layer.",
-            xalign=0,
-        )
-        description_label.set_wrap(True)
-        add_css_class(description_label, "native-shell-muted")
 
         self.status_label = self.Gtk.Label(xalign=0)
         self.status_label.set_wrap(True)
@@ -667,7 +659,6 @@ class NativeShellApp:
         self.dashboard_labels["tray_note"] = tray_note
 
         panel.append(title_label)
-        panel.append(description_label)
         panel.append(self.status_label)
         panel.append(tray_note)
         return panel
@@ -725,6 +716,7 @@ class NativeShellApp:
 
     def build_dashboard_page(self):
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        container.append(self.build_dashboard_status_panel())
 
         hero = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
         add_css_class(hero, "native-shell-panel")
@@ -2018,6 +2010,23 @@ class NativeShellApp:
             return str(last_action["message"])
         return str(payload.get("summary", {}).get("description") or "Dashboard обновлён.")
 
+    def concise_runtime_block_message(self, runtime: dict[str, Any], *, for_action_hint: bool = False) -> str:
+        ownership = str(runtime.get("ownership") or "")
+        if ownership == "foreign":
+            if for_action_hint:
+                return "Остановите исходный bundle, затем повторите запуск."
+            return "Управление локальным runtime заблокировано: активен другой bundle."
+        if ownership == "unknown":
+            if for_action_hint:
+                return "Подтвердите источник runtime или дождитесь его остановки."
+            return "Управление runtime заблокировано, пока ownership не подтверждён."
+        message = str(runtime.get("next_start_reason") or runtime.get("control_message") or "").strip()
+        if for_action_hint and message:
+            return message
+        if message:
+            return message
+        return "Старт сейчас заблокирован."
+
     def update_dashboard_from_status(self, payload: dict[str, Any]) -> None:
         summary = payload.get("summary", {}) or {}
         runtime = payload.get("runtime", {}) or {}
@@ -2029,11 +2038,10 @@ class NativeShellApp:
         last_action = payload.get("last_action", {}) or {}
 
         self.set_dashboard_label("hero_state", str(summary.get("label") or "—"))
-        detail_parts = [str(summary.get("description") or "Статус bundle обновлён.")]
-        blocking_reason = str(runtime.get("next_start_reason") or runtime.get("control_message") or "")
-        if blocking_reason and summary.get("state") != "running":
-            detail_parts.append(blocking_reason)
-        self.set_dashboard_label("hero_detail", " ".join(part for part in detail_parts if part))
+        hero_detail = str(summary.get("description") or "Статус bundle обновлён.")
+        if runtime.get("start_blocked") and summary.get("state") != "running":
+            hero_detail = self.concise_runtime_block_message(runtime)
+        self.set_dashboard_label("hero_detail", hero_detail)
 
         active_name = str(active_node.get("name") or connection.get("active_name") or "—")
         protocol = str(connection.get("protocol_label") or "—")
@@ -2173,7 +2181,7 @@ class NativeShellApp:
             return
 
         if runtime.get("start_blocked"):
-            self.set_dashboard_label("action_hint", str(runtime.get("next_start_reason") or "Старт сейчас заблокирован."))
+            self.set_dashboard_label("action_hint", self.concise_runtime_block_message(runtime, for_action_hint=True))
             return
         if runtime.get("routing_enabled") and not runtime.get("routing_ready"):
             self.set_dashboard_label("action_hint", str(runtime.get("routing_error") or "Routing runtime пока не готов."))

@@ -242,6 +242,70 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertTrue(app.controls_refreshed)
         self.assertTrue(app.subscriptions_controls_refreshed)
 
+    def test_update_dashboard_uses_compact_message_for_foreign_bundle(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
+        app.refresh_dashboard_badges = lambda badges, state: captured.__setitem__("badges", f"{state}:{len(badges)}")
+        app.refresh_dashboard_controls = lambda: None
+
+        app.update_dashboard_from_status(
+            {
+                "summary": {
+                    "state": "degraded",
+                    "label": "Активен другой bundle",
+                    "description": "Обнаружен runtime другой копии bundle. Интерфейс: tun0.",
+                    "tun_line": "tun0 готов",
+                    "dns_line": "1.1.1.1",
+                    "badges": ["Активен другой bundle"],
+                },
+                "runtime": {
+                    "start_blocked": True,
+                    "ownership": "foreign",
+                    "ownership_label": "Другой bundle",
+                },
+                "connection": {
+                    "protocol_label": "VLESS",
+                    "transport_label": "TCP",
+                    "security_label": "Reality",
+                    "active_name": "Node",
+                    "remote_endpoint": "edge.example.com:443",
+                    "remote_sni": "edge.example.com",
+                },
+                "routing": {"enabled": False},
+                "traffic": {},
+                "artifacts": {},
+                "active_node": {"name": "Node"},
+                "last_action": {},
+                "project_root": "/tmp/project",
+                "logs": {},
+            }
+        )
+
+        self.assertEqual(captured["hero_detail"], "Управление локальным runtime заблокировано: активен другой bundle.")
+
+    def test_refresh_dashboard_controls_uses_compact_foreign_bundle_action_hint(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.dashboard_action_buttons = {}
+        app.last_status_payload = {
+            "summary": {"state": "degraded"},
+            "runtime": {
+                "start_blocked": True,
+                "ownership": "foreign",
+                "next_start_reason": (
+                    "Обнаружен runtime другого bundle. Bundle-владелец: /foreign/project. "
+                    "Текущий bundle: /current/project. Сначала остановите или проверьте исходный bundle, затем повторите запуск."
+                ),
+            },
+        }
+
+        app.refresh_dashboard_controls()
+
+        self.assertEqual(captured["action_hint"], "Остановите исходный bundle, затем повторите запуск.")
+
     def test_visible_log_text_respects_filter_and_separates_sources(self) -> None:
         app = self.make_app()
         app.log_filter = "error"
