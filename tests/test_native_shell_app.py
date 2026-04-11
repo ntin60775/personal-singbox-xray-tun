@@ -55,6 +55,23 @@ class FakeEntry:
         return self.text
 
 
+class FakeButton:
+    def __init__(self) -> None:
+        self.label = ""
+        self.sensitive = True
+        self.tooltip = None
+        self.variant = None
+
+    def set_label(self, value: str) -> None:
+        self.label = value
+
+    def set_sensitive(self, value: bool) -> None:
+        self.sensitive = bool(value)
+
+    def set_tooltip_text(self, value: str) -> None:
+        self.tooltip = value
+
+
 class NativeShellAppTests(unittest.TestCase):
     def make_app(self) -> native_shell_app.NativeShellApp:
         app = native_shell_app.NativeShellApp.__new__(native_shell_app.NativeShellApp)
@@ -65,6 +82,7 @@ class NativeShellAppTests(unittest.TestCase):
         app.tray_process = object()
         app.log_lines = []
         app.allow_close = False
+        app.stack = None
         app.append_log = lambda source, message: app.log_lines.append((source, message))
         app.set_status = lambda message: setattr(app, "status_message", message)
         app.refresh_status_after_settings_change = lambda: setattr(app, "refresh_called", True)
@@ -84,6 +102,12 @@ class NativeShellAppTests(unittest.TestCase):
         app.log_meta_label = None
         app.log_export_label = None
         app.log_buffer = None
+        app.diagnostic_labels = {}
+        app.dashboard_labels = {}
+        app.dashboard_metrics = {}
+        app.dashboard_action_buttons = {}
+        app.dashboard_primary_action_id = None
+        app.dashboard_badge_box = None
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
@@ -246,6 +270,7 @@ class NativeShellAppTests(unittest.TestCase):
         app = self.make_app()
         captured: dict[str, str] = {}
         app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
         app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
         app.refresh_dashboard_badges = lambda badges, state: captured.__setitem__("badges", f"{state}:{len(badges)}")
         app.refresh_dashboard_controls = lambda: None
@@ -264,6 +289,9 @@ class NativeShellAppTests(unittest.TestCase):
                     "start_blocked": True,
                     "ownership": "foreign",
                     "ownership_label": "Другой bundle",
+                    "state_bundle_project_root": "/foreign/project",
+                    "config_origin": "generated",
+                    "active_xray_config": "/tmp/generated.json",
                 },
                 "connection": {
                     "protocol_label": "VLESS",
@@ -283,13 +311,23 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(captured["hero_detail"], "Управление локальным runtime заблокировано: активен другой bundle.")
+        self.assertEqual(captured["hero_state"], "Подключением управляет другой экземпляр")
+        self.assertEqual(captured["hero_detail"], "Это окно не управляет чужим подключением.")
+        self.assertEqual(captured["hero_active"], "Выбранный узел: Node · VLESS")
+        self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
+        self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
 
     def test_refresh_dashboard_controls_uses_compact_foreign_bundle_action_hint(self) -> None:
         app = self.make_app()
         captured: dict[str, str] = {}
         app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
-        app.dashboard_action_buttons = {}
+        app.dashboard_action_buttons = {
+            "primary-connect": FakeButton(),
+            "open-subscriptions": FakeButton(),
+            "capture-diagnostics": FakeButton(),
+            "open-diagnostics": FakeButton(),
+        }
+        app.set_button_variant = lambda button, variant: setattr(button, "variant", variant)
         app.last_status_payload = {
             "summary": {"state": "degraded"},
             "runtime": {
@@ -304,7 +342,92 @@ class NativeShellAppTests(unittest.TestCase):
 
         app.refresh_dashboard_controls()
 
-        self.assertEqual(captured["action_hint"], "Остановите исходный bundle, затем повторите запуск.")
+        self.assertEqual(
+            captured["action_hint"],
+            "Откройте диагностику: там виден путь к активному экземпляру и можно снять дамп.",
+        )
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключение недоступно")
+        self.assertFalse(app.dashboard_action_buttons["primary-connect"].sensitive)
+
+    def test_refresh_dashboard_controls_exposes_connect_button_for_last_selected_node(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.dashboard_action_buttons = {
+            "primary-connect": FakeButton(),
+            "open-subscriptions": FakeButton(),
+            "capture-diagnostics": FakeButton(),
+            "open-diagnostics": FakeButton(),
+        }
+        app.set_button_variant = lambda button, variant: setattr(button, "variant", variant)
+        app.last_status_payload = {
+            "summary": {"state": "stopped"},
+            "runtime": {"start_ready": True, "stop_allowed": True, "start_blocked": False},
+            "processes": {"xray_alive": False, "tun_present": False},
+            "connection": {"protocol_label": "VLESS", "active_name": "Финляндия"},
+            "active_node": {"name": "Финляндия"},
+        }
+
+        app.refresh_dashboard_controls()
+
+        self.assertEqual(app.dashboard_primary_action_id, "start-runtime")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться к Финляндия")
+        self.assertTrue(app.dashboard_action_buttons["primary-connect"].sensitive)
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "primary")
+        self.assertEqual(captured["action_summary"], "Готово к запуску через узел: Финляндия · VLESS.")
+
+    def test_refresh_dashboard_controls_switches_primary_button_to_disconnect(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.dashboard_action_buttons = {
+            "primary-connect": FakeButton(),
+            "open-subscriptions": FakeButton(),
+            "capture-diagnostics": FakeButton(),
+            "open-diagnostics": FakeButton(),
+        }
+        app.set_button_variant = lambda button, variant: setattr(button, "variant", variant)
+        app.last_status_payload = {
+            "summary": {"state": "running"},
+            "runtime": {"start_blocked": False, "stop_allowed": True},
+            "processes": {"xray_alive": True, "tun_present": True},
+            "connection": {"protocol_label": "VLESS", "active_name": "Финляндия"},
+            "active_node": {"name": "Финляндия"},
+        }
+
+        app.refresh_dashboard_controls()
+
+        self.assertEqual(app.dashboard_primary_action_id, "stop-runtime")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Отключить")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "danger")
+        self.assertEqual(captured["action_summary"], "Сейчас подключено через узел: Финляндия · VLESS.")
+
+    def test_status_message_from_payload_humanizes_foreign_instance_conflict(self) -> None:
+        app = self.make_app()
+
+        message = app.status_message_from_payload(
+            {
+                "summary": {"description": "Обнаружен runtime другой копии bundle. Интерфейс: tun0."},
+                "runtime": {"start_blocked": True, "ownership": "foreign"},
+            }
+        )
+
+        self.assertEqual(message, "Сейчас подключением управляет другой экземпляр Subvost.")
+
+    def test_show_page_switches_stack_child(self) -> None:
+        class FakeStack:
+            def __init__(self) -> None:
+                self.page_id = None
+
+            def set_visible_child_name(self, page_id: str) -> None:
+                self.page_id = page_id
+
+        app = self.make_app()
+        app.stack = FakeStack()
+
+        app.show_page("log")
+
+        self.assertEqual(app.stack.page_id, "log")
 
     def test_visible_log_text_respects_filter_and_separates_sources(self) -> None:
         app = self.make_app()
@@ -337,8 +460,8 @@ class NativeShellAppTests(unittest.TestCase):
         rendered = app.visible_log_text()
 
         self.assertIn("Фильтр: Ошибки", rendered)
-        self.assertIn("=== Native shell (0) ===", rendered)
-        self.assertIn("=== Bundle и runtime (1) ===", rendered)
+        self.assertIn("=== Оболочка интерфейса (0) ===", rendered)
+        self.assertIn("=== Подключение и служебный журнал (1) ===", rendered)
         self.assertIn("fatal: runtime crashed", rendered)
         self.assertNotIn("Tray helper завершился.", rendered)
 

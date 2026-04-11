@@ -48,7 +48,6 @@ from native_shell_shared import (
     subscriptions_from_store_snapshot,
     should_hide_on_close,
     should_start_hidden,
-    tray_action_label,
 )
 from subvost_app_service import ServiceState, SubvostAppService, build_default_service, log_level_from_text
 
@@ -373,18 +372,18 @@ def list_session_bus_names(gio_module, glib_module) -> set[str]:
 
 def probe_tray_support(gio_module, glib_module, *, disable_tray: bool = False) -> NativeShellTraySupport:
     if disable_tray:
-        return build_tray_support(watcher_name=None, indicator_candidate=None, error="Tray отключён аргументом запуска.")
+        return build_tray_support(watcher_name=None, indicator_candidate=None, error="Трей отключён аргументом запуска.")
 
     try:
         versions = available_namespace_versions(("Gtk",) + tuple(candidate[0] for candidate in NATIVE_SHELL_APPINDICATOR_CANDIDATES))
     except Exception as exc:
-        return build_tray_support(watcher_name=None, indicator_candidate=None, error=f"Не удалось прочитать GI runtime: {exc}")
+        return build_tray_support(watcher_name=None, indicator_candidate=None, error=f"Не удалось прочитать GI-окружение: {exc}")
 
     if "3.0" not in versions.get("Gtk", set()):
         return build_tray_support(
             watcher_name=None,
             indicator_candidate=None,
-            error="Не найден Gtk 3.0 runtime для tray-helper.",
+            error="Не найден Gtk 3.0 для трей-хелпера.",
         )
 
     indicator_candidate = None
@@ -432,6 +431,11 @@ def add_css_class(widget, css_class: str) -> None:
         widget.add_css_class(css_class)
 
 
+def remove_css_class(widget, css_class: str) -> None:
+    if hasattr(widget, "remove_css_class"):
+        widget.remove_css_class(css_class)
+
+
 class NativeShellApp:
     def __init__(
         self,
@@ -456,6 +460,7 @@ class NativeShellApp:
         self.app = self.Gtk.Application(application_id=NATIVE_SHELL_APP_ID, flags=self.Gio.ApplicationFlags.FLAGS_NONE)
         self.window = None
         self.settings_window = None
+        self.stack = None
         self.status_label = None
         self.log_buffer = None
         self.log_summary_label = None
@@ -475,7 +480,9 @@ class NativeShellApp:
         self.dashboard_labels: dict[str, object] = {}
         self.dashboard_metrics: dict[str, object] = {}
         self.dashboard_action_buttons: dict[str, object] = {}
+        self.dashboard_primary_action_id: str | None = None
         self.dashboard_badge_box = None
+        self.diagnostic_labels: dict[str, object] = {}
         self.last_store_payload: dict[str, Any] | None = None
         self.selected_subscription_id: str | None = None
         self.subscription_url_entry = None
@@ -499,7 +506,7 @@ class NativeShellApp:
 
     def on_startup(self, app) -> None:
         self.apply_theme_preference(self.settings.theme)
-        self.append_log("native-shell", "GTK4 native shell запускается без раннего pkexec.")
+        self.append_log("native-shell", "Нативная GTK4-оболочка запускается без раннего запроса прав.")
         for note in build_startup_notes(self.settings, self.tray_support):
             self.append_log("startup", note)
 
@@ -517,8 +524,8 @@ class NativeShellApp:
         if not self.did_initial_activation and should_start_hidden(self.settings, self.tray_support):
             self.window.set_visible(False)
             self.did_initial_activation = True
-            self.set_status("Приложение запущено в свёрнутом tray-режиме.")
-            self.append_log("tray", "Главное окно стартовало скрытым по настройке start minimized to tray.")
+            self.set_status("Приложение запущено в свёрнутом режиме в трее.")
+            self.append_log("tray", "Главное окно стартовало скрытым по настройке запуска в трей.")
             return
 
         self.did_initial_activation = True
@@ -537,7 +544,7 @@ class NativeShellApp:
             return
         connection = self.app.get_dbus_connection()
         if connection is None:
-            self.append_log("dbus", "Не удалось получить D-Bus connection для control interface.")
+            self.append_log("dbus", "Не удалось получить D-Bus-подключение для управляющего интерфейса.")
             return
         interface_info = self.control_node_info.interfaces[0]
         self.control_registration_id = connection.register_object(
@@ -547,7 +554,7 @@ class NativeShellApp:
             self.on_control_get_property,
             None,
         )
-        self.append_log("dbus", f"Control interface опубликован по пути {NATIVE_SHELL_CONTROL_OBJECT_PATH}.")
+        self.append_log("dbus", f"Управляющий интерфейс опубликован по пути {NATIVE_SHELL_CONTROL_OBJECT_PATH}.")
 
     def on_control_method_call(
         self,
@@ -625,9 +632,9 @@ class NativeShellApp:
         header.set_show_title_buttons(True)
 
         title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=2)
-        title_label = self.Gtk.Label(label="Subvost GTK4 Shell", xalign=0)
+        title_label = self.Gtk.Label(label="Subvost Xray TUN", xalign=0)
         add_css_class(title_label, "native-shell-card-title")
-        subtitle_label = self.Gtk.Label(label="Компактный desktop-контур для Xray TUN", xalign=0)
+        subtitle_label = self.Gtk.Label(label="Нативная GTK4-оболочка для управления подключением", xalign=0)
         add_css_class(subtitle_label, "native-shell-muted")
         title_box.append(title_label)
         title_box.append(subtitle_label)
@@ -642,16 +649,16 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
         add_css_class(panel, "native-shell-panel")
 
-        title_label = self.Gtk.Label(label="Статус shell", xalign=0)
+        title_label = self.Gtk.Label(label="Статус интерфейса", xalign=0)
         add_css_class(title_label, "native-shell-card-title")
 
         self.status_label = self.Gtk.Label(xalign=0)
         self.status_label.set_wrap(True)
         add_css_class(self.status_label, "native-shell-status")
-        self.set_status("Считываю текущее состояние bundle и подготавливаю Dashboard.")
+        self.set_status("Считываю текущее состояние подключения и подготавливаю главный экран.")
 
         tray_note = self.Gtk.Label(
-            label=f"Tray backend: {self.tray_support.reason}",
+            label=f"Трей: {self.tray_support.reason}",
             xalign=0,
         )
         tray_note.set_wrap(True)
@@ -672,6 +679,7 @@ class NativeShellApp:
         stack.set_hexpand(True)
         stack.set_vexpand(True)
         stack.set_transition_type(self.Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack = stack
 
         sidebar = self.Gtk.StackSidebar()
         sidebar.set_stack(stack)
@@ -721,12 +729,12 @@ class NativeShellApp:
         hero = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
         add_css_class(hero, "native-shell-panel")
         add_css_class(hero, "native-shell-hero")
-        hero_title = self.Gtk.Label(label="Runtime", xalign=0)
+        hero_title = self.Gtk.Label(label="Подключение", xalign=0)
         add_css_class(hero_title, "native-shell-card-title")
         hero_state = self.Gtk.Label(label="Обновляю состояние…", xalign=0)
         add_css_class(hero_state, "native-shell-value-large")
         hero_detail = self.Gtk.Label(
-            label="Bundle status, ownership и ключевые действия без отдельного backend-контура.",
+            label="Состояние подключения, выбранный узел и ключевые действия без перехода на другие вкладки.",
             xalign=0,
         )
         hero_detail.set_wrap(True)
@@ -751,38 +759,60 @@ class NativeShellApp:
 
         container.append(hero)
         container.append(split)
-        container.append(self.build_dashboard_details_panel())
         return container
 
     def build_dashboard_action_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Действия runtime", xalign=0)
+        title = self.Gtk.Label(label="Быстрое действие", xalign=0)
         add_css_class(title, "native-shell-card-title")
 
+        summary = self.Gtk.Label(
+            label="Если узел уже выбран, подключение можно запустить сразу из этого экрана.",
+            xalign=0,
+        )
+        summary.set_wrap(True)
+        add_css_class(summary, "native-shell-card-subtitle")
+
+        primary_button = self.Gtk.Button(label="Подключиться к выбранному узлу")
+        add_css_class(primary_button, "native-shell-button-primary")
+        primary_button.connect("clicked", self.on_dashboard_primary_action_clicked)
+        self.dashboard_action_buttons["primary-connect"] = primary_button
+
         action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
-        button_styles = {
-            "start-runtime": "native-shell-button-primary",
-            "stop-runtime": "native-shell-button-danger",
-            "capture-diagnostics": "native-shell-button-secondary",
-        }
-        for action_id in ("start-runtime", "stop-runtime", "capture-diagnostics"):
-            button = self.Gtk.Button(label=tray_action_label(action_id))
-            add_css_class(button, button_styles[action_id])
-            button.connect("clicked", self.on_stub_button_clicked, action_id)
-            self.dashboard_action_buttons[action_id] = button
-            action_row.append(button)
+
+        nodes_button = self.Gtk.Button(label="Открыть узлы")
+        add_css_class(nodes_button, "native-shell-button-secondary")
+        nodes_button.connect("clicked", lambda *_args: self.show_page("subscriptions"))
+        self.dashboard_action_buttons["open-subscriptions"] = nodes_button
+
+        capture_button = self.Gtk.Button(label="Снять диагностику")
+        add_css_class(capture_button, "native-shell-button-secondary")
+        capture_button.connect("clicked", self.on_stub_button_clicked, "capture-diagnostics")
+        self.dashboard_action_buttons["capture-diagnostics"] = capture_button
+
+        diagnostics_button = self.Gtk.Button(label="Открыть диагностику")
+        add_css_class(diagnostics_button, "native-shell-button-secondary")
+        diagnostics_button.connect("clicked", lambda *_args: self.show_page("log"))
+        self.dashboard_action_buttons["open-diagnostics"] = diagnostics_button
+
+        action_row.append(nodes_button)
+        action_row.append(capture_button)
+        action_row.append(diagnostics_button)
 
         hint = self.Gtk.Label(
-            label="Root-запрос нужен только для `Старт`, `Стоп` и `Диагностика`.",
+            label="Запрос прав появится только при запуске, остановке или снятии диагностики.",
             xalign=0,
         )
         hint.set_wrap(True)
         add_css_class(hint, "native-shell-card-subtitle")
         panel.append(title)
+        panel.append(summary)
+        panel.append(primary_button)
         panel.append(action_row)
         panel.append(hint)
+        self.dashboard_labels["action_summary"] = summary
         self.dashboard_labels["action_hint"] = hint
         return panel
 
@@ -795,7 +825,7 @@ class NativeShellApp:
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
 
         metric_specs = (
-            ("uptime", "Uptime"),
+            ("uptime", "Время"),
             ("rx", "RX"),
             ("tx", "TX"),
             ("tun", "TUN"),
@@ -822,22 +852,25 @@ class NativeShellApp:
         self.dashboard_metrics[key] = value
         return card
 
-    def build_dashboard_details_panel(self):
+    def build_diagnostics_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Контекст runtime", xalign=0)
+        title = self.Gtk.Label(label="Диагностика подключения", xalign=0)
         add_css_class(title, "native-shell-card-title")
+        summary = self.Gtk.Label(
+            label="Здесь собраны детали конфликта экземпляров, служебные файлы подключения и последнее действие.",
+            xalign=0,
+        )
+        summary.set_wrap(True)
+        add_css_class(summary, "native-shell-muted")
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
 
         detail_specs = (
-            ("transport", "Transport / Security"),
-            ("remote", "Remote endpoint / SNI"),
-            ("routing", "Маршрутизация"),
-            ("ownership", "Ownership"),
-            ("last_action", "Последнее действие"),
-            ("diagnostic", "Диагностика"),
-            ("config", "Runtime config"),
-            ("project_root", "Project root"),
+            ("diagnostic_status", "Состояние"),
+            ("diagnostic_instance", "Экземпляры"),
+            ("diagnostic_connection", "Подключение"),
+            ("diagnostic_files", "Файлы и дампы"),
+            ("diagnostic_last_action", "Последнее действие"),
         )
         for index, (key, title_text) in enumerate(detail_specs):
             card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
@@ -849,10 +882,11 @@ class NativeShellApp:
             add_css_class(value, "native-shell-value-muted")
             card.append(label)
             card.append(value)
-            self.dashboard_labels[key] = value
+            self.diagnostic_labels[key] = value
             grid.attach(card, index % 2, index // 2, 1, 1)
 
         panel.append(title)
+        panel.append(summary)
         panel.append(grid)
         return panel
 
@@ -861,10 +895,10 @@ class NativeShellApp:
 
         action_panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(action_panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Подписки и routing", xalign=0)
+        title = self.Gtk.Label(label="Узлы и подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Добавьте URL-подписку или обновите уже сохранённые профили.",
+            label="Добавьте URL-подписку, обновите сохранённые списки или выберите узел для следующего подключения.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -922,7 +956,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="URL-подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         copy_label = self.Gtk.Label(
-            label="Слева выбирается подписка, справа доступны узлы и routing.",
+            label="Слева выбирается источник узлов, справа доступны сами узлы и правила маршрутизации.",
             xalign=0,
         )
         copy_label.set_wrap(True)
@@ -986,7 +1020,7 @@ class NativeShellApp:
         panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
 
-        title = self.Gtk.Label(label="Routing", xalign=0)
+        title = self.Gtk.Label(label="Маршрутизация", xalign=0)
         add_css_class(title, "native-shell-card-title")
         badge = self.Gtk.Label(label="Нет профиля", xalign=0)
         add_css_class(badge, "native-shell-badge")
@@ -994,7 +1028,7 @@ class NativeShellApp:
         status_line = self.Gtk.Label(label="Профиль маршрутизации ещё не выбран.", xalign=0)
         status_line.set_wrap(True)
         add_css_class(status_line, "native-shell-muted")
-        geodata_line = self.Gtk.Label(label="Geodata пока не подготовлена.", xalign=0)
+        geodata_line = self.Gtk.Label(label="Наборы GeoIP и GeoSite пока не подготовлены.", xalign=0)
         geodata_line.set_wrap(True)
         add_css_class(geodata_line, "native-shell-card-subtitle")
         self.subscription_labels["routing_badge"] = badge
@@ -1017,7 +1051,7 @@ class NativeShellApp:
         import_button.connect("clicked", lambda *_args: self.on_import_routing_requested())
         self.routing_action_buttons["routing-import"] = import_button
 
-        toggle_button = self.Gtk.Button(label="Включить routing")
+        toggle_button = self.Gtk.Button(label="Включить маршрутизацию")
         add_css_class(toggle_button, "native-shell-button-secondary")
         toggle_button.connect("clicked", lambda *_args: self.on_toggle_routing_requested())
         self.routing_action_buttons["routing-toggle"] = toggle_button
@@ -1099,7 +1133,7 @@ class NativeShellApp:
         self.set_subscription_label("summary", summary_message)
         self.set_subscription_label(
             "subscription_copy",
-            "Клик по строке выбирает подписку; операции refresh и enable/disable выполняются рядом."
+            "Клик по строке выбирает источник узлов; кнопки рядом отвечают за обновление и доступность."
             if subscriptions
             else "Сохранённых подписок пока нет.",
         )
@@ -1239,7 +1273,7 @@ class NativeShellApp:
             f"{len(ready_nodes)}/{len(nodes)} готовы",
             tone="success" if nodes and len(ready_nodes) == len(nodes) else "accent",
         )
-        self.set_subscription_label("node_panel_copy", "Клик по строке активирует узел, `Ping` проверяет доступность без смены выбора.")
+        self.set_subscription_label("node_panel_copy", "Клик по строке активирует узел, `Пинг` проверяет доступность без смены выбора.")
 
         if not nodes:
             list_box.append(self.build_subscriptions_empty_row("В этой подписке пока нет узлов."))
@@ -1287,7 +1321,7 @@ class NativeShellApp:
             else:
                 badge_row.append(self.make_badge("ping не проверен", "warning"))
 
-            ping_button = self.Gtk.Button(label="Ping")
+            ping_button = self.Gtk.Button(label="Пинг")
             add_css_class(ping_button, "native-shell-button-secondary")
             ping_button.set_sensitive(self.action_in_flight is None)
             ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, row.node_id)
@@ -1328,7 +1362,7 @@ class NativeShellApp:
 
         self.set_subscription_label("routing_badge", badge_value, tone=badge_tone)
         if active_routing_profile:
-            mode_label = "global proxy" if active_routing_profile.get("global_proxy") else "direct fallback"
+            mode_label = "через прокси" if active_routing_profile.get("global_proxy") else "с прямым обходом"
             status_text = (
                 f"Активен профиль '{active_routing_profile['name']}', применяется {active_routing_profile.get('supported_entry_count', 0)} правил, режим {mode_label}."
                 if enabled and ready
@@ -1338,18 +1372,18 @@ class NativeShellApp:
             status_text = "Профиль маршрутизации ещё не выбран."
         self.set_subscription_label("routing_status", status_text)
 
-        geodata_text = "Geodata пока не подготовлена."
+        geodata_text = "Наборы GeoIP и GeoSite пока не подготовлены."
         if geodata.get("ready"):
             geodata_text = (
-                f"Geodata готова: geoip.dat и geosite.dat доступны в {geodata.get('asset_dir') or 'asset-dir'}."
+                f"Наборы GeoIP и GeoSite готовы: `geoip.dat` и `geosite.dat` доступны в {geodata.get('asset_dir') or 'каталоге данных'}."
             )
         elif geodata.get("status") == "error":
-            geodata_text = f"Geodata не готова: {geodata.get('error') or 'ошибка загрузки'}."
+            geodata_text = f"Наборы GeoIP и GeoSite не готовы: {geodata.get('error') or 'ошибка загрузки'}."
         self.set_subscription_label("routing_geodata", geodata_text)
 
         toggle_button = self.routing_action_buttons.get("routing-toggle")
         if toggle_button is not None:
-            toggle_button.set_label("Выключить routing" if enabled else "Включить routing")
+            toggle_button.set_label("Выключить маршрутизацию" if enabled else "Включить маршрутизацию")
 
         list_box = self.routing_profile_list_box
         if list_box is None:
@@ -1357,7 +1391,7 @@ class NativeShellApp:
 
         self.clear_list_widget(list_box)
         if not profiles:
-            list_box.append(self.build_subscriptions_empty_row("Routing-профилей пока нет."))
+            list_box.append(self.build_subscriptions_empty_row("Профилей маршрутизации пока нет."))
             return
 
         active_id = str(active_routing_profile.get("id")) if active_routing_profile else None
@@ -1374,7 +1408,7 @@ class NativeShellApp:
             title_box.append(self.make_row_text(str(profile.get("name") or "Без имени"), "native-shell-row-title"))
             meta = [
                 f"правил {profile.get('supported_entry_count', 0)}",
-                "global proxy" if profile.get("global_proxy") else "direct fallback",
+                "через прокси" if profile.get("global_proxy") else "с прямым обходом",
                 f"источник {profile.get('source_format') or 'json'}",
             ]
             title_box.append(self.make_row_text(" · ".join(meta), "native-shell-row-meta"))
@@ -1496,8 +1530,8 @@ class NativeShellApp:
     def on_import_routing_requested(self) -> None:
         text = self.routing_import_text()
         if not text:
-            self.set_status("Вставьте routing-профиль для импорта.")
-            self.append_log("routing", "Импорт routing отклонён: поле пустое.")
+            self.set_status("Вставьте профиль маршрутизации для импорта.")
+            self.append_log("routing", "Импорт маршрутизации отклонён: поле пустое.")
             return
         self.begin_store_action("routing-import", text=text)
 
@@ -1530,10 +1564,10 @@ class NativeShellApp:
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(container, "native-shell-panel")
 
-        title = self.Gtk.Label(label="Log и ошибки", xalign=0)
+        title = self.Gtk.Label(label="Диагностика и журнал", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="События native shell, backend action-log и runtime tail текущего bundle.",
+            label="Конфликт экземпляров, служебные файлы подключения и журнал действий этого окна.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -1541,7 +1575,7 @@ class NativeShellApp:
         self.log_summary_label = summary
 
         meta = self.Gtk.Label(
-            label="Фильтр: Все. Источники будут показаны после первого refresh snapshot.",
+            label="Фильтр: Все. Источники появятся после первого обновления.",
             xalign=0,
         )
         meta.set_wrap(True)
@@ -1592,6 +1626,7 @@ class NativeShellApp:
         scrolled.set_child(text_view)
         container.append(title)
         container.append(summary)
+        container.append(self.build_diagnostics_panel())
         container.append(meta)
         container.append(export_label)
         container.append(toolbar)
@@ -1676,7 +1711,7 @@ class NativeShellApp:
         self.refresh_log_view()
 
     def build_settings_window(self):
-        window = self.Gtk.Window(transient_for=self.window, title="Настройки native shell")
+        window = self.Gtk.Window(transient_for=self.window, title="Настройки интерфейса")
         window.set_default_size(480, 340)
         window.set_modal(False)
 
@@ -1688,7 +1723,7 @@ class NativeShellApp:
         add_css_class(root, "native-shell-root")
 
         intro = self.Gtk.Label(
-            label="Только shell-параметры: tray, локальные логи и фиксированный тёмный контракт.",
+            label="Только параметры интерфейса: трей, локальный журнал и фиксированный тёмный режим.",
             xalign=0,
         )
         intro.set_wrap(True)
@@ -1696,9 +1731,9 @@ class NativeShellApp:
         root.append(intro)
 
         switches = (
-            ("file_logs_enabled", "Файловое логирование", "Сохранять журнал native shell в пользовательском store-каталоге."),
-            ("close_to_tray", "Закрытие окна уводит в tray", "Используется только если tray backend реально доступен."),
-            ("start_minimized_to_tray", "Старт свёрнутым в tray", "Если tray недоступен, окно всё равно откроется обычным способом."),
+            ("file_logs_enabled", "Файловое логирование", "Сохранять журнал интерфейса в пользовательском каталоге приложения."),
+            ("close_to_tray", "Закрытие окна уводит в трей", "Используется только если трей действительно доступен."),
+            ("start_minimized_to_tray", "Старт свёрнутым в трей", "Если трей недоступен, окно всё равно откроется обычным способом."),
         )
 
         for key, title, subtitle in switches:
@@ -1712,8 +1747,8 @@ class NativeShellApp:
         add_css_class(theme_title, "native-shell-card-title")
         theme_hint = self.Gtk.Label(
             label=(
-                "Сейчас shell работает только в тёмном режиме. "
-                "Сохранённые legacy-значения `system` и `light` автоматически приводятся к тёмному контракту."
+                "Сейчас интерфейс работает только в тёмном режиме. "
+                "Сохранённые старые значения `system` и `light` автоматически приводятся к тёмному контракту."
             ),
             xalign=0,
         )
@@ -1727,7 +1762,7 @@ class NativeShellApp:
         root.append(theme_box)
 
         tray_note = self.Gtk.Label(
-            label=f"Состояние tray backend: {self.tray_support.reason}",
+            label=f"Состояние трея: {self.tray_support.reason}",
             xalign=0,
         )
         tray_note.set_wrap(True)
@@ -1794,8 +1829,8 @@ class NativeShellApp:
 
         action_label = self.action_label(action_id)
         self.action_in_flight = action_id
-        self.set_status(f"{action_label}: выполняется через общий service-layer…")
-        self.append_log(source, f"{action_label}: действие передано в общий runtime-service.")
+        self.set_status(f"{action_label}: выполняется через общий сервисный слой…")
+        self.append_log(source, f"{action_label}: действие передано в службу подключения.")
         self.refresh_dashboard_controls()
         self.refresh_subscriptions_controls()
         self.render_subscriptions_view()
@@ -1851,8 +1886,8 @@ class NativeShellApp:
 
         action_label = self.action_label(action_id)
         self.action_in_flight = action_id
-        self.set_status(f"{action_label}: выполняется через общий service-layer…")
-        self.append_log(source, f"{action_label}: действие передано в общий store/routing-service.")
+        self.set_status(f"{action_label}: выполняется через общий сервисный слой…")
+        self.append_log(source, f"{action_label}: действие передано в общий сервис подписок и маршрутизации.")
         self.refresh_dashboard_controls()
         self.refresh_subscriptions_controls()
         self.render_subscriptions_view()
@@ -1973,8 +2008,8 @@ class NativeShellApp:
 
         if not silent:
             message = str(payload)
-            self.set_status(f"Не удалось обновить снимок bundle: {message}")
-            self.append_log("status", f"Ошибка обновления Dashboard / Subscriptions ({reason}): {message}")
+            self.set_status(f"Не удалось обновить снимок подключения: {message}")
+            self.append_log("status", f"Ошибка обновления экранов подключения и выбора узлов ({reason}): {message}")
         self.refresh_dashboard_controls()
         self.refresh_subscriptions_controls()
         return False
@@ -2008,24 +2043,193 @@ class NativeShellApp:
         last_action = payload.get("last_action", {}) or {}
         if last_action.get("timestamp") and last_action.get("message"):
             return str(last_action["message"])
-        return str(payload.get("summary", {}).get("description") or "Dashboard обновлён.")
+        runtime = payload.get("runtime", {}) or {}
+        if runtime.get("start_blocked"):
+            return self.concise_runtime_block_message(runtime, for_status=True)
+        return str(payload.get("summary", {}).get("description") or "Состояние обновлено.")
 
-    def concise_runtime_block_message(self, runtime: dict[str, Any], *, for_action_hint: bool = False) -> str:
+    def concise_runtime_block_message(
+        self,
+        runtime: dict[str, Any],
+        *,
+        for_action_hint: bool = False,
+        for_status: bool = False,
+    ) -> str:
         ownership = str(runtime.get("ownership") or "")
         if ownership == "foreign":
+            if for_status:
+                return "Сейчас подключением управляет другой экземпляр Subvost."
             if for_action_hint:
-                return "Остановите исходный bundle, затем повторите запуск."
-            return "Управление локальным runtime заблокировано: активен другой bundle."
+                return "Откройте диагностику: там виден путь к активному экземпляру и можно снять дамп."
+            return "Это окно не управляет чужим подключением."
         if ownership == "unknown":
+            if for_status:
+                return "Источник активного подключения пока не удалось подтвердить."
             if for_action_hint:
-                return "Подтвердите источник runtime или дождитесь его остановки."
-            return "Управление runtime заблокировано, пока ownership не подтверждён."
+                return "Откройте диагностику: там видны детали конфликта и текущие служебные файлы подключения."
+            return "Управление подключением заблокировано, пока источник не подтверждён."
         message = str(runtime.get("next_start_reason") or runtime.get("control_message") or "").strip()
         if for_action_hint and message:
             return message
         if message:
             return message
-        return "Старт сейчас заблокирован."
+        return "Запуск сейчас заблокирован."
+
+    def user_facing_runtime_state_label(self, summary: dict[str, Any], runtime: dict[str, Any]) -> str:
+        ownership = str(runtime.get("ownership") or "")
+        if ownership == "foreign":
+            return "Подключением управляет другой экземпляр"
+        if ownership == "unknown" and runtime.get("start_blocked"):
+            return "Источник подключения не подтверждён"
+        return str(summary.get("label") or "—")
+
+    def show_page(self, page_id: str) -> None:
+        if self.stack is not None:
+            self.stack.set_visible_child_name(page_id)
+
+    def on_dashboard_primary_action_clicked(self, _button) -> None:
+        action_id = getattr(self, "dashboard_primary_action_id", None)
+        if action_id == "open-subscriptions":
+            self.show_page("subscriptions")
+            return
+        if action_id == "open-diagnostics":
+            self.show_page("log")
+            return
+        if action_id in {"start-runtime", "stop-runtime", "capture-diagnostics"}:
+            self.trigger_action(action_id, source="window")
+
+    def connection_target_label(self, payload: dict[str, Any]) -> tuple[str, str]:
+        active_node = payload.get("active_node", {}) or {}
+        connection = payload.get("connection", {}) or {}
+        node_name = str(active_node.get("name") or connection.get("active_name") or "").strip()
+        protocol = str(connection.get("protocol_label") or active_node.get("protocol") or "").strip().upper()
+
+        if node_name and protocol and protocol != "—":
+            return node_name, f"{node_name} · {protocol}"
+        if node_name:
+            return node_name, node_name
+        if protocol and protocol != "—":
+            return protocol, protocol
+        return "", "узел не выбран"
+
+    def user_facing_config_origin_label(self, value: object) -> str:
+        candidate = str(value or "").strip().lower()
+        if candidate == "generated":
+            return "Сгенерированный конфиг"
+        if candidate == "snapshot":
+            return "Снимок активного подключения"
+        if candidate:
+            return str(value)
+        return "—"
+
+    def dashboard_primary_action_spec(self) -> dict[str, Any]:
+        payload = getattr(self, "last_status_payload", None) or {}
+        runtime = payload.get("runtime", {}) or {}
+        summary = payload.get("summary", {}) or {}
+        processes = payload.get("processes", {}) or {}
+        node_name, node_label = self.connection_target_label(payload)
+        summary_state = str(summary.get("state") or "stopped")
+        is_busy = getattr(self, "action_in_flight", None) is not None
+        ownership = str(runtime.get("ownership") or "")
+        stop_allowed = bool(runtime.get("stop_allowed", True))
+        can_disconnect = (
+            not bool(runtime.get("start_blocked"))
+            and stop_allowed
+            and (
+                summary_state == "running"
+                or bool(processes.get("xray_alive"))
+                or bool(processes.get("tun_present"))
+            )
+        )
+
+        if is_busy:
+            return {
+                "action_id": None,
+                "button_label": "Выполняется…",
+                "summary": "Дождитесь завершения текущего действия.",
+                "hint": f"Сейчас выполняется: {self.action_label(self.action_in_flight or '')}.",
+                "variant": "secondary",
+                "enabled": False,
+                "tooltip": f"Выполняется: {self.action_label(self.action_in_flight or '')}.",
+            }
+
+        if can_disconnect:
+            return {
+                "action_id": "stop-runtime",
+                "button_label": "Отключить",
+                "summary": f"Сейчас подключено через узел: {node_label}.",
+                "hint": "Запрос прав появится только при остановке подключения.",
+                "variant": "danger",
+                "enabled": True,
+                "tooltip": "Остановить текущее подключение и восстановить DNS.",
+            }
+
+        if runtime.get("start_blocked"):
+            blocked_summary = (
+                "Подключением управляет другой экземпляр."
+                if ownership == "foreign"
+                else "Источник подключения пока не подтверждён."
+            )
+            return {
+                "action_id": None,
+                "button_label": "Подключение недоступно",
+                "summary": blocked_summary,
+                "hint": self.concise_runtime_block_message(runtime, for_action_hint=True),
+                "variant": "secondary",
+                "enabled": False,
+                "tooltip": self.concise_runtime_block_message(runtime, for_action_hint=True),
+            }
+
+        if runtime.get("routing_enabled") and not runtime.get("routing_ready"):
+            routing_error = str(runtime.get("routing_error") or "Маршрутизация ещё не готова.")
+            return {
+                "action_id": None,
+                "button_label": "Подключение недоступно",
+                "summary": "Сначала исправьте состояние маршрутизации.",
+                "hint": routing_error,
+                "variant": "secondary",
+                "enabled": False,
+                "tooltip": routing_error,
+            }
+
+        if not node_name:
+            return {
+                "action_id": "open-subscriptions",
+                "button_label": "Выбрать узел",
+                "summary": "Узел для подключения ещё не выбран.",
+                "hint": "Откройте экран «Узлы и подписки» и выберите узел для следующего запуска.",
+                "variant": "secondary",
+                "enabled": True,
+                "tooltip": "Открыть экран выбора узла и подписок.",
+            }
+
+        if runtime.get("start_ready"):
+            button_label = f"Подключиться к {node_name}" if node_name else "Подключиться"
+            return {
+                "action_id": "start-runtime",
+                "button_label": button_label,
+                "summary": f"Готово к запуску через узел: {node_label}.",
+                "hint": "Можно запускать подключение сразу из этого экрана.",
+                "variant": "primary",
+                "enabled": True,
+                "tooltip": str(runtime.get("next_start_reason") or "Запустить подключение через общий сервисный слой."),
+            }
+
+        next_reason = str(runtime.get("next_start_reason") or "Подключение пока не готово.")
+        return {
+            "action_id": None,
+            "button_label": "Подключение недоступно",
+            "summary": f"Выбран узел: {node_label}.",
+            "hint": next_reason,
+            "variant": "secondary",
+            "enabled": False,
+            "tooltip": next_reason,
+        }
+
+    def set_button_variant(self, button, variant: str) -> None:
+        for current_variant in ("primary", "secondary", "danger"):
+            remove_css_class(button, f"native-shell-button-{current_variant}")
+        add_css_class(button, f"native-shell-button-{variant}")
 
     def update_dashboard_from_status(self, payload: dict[str, Any]) -> None:
         summary = payload.get("summary", {}) or {}
@@ -2037,15 +2241,15 @@ class NativeShellApp:
         active_node = payload.get("active_node", {}) or {}
         last_action = payload.get("last_action", {}) or {}
 
-        self.set_dashboard_label("hero_state", str(summary.get("label") or "—"))
-        hero_detail = str(summary.get("description") or "Статус bundle обновлён.")
+        self.set_dashboard_label("hero_state", self.user_facing_runtime_state_label(summary, runtime))
+        hero_detail = str(summary.get("description") or "Состояние подключения обновлено.")
         if runtime.get("start_blocked") and summary.get("state") != "running":
             hero_detail = self.concise_runtime_block_message(runtime)
         self.set_dashboard_label("hero_detail", hero_detail)
 
-        active_name = str(active_node.get("name") or connection.get("active_name") or "—")
-        protocol = str(connection.get("protocol_label") or "—")
-        self.set_dashboard_label("hero_active", f"Активный узел: {active_name} · {protocol}")
+        _node_name, node_label = self.connection_target_label(payload)
+        node_caption = "Активный узел" if str(summary.get("state") or "") == "running" else "Выбранный узел"
+        self.set_dashboard_label("hero_active", f"{node_caption}: {node_label}")
         self.refresh_dashboard_badges(summary.get("badges", []), str(summary.get("state") or "stopped"))
 
         self.set_metric_value("uptime", self.format_connected_since(runtime.get("connected_since")))
@@ -2055,39 +2259,21 @@ class NativeShellApp:
         self.set_metric_value("tun", tun_line)
         self.set_metric_value("dns", str(summary.get("dns_line") or connection.get("dns_servers") or "—"))
 
-        transport = " · ".join(
-            part for part in [connection.get("protocol_label"), connection.get("transport_label"), connection.get("security_label")] if part
-        ) or "—"
-        self.set_dashboard_label("transport", transport)
-        remote_endpoint = str(connection.get("remote_endpoint") or "—")
-        remote_sni = str(connection.get("remote_sni") or "—")
-        self.set_dashboard_label("remote", f"{remote_endpoint}\nSNI: {remote_sni}")
-
-        routing_label = "Маршрутизация выключена"
-        if routing.get("enabled") and routing.get("runtime_ready"):
-            routing_label = f"Включена: {routing.get('active_profile', {}).get('name') or runtime.get('routing_profile_name') or 'без имени'}"
-        elif routing.get("enabled"):
-            routing_label = f"Ошибка: {routing.get('runtime_error') or runtime.get('routing_error') or 'runtime не готов'}"
-        elif runtime.get("routing_profile_name"):
-            routing_label = f"Профиль выбран, но выключен: {runtime.get('routing_profile_name')}"
-        self.set_dashboard_label("routing", routing_label)
-
-        ownership = str(runtime.get("ownership_label") or "—")
-        state_root = runtime.get("state_bundle_project_root")
-        if state_root:
-            ownership = f"{ownership}\n{state_root}"
-        self.set_dashboard_label("ownership", ownership)
-
         last_action_message = str(last_action.get("message") or "Действий ещё не было.")
         if last_action.get("timestamp"):
             last_action_message = f"{last_action.get('timestamp')} · {last_action_message}"
-        self.set_dashboard_label("last_action", last_action_message)
 
         latest_diagnostic = str(artifacts.get("latest_diagnostic") or "Диагностические дампы ещё не снимались.")
-        self.set_dashboard_label("diagnostic", latest_diagnostic)
-        config_value = f"{runtime.get('config_origin') or '—'}\n{runtime.get('active_xray_config') or '—'}"
-        self.set_dashboard_label("config", config_value)
-        self.set_dashboard_label("project_root", str(payload.get("project_root") or "—"))
+        self.update_diagnostics_from_status(
+            summary=summary,
+            runtime=runtime,
+            connection=connection,
+            routing=routing,
+            artifacts=artifacts,
+            last_action=last_action,
+            project_root=str(payload.get("project_root") or "—"),
+            latest_diagnostic=latest_diagnostic,
+        )
 
         if self.log_summary_label is not None:
             logs_payload = payload.get("logs", {}) or {}
@@ -2099,8 +2285,81 @@ class NativeShellApp:
 
         self.refresh_dashboard_controls()
 
+    def update_diagnostics_from_status(
+        self,
+        *,
+        summary: dict[str, Any],
+        runtime: dict[str, Any],
+        connection: dict[str, Any],
+        routing: dict[str, Any],
+        artifacts: dict[str, Any],
+        last_action: dict[str, Any],
+        project_root: str,
+        latest_diagnostic: str,
+    ) -> None:
+        state_root = str(runtime.get("state_bundle_project_root") or "—")
+        ownership = str(runtime.get("ownership") or "")
+
+        diagnostic_status = self.user_facing_runtime_state_label(summary, runtime)
+        if runtime.get("start_blocked"):
+            diagnostic_status = f"{diagnostic_status}\n{self.concise_runtime_block_message(runtime, for_action_hint=True)}"
+        else:
+            diagnostic_status = f"{diagnostic_status}\n{str(summary.get('description') or 'Подключение работает в штатном режиме.')}"
+        self.set_diagnostic_label("diagnostic_status", diagnostic_status)
+
+        if ownership == "foreign":
+            diagnostic_instance = (
+                "Активный экземпляр: другой Subvost\n"
+                f"Где он запущен: {state_root}\n"
+                f"Текущий проект: {project_root}"
+            )
+        elif ownership == "current":
+            diagnostic_instance = (
+                "Активный экземпляр: этот Subvost\n"
+                f"Проект: {project_root}"
+            )
+        else:
+            diagnostic_instance = (
+                "Активный экземпляр: источник не подтверждён\n"
+                f"Текущий проект: {project_root}"
+            )
+        self.set_diagnostic_label("diagnostic_instance", diagnostic_instance)
+
+        transport = " · ".join(
+            part for part in [connection.get("protocol_label"), connection.get("transport_label"), connection.get("security_label")] if part
+        ) or "—"
+        remote_endpoint = str(connection.get("remote_endpoint") or "—")
+        remote_sni = str(connection.get("remote_sni") or "—")
+        routing_text = "Маршрутизация отключена"
+        if routing.get("enabled") and routing.get("runtime_ready"):
+            routing_text = f"Маршрутизация: {routing.get('active_profile', {}).get('name') or 'активна'}"
+        elif routing.get("enabled"):
+            routing_text = f"Маршрутизация: ошибка ({routing.get('runtime_error') or 'служебный режим не готов'})"
+        self.set_diagnostic_label(
+            "diagnostic_connection",
+            f"{transport}\nАдрес узла: {remote_endpoint}\nSNI: {remote_sni}\n{routing_text}",
+        )
+
+        config_origin = self.user_facing_config_origin_label(runtime.get("config_origin"))
+        config_value = f"{config_origin}\n{runtime.get('active_xray_config') or '—'}"
+        self.set_diagnostic_label(
+            "diagnostic_files",
+            f"Рабочий конфиг:\n{config_value}\n\nПоследний дамп:\n{latest_diagnostic}",
+        )
+
+        last_action_message = str(last_action.get("message") or "Действий ещё не было.")
+        if last_action.get("timestamp"):
+            last_action_message = f"{last_action.get('timestamp')}\n{last_action_message}"
+        self.set_diagnostic_label("diagnostic_last_action", last_action_message)
+
     def set_dashboard_label(self, key: str, value: str) -> None:
         label = getattr(self, "dashboard_labels", {}).get(key)
+        if label is None:
+            return
+        label.set_label(value)
+
+    def set_diagnostic_label(self, key: str, value: str) -> None:
+        label = getattr(self, "diagnostic_labels", {}).get(key)
         if label is None:
             return
         label.set_label(value)
@@ -2149,47 +2408,35 @@ class NativeShellApp:
             self.dashboard_badge_box.append(badge)
 
     def refresh_dashboard_controls(self) -> None:
-        runtime = (getattr(self, "last_status_payload", None) or {}).get("runtime", {}) or {}
-        summary_state = (getattr(self, "last_status_payload", None) or {}).get("summary", {}).get("state")
         is_busy = getattr(self, "action_in_flight", None) is not None
 
         action_buttons = getattr(self, "dashboard_action_buttons", {})
-        start_button = action_buttons.get("start-runtime")
-        stop_button = action_buttons.get("stop-runtime")
+        primary_button = action_buttons.get("primary-connect")
+        open_nodes_button = action_buttons.get("open-subscriptions")
         diag_button = action_buttons.get("capture-diagnostics")
+        open_diag_button = action_buttons.get("open-diagnostics")
 
-        start_blocked = bool(runtime.get("start_blocked")) or summary_state == "running"
-        if start_button is not None:
-            start_button.set_sensitive(not is_busy and not start_blocked)
-            start_button.set_tooltip_text(
-                str(runtime.get("next_start_reason") or "Запустить runtime через общий service-layer.")
-            )
+        spec = self.dashboard_primary_action_spec()
+        self.dashboard_primary_action_id = spec["action_id"]
 
-        stop_allowed = bool(runtime.get("stop_allowed", True))
-        if stop_button is not None:
-            stop_button.set_sensitive(not is_busy and stop_allowed)
-            stop_button.set_tooltip_text(
-                str(runtime.get("control_message") or "Остановить текущий runtime и восстановить DNS.")
-            )
+        if primary_button is not None:
+            primary_button.set_label(str(spec["button_label"]))
+            primary_button.set_sensitive(bool(spec["enabled"]))
+            primary_button.set_tooltip_text(str(spec["tooltip"]))
+            self.set_button_variant(primary_button, str(spec["variant"]))
+
+        if open_nodes_button is not None:
+            open_nodes_button.set_sensitive(True)
 
         if diag_button is not None:
             diag_button.set_sensitive(not is_busy)
-            diag_button.set_tooltip_text("Снять диагностический дамп bundle.")
+            diag_button.set_tooltip_text("Снять диагностический дамп текущего подключения.")
 
-        if is_busy:
-            self.set_dashboard_label("action_hint", f"Выполняется: {self.action_label(self.action_in_flight or '')}.")
-            return
+        if open_diag_button is not None:
+            open_diag_button.set_sensitive(True)
 
-        if runtime.get("start_blocked"):
-            self.set_dashboard_label("action_hint", self.concise_runtime_block_message(runtime, for_action_hint=True))
-            return
-        if runtime.get("routing_enabled") and not runtime.get("routing_ready"):
-            self.set_dashboard_label("action_hint", str(runtime.get("routing_error") or "Routing runtime пока не готов."))
-            return
-        self.set_dashboard_label(
-            "action_hint",
-            "Root-запрос должен появляться только на `Старт`, `Стоп` и `Диагностика`.",
-        )
+        self.set_dashboard_label("action_summary", str(spec["summary"]))
+        self.set_dashboard_label("action_hint", str(spec["hint"]))
 
     def show_window(self, *, reason: str) -> None:
         if self.window is None:
@@ -2202,18 +2449,18 @@ class NativeShellApp:
         if self.window is None:
             return
         if not self.tray_support.available:
-            self.set_status("Tray недоступен: окно нельзя безопасно спрятать.")
-            self.append_log(reason, "Скрытие окна пропущено: tray backend недоступен.")
+            self.set_status("Трей недоступен: окно нельзя безопасно скрыть.")
+            self.append_log(reason, "Скрытие окна пропущено: трей недоступен.")
             return
         self.window.set_visible(False)
-        self.set_status("Окно скрыто, приложение остаётся доступным через tray.")
+        self.set_status("Окно скрыто, приложение остаётся доступным через трей.")
         self.append_log(reason, "Главное окно скрыто и оставлено работать в фоне.")
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:
             self.settings_window = self.build_settings_window()
         self.settings_window.present()
-        self.append_log("settings", "Открыто окно настроек native shell.")
+        self.append_log("settings", "Открыто окно настроек интерфейса.")
 
     def on_close_request(self, *_args):
         if should_hide_on_close(self.settings, self.tray_support) and not self.allow_close:
@@ -2226,22 +2473,22 @@ class NativeShellApp:
         setattr(self.settings, key, value)
         self.persist_settings()
         if key == "close_to_tray":
-            self.append_log("settings", f"Настройка close_to_tray изменена: {int(value)}.")
+            self.append_log("settings", f"Настройка закрытия в трей изменена: {int(value)}.")
         elif key == "start_minimized_to_tray":
-            self.append_log("settings", f"Настройка start_minimized_to_tray изменена: {int(value)}.")
+            self.append_log("settings", f"Настройка старта в трее изменена: {int(value)}.")
         elif key == "file_logs_enabled":
-            self.append_log("settings", f"Настройка file_logs_enabled изменена: {int(value)}.")
+            self.append_log("settings", f"Настройка файловых логов изменена: {int(value)}.")
         self.refresh_status_after_settings_change()
 
     def refresh_status_after_settings_change(self) -> None:
         if self.tray_support.available:
             self.set_status(
-                "Настройки shell сохранены. "
-                f"Close to tray: {'on' if self.settings.close_to_tray else 'off'}, "
-                f"start minimized: {'on' if self.settings.start_minimized_to_tray else 'off'}."
+                "Настройки интерфейса сохранены. "
+                f"Закрытие в трей: {'вкл' if self.settings.close_to_tray else 'выкл'}, "
+                f"старт в трее: {'вкл' if self.settings.start_minimized_to_tray else 'выкл'}."
             )
         else:
-            self.set_status(f"Настройки shell сохранены. Tray fallback: {self.tray_support.reason}")
+            self.set_status(f"Настройки интерфейса сохранены. Трей недоступен: {self.tray_support.reason}")
         self.request_status_refresh(reason="settings-change", silent=True)
 
     def persist_settings(self) -> None:
@@ -2312,8 +2559,8 @@ class NativeShellApp:
             self.log_meta_label.set_label(
                 "Фильтр: "
                 f"{native_shell_log_filter_label(normalized_filter)}. "
-                f"Native shell: {len(shell_entries)}. "
-                f"Bundle/runtime: {len(bundle_entries)}."
+                f"Оболочка интерфейса: {len(shell_entries)}. "
+                f"Журнал подключения: {len(bundle_entries)}."
             )
 
         if self.log_export_label is not None:
@@ -2338,7 +2585,7 @@ class NativeShellApp:
 
     def start_tray_helper_if_needed(self) -> None:
         if not self.tray_support.available:
-            self.append_log("tray", f"Tray helper не запущен: {self.tray_support.reason}")
+            self.append_log("tray", f"Трей-хелпер не запущен: {self.tray_support.reason}")
             return
         helper_path = GUI_DIR / "native_shell_tray_helper.py"
         command = [
@@ -2360,7 +2607,7 @@ class NativeShellApp:
             stderr=subprocess.DEVNULL,
             text=True,
         )
-        self.append_log("tray", f"Tray helper запущен через backend {self.tray_support.backend_label}.")
+        self.append_log("tray", f"Трей-хелпер запущен через {self.tray_support.backend_label}.")
         self.GLib.timeout_add(700, self.verify_tray_helper_started)
         self.GLib.timeout_add_seconds(5, self.poll_tray_helper)
 
@@ -2386,17 +2633,17 @@ class NativeShellApp:
         self.tray_support = build_tray_support(
             watcher_name=None,
             indicator_candidate=None,
-            error=f"Tray helper {('завершился' if stage == 'startup' else 'остановился')} с кодом {return_code}.",
+            error=f"Трей-хелпер {('завершился' if stage == 'startup' else 'остановился')} с кодом {return_code}.",
         )
         self.tray_process = None
         self.append_log("tray", self.tray_support.reason)
-        self.set_dashboard_label("tray_note", f"Tray backend: {self.tray_support.reason}")
+        self.set_dashboard_label("tray_note", f"Трей: {self.tray_support.reason}")
         if self.window is not None and not self.window.get_visible():
             self.window.present()
             self.set_status(
-                "Tray backend недоступен. Главное окно автоматически показано, чтобы приложение не осталось скрытым."
+                "Трей недоступен. Главное окно автоматически показано, чтобы приложение не осталось скрытым."
             )
-            self.append_log("tray", "Главное окно автоматически показано после деградации tray backend.")
+            self.append_log("tray", "Главное окно автоматически показано после деградации трея.")
             self.request_status_refresh(reason="tray-degraded", silent=True)
             return
         self.refresh_status_after_settings_change()
@@ -2414,16 +2661,16 @@ class NativeShellApp:
 
     def quit_application(self, *, source: str) -> None:
         self.allow_close = True
-        self.append_log(source, "Приложение завершает работу по команде shell/tray.")
+        self.append_log(source, "Приложение завершает работу по команде интерфейса или трея.")
         self.app.quit()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="GTK4 native shell prototype for Subvost Xray TUN.")
+    parser = argparse.ArgumentParser(description="GTK4-прототип нативного интерфейса для Subvost Xray TUN.")
     parser.add_argument(
         "--disable-tray",
         action="store_true",
-        help="Принудительно отключить tray backend и проверить fallback-поведение.",
+        help="Принудительно отключить трей и проверить fallback-поведение.",
     )
     return parser.parse_args(argv)
 

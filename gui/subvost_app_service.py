@@ -150,7 +150,7 @@ def runtime_source_label(source: str | None) -> str:
     if source == "store":
         return "Выбранный узел"
     if source == "custom":
-        return "Пользовательский config"
+        return "Пользовательский конфиг"
     if source == "blocked":
         return "Старт заблокирован"
     return "Не определён"
@@ -160,7 +160,7 @@ def default_last_action() -> dict[str, Any]:
     return {
         "name": None,
         "ok": None,
-        "message": "GUI готов. Действия выполняются через существующие shell-скрипты.",
+        "message": "Интерфейс готов. Действия выполняются через существующие shell-скрипты.",
         "timestamp": None,
         "details": "",
     }
@@ -306,9 +306,9 @@ class SubvostAppService:
 
     def runtime_ownership_label(self, ownership: str) -> str:
         if ownership == "current":
-            return "Текущий bundle"
+            return "Текущий экземпляр"
         if ownership == "foreign":
-            return "Другой bundle"
+            return "Другой экземпляр"
         return "Источник не подтверждён"
 
     def is_pid_alive(self, value: str | None) -> bool:
@@ -356,25 +356,25 @@ class SubvostAppService:
 
         if runtime_info["ownership"] == "foreign":
             base = (
-                f"Обнаружен runtime другого bundle. Bundle-владелец: {state_root}. "
-                f"Текущий bundle: {current_root}."
+                f"Обнаружено активное подключение другого экземпляра Subvost. "
+                f"Он запущен из: {state_root}. Текущий проект: {current_root}."
             )
         elif runtime_info["has_state"]:
             base = (
-                f"Обнаружен state-файл без bundle identity: {self.context.state_file}. "
-                "Для безопасности ownership этого runtime не считается подтверждённым."
+                f"Обнаружен state-файл без подтверждённой identity: {self.context.state_file}. "
+                "Для безопасности источник этого подключения пока не считается подтверждённым."
             )
         else:
             base = (
-                "Обнаружен активный runtime без подтверждённой bundle identity. "
+                "Обнаружено активное подключение без подтверждённой identity. "
                 f"Интерфейс: {tun_interface}."
             )
 
         if action == "close":
-            return base + " Окно закроется без остановки этого runtime."
+            return base + " Окно закроется без остановки этого подключения."
         if action == "start":
-            return base + " Сначала остановите или проверьте исходный bundle, затем повторите запуск."
-        return base + " Текущий bundle не будет управлять этим runtime."
+            return base + " Сначала остановите или проверьте исходный экземпляр, затем повторите запуск."
+        return base + " Текущий экземпляр не будет управлять этим подключением."
 
     def runtime_stop_required(self, state: dict[str, str] | None = None) -> bool:
         runtime_info = self.inspect_runtime_state(state)
@@ -523,19 +523,19 @@ class SubvostAppService:
         if ownership == "foreign" and (xray_alive or tun_present):
             return {
                 "state": "degraded",
-                "label": "Активен другой bundle",
-                "description": f"Обнаружен runtime другой копии bundle. Интерфейс: {tun_label}.",
+                "label": "Активен другой экземпляр",
+                "description": f"Сейчас подключением управляет другой экземпляр. Интерфейс: {tun_label}.",
                 "stack_line": "Xray core",
-                "stack_subline": "Чужой runtime, управление заблокировано",
+                "stack_subline": "Чужое подключение, управление заблокировано",
             }
 
         if ownership == "unknown" and (xray_alive or tun_present):
             return {
                 "state": "degraded",
-                "label": "Ownership не подтверждён",
-                "description": f"Обнаружен активный runtime без подтверждённой bundle identity. Интерфейс: {tun_label}.",
+                "label": "Источник не подтверждён",
+                "description": f"Обнаружено активное подключение без подтверждённого владельца. Интерфейс: {tun_label}.",
                 "stack_line": "Xray core",
-                "stack_subline": "Источник runtime не подтверждён",
+                "stack_subline": "Источник подключения не подтверждён",
             }
 
         if xray_alive and tun_present:
@@ -544,22 +544,22 @@ class SubvostAppService:
                 "label": "Подключение активно",
                 "description": f"Xray и {tun_label} активны.",
                 "stack_line": "Xray core",
-                "stack_subline": "Единый TUN-runtime проекта",
+                "stack_subline": "Единый TUN-контур проекта",
             }
         if xray_alive or tun_present:
             return {
                 "state": "degraded",
                 "label": "Состояние частичное",
-                "description": f"Часть runtime активна, стоит снять диагностику. Интерфейс: {tun_label}.",
+                "description": f"Часть подключения активна, стоит снять диагностику. Интерфейс: {tun_label}.",
                 "stack_line": "Xray core",
-                "stack_subline": "Единый TUN-runtime проекта",
+                "stack_subline": "Единый TUN-контур проекта",
             }
         return {
             "state": "stopped",
-            "label": "Runtime остановлен",
-            "description": f"Процессы остановлены, {tun_label} не поднят.",
+            "label": "Подключение отключено",
+            "description": f"Подключение не запущено, {tun_label} не поднят.",
             "stack_line": "Xray core",
-            "stack_subline": "Единый TUN-runtime проекта",
+            "stack_subline": "Единый TUN-контур проекта",
         }
 
     def find_latest_diagnostic(self) -> Path | None:
@@ -720,7 +720,7 @@ class SubvostAppService:
 
         if start_ready:
             next_start_source = "store"
-            next_start_reason = "При следующем старте bundle возьмёт сгенерированный config активного узла."
+            next_start_reason = "При следующем запуске будет использован сгенерированный конфиг выбранного узла."
         else:
             next_start_source = "blocked"
             next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
@@ -871,9 +871,9 @@ class SubvostAppService:
         latest_diag = self.find_latest_diagnostic()
         runtime_mode = "root-server" if os.geteuid() == 0 else "user-server"
         runtime_label = (
-            "Root-backend через pkexec."
+            "Системный режим запущен через pkexec."
             if os.geteuid() == 0
-            else "Пользовательский backend; root-действия запускаются через pkexec."
+            else "Интерфейс запущен от пользователя; системные действия выполняются через pkexec."
         )
         traffic = self.collect_traffic_metrics(tun_interface)
         logs_payload = self.collect_log_payload()
@@ -1226,7 +1226,7 @@ class SubvostAppService:
         try:
             result = self.ping_node(node)
         except OSError as exc:
-            message = f"Ping не выполнен: {exc}."
+            message = f"Проверка узла не выполнена: {exc}."
             result = {
                 "host": str(node.get("normalized", {}).get("address") or "—"),
                 "port": node.get("normalized", {}).get("port"),
@@ -1244,7 +1244,7 @@ class SubvostAppService:
             self.state.ping_cache[self.ping_cache_key(profile_id, node_id)] = result
 
         self.remember_action(
-            "Ping узла",
+            "Проверка узла",
             True,
             f"Узел '{node.get('name', 'без имени')}' ответил за {result['label']}.",
             json.dumps(
@@ -1270,7 +1270,7 @@ class SubvostAppService:
         store = self.ensure_store_ready()
         result = store_import_routing_profile(store, self.context.app_paths, text, uid=self.context.real_uid, gid=self.context.real_gid)
         message = (
-            f"Routing-профиль '{result['profile']['name']}' "
+            f"Профиль маршрутизации '{result['profile']['name']}' "
             f"{'обновлён' if not result['created'] else 'импортирован'}."
         )
         return self.build_store_response(
@@ -1302,7 +1302,7 @@ class SubvostAppService:
             store,
             name="Активация маршрутизации",
             ok=True,
-            message=f"Активным сделан routing-профиль '{profile['name']}'.",
+            message=f"Активным сделан профиль маршрутизации '{profile['name']}'.",
             details=json.dumps({"routing_profile_id": profile_id}, ensure_ascii=False),
             extra={"routing_profile": profile},
         )
@@ -1314,7 +1314,7 @@ class SubvostAppService:
             store,
             name="Сброс маршрутизации",
             ok=True,
-            message="Активный routing-профиль снят, маршрутизация выключена.",
+            message="Активный профиль маршрутизации снят, маршрутизация выключена.",
             details="routing_active_profile_cleared=1",
         )
 
@@ -1325,7 +1325,7 @@ class SubvostAppService:
             store,
             name="Настройки маршрутизации",
             ok=True,
-            message="Состояние routing-профиля сохранено.",
+            message="Состояние профиля маршрутизации сохранено.",
             details=json.dumps({"routing_profile_id": profile["id"], "enabled": profile["enabled"]}, ensure_ascii=False),
             extra={"routing_profile": profile},
         )
@@ -1341,7 +1341,7 @@ class SubvostAppService:
         )
         return self.build_store_response(
             store,
-            name="Master toggle маршрутизации",
+            name="Переключение маршрутизации",
             ok=True,
             message="Маршрутизация включена." if routing["enabled"] else "Маршрутизация выключена.",
             details=json.dumps({"enabled": routing["enabled"]}, ensure_ascii=False),
@@ -1353,7 +1353,7 @@ class SubvostAppService:
         if self.runtime_control_blocked(runtime_info):
             raise ValueError(self.runtime_control_guard_message(runtime_info, action="start"))
         if runtime_info["owned_stack_is_live"]:
-            raise ValueError("Runtime текущего bundle уже активен.")
+            raise ValueError("Подключение текущего экземпляра уже активно.")
 
         store = self.ensure_store_ready()
         active_profile, active_node = get_active_node(store)
@@ -1369,7 +1369,7 @@ class SubvostAppService:
             raise ValueError("Старт невозможен: сначала выбери и активируй валидный узел.")
         settings = self.load_settings()
         env = {"ENABLE_FILE_LOGS": "1" if settings["file_logs_enabled"] else "0"}
-        result = self.run_shell_action("Старт", self.context.run_script, env)
+        result = self.run_shell_action("Подключение", self.context.run_script, env)
         message = "Запуск завершён успешно." if result.ok else f"Запуск завершился ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
         return self.collect_status()
@@ -1379,10 +1379,10 @@ class SubvostAppService:
         if self.runtime_control_blocked(runtime_info):
             raise ValueError(self.runtime_control_guard_message(runtime_info, action="stop"))
         if not runtime_info["has_state"] and not runtime_info["stack_is_live"]:
-            self.remember_action("Стоп", True, "Остановка не нужна: runtime уже не активен.", "state=already-stopped")
+            self.remember_action("Отключение", True, "Остановка не нужна: подключение уже не активно.", "state=already-stopped")
             return self.collect_status()
 
-        result = self.run_shell_action("Стоп", self.context.stop_script)
+        result = self.run_shell_action("Отключение", self.context.stop_script)
         message = "Остановка выполнена." if result.ok else f"Остановка завершилась ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
         return self.collect_status()
@@ -1417,14 +1417,14 @@ class SubvostAppService:
         if stop_needed:
             result = self.run_shell_action("Закрытие приложения", self.context.stop_script)
             if result.ok:
-                message = "Приложение закрывается: VPN runtime остановлен."
+                message = "Приложение закрывается: VPN-подключение остановлено."
             else:
-                message = f"Не удалось закрыть приложение: stop runtime завершился ошибкой, код {result.returncode}."
+                message = f"Не удалось закрыть приложение: остановка подключения завершилась ошибкой, код {result.returncode}."
             self.remember_action(result.name, result.ok, message, result.output)
             if not result.ok:
                 raise ValueError(message)
         else:
-            message = "Приложение закрывается: VPN runtime уже не активен."
+            message = "Приложение закрывается: VPN-подключение уже не активно."
             self.remember_action("Закрытие приложения", True, message, f"source={source}")
 
         return {
@@ -1436,8 +1436,8 @@ class SubvostAppService:
         }
 
     def shutdown_gui(self, source: str = "window-close") -> dict[str, Any]:
-        message = "GUI backend закрывается без остановки VPN runtime."
-        self.remember_action("Закрытие GUI", True, message, f"source={source}")
+        message = "Графический интерфейс закрывается без остановки VPN-подключения."
+        self.remember_action("Закрытие интерфейса", True, message, f"source={source}")
         return {
             "ok": True,
             "message": message,

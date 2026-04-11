@@ -52,7 +52,7 @@ class SubvostAppServiceTests(unittest.TestCase):
             runtime_info = {
                 "has_state": True,
                 "ownership": "foreign",
-                "ownership_label": "Другой bundle",
+                "ownership_label": "Другой экземпляр",
                 "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
                 "tun_interface": "tun0",
                 "xray_pid": None,
@@ -63,7 +63,7 @@ class SubvostAppServiceTests(unittest.TestCase):
             }
 
             with patch.object(service, "inspect_runtime_state", return_value=runtime_info):
-                with self.assertRaisesRegex(ValueError, "другого bundle"):
+                with self.assertRaisesRegex(ValueError, "другого экземпляра"):
                     service.start_runtime()
 
     def test_collect_store_snapshot_returns_store_and_status_envelope(self) -> None:
@@ -165,7 +165,7 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertFalse(payload["vpn_stop_requested"])
             self.assertEqual(payload["status"]["summary"]["state"], "running")
-            self.assertIn("без остановки VPN", payload["message"])
+            self.assertIn("без остановки VPN-подключения", payload["message"])
 
     def test_collect_status_reports_transport_and_security_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -248,7 +248,7 @@ class SubvostAppServiceTests(unittest.TestCase):
                 "state": state,
                 "has_state": True,
                 "ownership": "current",
-                "ownership_label": "Текущий bundle",
+                "ownership_label": "Текущий экземпляр",
                 "state_bundle_project_root": str(root),
                 "tun_interface": "tun0",
                 "xray_pid": None,

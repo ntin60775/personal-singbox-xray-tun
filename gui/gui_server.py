@@ -129,7 +129,7 @@ GUI_BACKEND_PID_FILE = resolve_backend_pid_file(REAL_UID)
 LAST_ACTION: dict[str, Any] = {
     "name": None,
     "ok": None,
-    "message": "GUI готов. Действия выполняются через существующие shell-скрипты.",
+    "message": "Интерфейс готов. Действия выполняются через существующие shell-скрипты.",
     "timestamp": None,
     "details": "",
 }
@@ -176,7 +176,7 @@ def runtime_source_label(source: str | None) -> str:
     if source == "store":
         return "Выбранный узел"
     if source == "custom":
-        return "Пользовательский config"
+        return "Пользовательский конфиг"
     if source == "blocked":
         return "Старт заблокирован"
     return "Не определён"
@@ -573,7 +573,7 @@ def describe_runtime_state(
 
     if start_ready:
         next_start_source = "store"
-        next_start_reason = "При следующем старте bundle возьмёт сгенерированный config активного узла."
+        next_start_reason = "При следующем запуске будет использован сгенерированный конфиг выбранного узла."
     else:
         next_start_source = "blocked"
         next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
@@ -731,7 +731,7 @@ def handle_start() -> dict[str, Any]:
     if runtime_control_blocked(runtime_info):
         raise ValueError(runtime_control_guard_message(runtime_info, action="start"))
     if runtime_info["owned_stack_is_live"]:
-        raise ValueError("Runtime текущего bundle уже активен.")
+        raise ValueError("Подключение текущего экземпляра уже активно.")
 
     store = ensure_store_ready()
     active_profile, active_node = get_active_node(store)
@@ -744,7 +744,7 @@ def handle_start() -> dict[str, Any]:
         and node_can_render_runtime(active_node)
         and APP_PATHS.generated_xray_config_file.exists()
     ):
-        raise ValueError("Старт невозможен: сначала выбери и активируй валидный узел.")
+        raise ValueError("Старт невозможен: сначала выберите и активируйте валидный узел.")
     settings = load_settings()
     env = {"ENABLE_FILE_LOGS": "1" if settings["file_logs_enabled"] else "0"}
     result = run_shell_action("Старт", RUN_SCRIPT, env)
@@ -761,7 +761,7 @@ def handle_stop() -> dict[str, Any]:
     if runtime_control_blocked(runtime_info):
         raise ValueError(runtime_control_guard_message(runtime_info, action="stop"))
     if not runtime_info["has_state"] and not runtime_info["stack_is_live"]:
-        remember_action("Стоп", True, "Остановка не нужна: runtime уже не активен.", "state=already-stopped")
+        remember_action("Стоп", True, "Остановка не нужна: подключение уже не активно.", "state=already-stopped")
         return collect_status()
 
     result = run_shell_action("Стоп", STOP_SCRIPT)
@@ -793,14 +793,14 @@ def handle_app_terminate(payload: dict[str, Any]) -> dict[str, Any]:
     if stop_needed:
         result = run_shell_action("Закрытие приложения", STOP_SCRIPT)
         if result.ok:
-            message = "Приложение закрывается: VPN runtime остановлен."
+            message = "Приложение закрывается: VPN-подключение остановлено."
         else:
-            message = f"Не удалось закрыть приложение: stop runtime завершился ошибкой, код {result.returncode}."
+            message = f"Не удалось закрыть приложение: остановка подключения завершилась ошибкой, код {result.returncode}."
         remember_action(result.name, result.ok, message, result.output)
         if not result.ok:
             raise ValueError(message)
     else:
-        message = "Приложение закрывается: VPN runtime уже не активен."
+        message = "Приложение закрывается: VPN-подключение уже не активно."
         remember_action("Закрытие приложения", True, message, f"source={source}")
 
     return {
@@ -814,8 +814,8 @@ def handle_app_terminate(payload: dict[str, Any]) -> dict[str, Any]:
 
 def handle_gui_shutdown(payload: dict[str, Any]) -> dict[str, Any]:
     source = str(payload.get("source") or "window-close").strip() or "window-close"
-    message = "GUI backend закрывается без остановки VPN runtime."
-    remember_action("Закрытие GUI", True, message, f"source={source}")
+    message = "Графический интерфейс закрывается без остановки VPN-подключения."
+    remember_action("Закрытие интерфейса", True, message, f"source={source}")
     return {
         "ok": True,
         "message": message,
@@ -1210,7 +1210,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Локальный GUI для управления Subvost Xray TUN bundle.")
+    parser = argparse.ArgumentParser(description="Локальный интерфейс для управления Subvost Xray TUN.")
     parser.add_argument("--host", default=DEFAULT_HOST, help=f"Адрес для HTTP сервера. По умолчанию {DEFAULT_HOST}.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Порт для HTTP сервера. По умолчанию {DEFAULT_PORT}.")
     args = parser.parse_args()
@@ -1218,16 +1218,16 @@ def main() -> None:
     remember_action(
         "Инициализация",
         True,
-        f"GUI backend запущен для пользователя {REAL_USER}. Откройте http://{args.host}:{args.port}",
+        f"Локальный интерфейс запущен для пользователя {REAL_USER}. Откройте http://{args.host}:{args.port}",
         "Сервер готов к работе.",
     )
     atexit.register(cleanup_backend_pid_file)
 
     with ThreadingHTTPServer((args.host, args.port), Handler) as httpd:
-        print(f"Subvost GUI доступен: http://{args.host}:{args.port}")
+        print(f"Интерфейс Subvost доступен: http://{args.host}:{args.port}")
         print(f"Корень bundle: {PROJECT_ROOT}")
         print(f"Реальный пользователь: {REAL_USER}")
-        print(f"Файл настроек GUI: {APP_PATHS.gui_settings_file}")
+        print(f"Файл настроек интерфейса: {APP_PATHS.gui_settings_file}")
         print("Для остановки нажмите Ctrl+C")
         httpd.serve_forever()
 

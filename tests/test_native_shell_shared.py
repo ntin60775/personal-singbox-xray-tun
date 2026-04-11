@@ -89,7 +89,7 @@ class NativeShellSharedTests(unittest.TestCase):
         settings = NativeShellSettings(close_to_tray=True, start_minimized_to_tray=True, theme="dark")
         notes = build_startup_notes(settings, build_tray_support(watcher_name=None, indicator_candidate=None))
 
-        self.assertIn("Theme: Тёмная.", notes)
+        self.assertIn("Тема: Тёмная.", notes)
         self.assertTrue(any("окно откроется обычно" in item for item in notes))
         self.assertTrue(any("окно будет закрываться полностью" in item for item in notes))
 
@@ -192,8 +192,8 @@ class NativeShellSharedTests(unittest.TestCase):
 
         self.assertEqual(native_shell_log_filter_label("warning"), "Предупреждения")
         self.assertEqual(filter_log_entries(bundle_entries, "error"), [bundle_entries[1]])
-        self.assertIn("=== Native shell (1) ===", rendered)
-        self.assertIn("=== Bundle и runtime (0) ===", rendered)
+        self.assertIn("=== Оболочка интерфейса (1) ===", rendered)
+        self.assertIn("=== Подключение и служебный журнал (0) ===", rendered)
         self.assertIn("Tray helper завершился.", rendered)
 
     def test_log_helpers_pick_latest_error_and_read_entries_from_status(self) -> None:

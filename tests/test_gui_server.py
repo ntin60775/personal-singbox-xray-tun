@@ -379,7 +379,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["vpn_stop_requested"])
-        self.assertIn("уже не активен", payload["message"])
+        self.assertIn("уже не активно", payload["message"])
         remember_mock.assert_called_once()
 
     def test_handle_app_terminate_stops_runtime_when_it_is_live(self) -> None:
@@ -387,7 +387,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         runtime_info = {
             "has_state": True,
             "ownership": "current",
-            "ownership_label": "Текущий bundle",
+            "ownership_label": "Текущий экземпляр",
             "state_bundle_project_root": str(gui_server.PROJECT_ROOT),
             "tun_interface": "tun0",
             "xray_pid": "12345",
@@ -407,7 +407,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["vpn_stop_requested"])
-        self.assertIn("VPN runtime остановлен", payload["message"])
+        self.assertIn("VPN-подключение остановлено", payload["message"])
         run_mock.assert_called_once_with("Закрытие приложения", gui_server.STOP_SCRIPT)
         remember_mock.assert_called_once()
 
@@ -415,7 +415,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         runtime_info = {
             "has_state": True,
             "ownership": "foreign",
-            "ownership_label": "Другой bundle",
+            "ownership_label": "Другой экземпляр",
             "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
             "tun_interface": "tun0",
             "xray_pid": "12345",
@@ -435,7 +435,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["vpn_stop_requested"])
-        self.assertIn("другого bundle", payload["message"])
+        self.assertIn("другого экземпляра Subvost", payload["message"])
         run_mock.assert_not_called()
         remember_mock.assert_called_once()
 
@@ -459,7 +459,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         runtime_info = {
             "has_state": True,
             "ownership": "foreign",
-            "ownership_label": "Другой bundle",
+            "ownership_label": "Другой экземпляр",
             "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
             "tun_interface": "tun0",
             "xray_pid": "12345",
@@ -470,14 +470,14 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         }
 
         with patch("gui_server.inspect_runtime_state", return_value=runtime_info):
-            with self.assertRaisesRegex(ValueError, "другого bundle"):
+            with self.assertRaisesRegex(ValueError, "другого экземпляра Subvost"):
                 gui_server.handle_stop()
 
     def test_handle_start_rejects_foreign_runtime_before_store_checks(self) -> None:
         runtime_info = {
             "has_state": True,
             "ownership": "foreign",
-            "ownership_label": "Другой bundle",
+            "ownership_label": "Другой экземпляр",
             "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
             "tun_interface": "tun0",
             "xray_pid": None,
@@ -488,7 +488,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         }
 
         with patch("gui_server.inspect_runtime_state", return_value=runtime_info):
-            with self.assertRaisesRegex(ValueError, "другого bundle"):
+            with self.assertRaisesRegex(ValueError, "другого экземпляра Subvost"):
                 gui_server.handle_start()
 
     def test_runtime_scripts_persist_and_guard_bundle_project_root(self) -> None:
@@ -579,7 +579,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         )
         self.assertEqual(status["state"], "running")
         self.assertEqual(status["stack_line"], "Xray core")
-        self.assertIn("Единый TUN-runtime", status["stack_subline"])
+        self.assertIn("Единый TUN-контур", status["stack_subline"])
         self.assertIn("tun0", status["description"])
 
     def test_describe_stack_status_for_degraded_runtime(self) -> None:
@@ -591,7 +591,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         )
         self.assertEqual(status["state"], "degraded")
         self.assertEqual(status["stack_line"], "Xray core")
-        self.assertIn("Часть runtime активна", status["description"])
+        self.assertIn("Часть подключения активна", status["description"])
 
     def test_describe_stack_status_for_foreign_runtime(self) -> None:
         status = gui_server.describe_stack_status(
@@ -601,7 +601,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             ownership="foreign",
         )
         self.assertEqual(status["state"], "degraded")
-        self.assertIn("другой bundle", status["label"])
+        self.assertIn("другой экземпляр", status["label"].lower())
         self.assertIn("управление заблокировано", status["stack_subline"])
 
     def test_normalize_iso_timestamp_preserves_valid_values(self) -> None:
@@ -773,7 +773,7 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
                     },
                 ),
             ):
-                with self.assertRaisesRegex(ValueError, "сначала выбери и активируй валидный узел"):
+                with self.assertRaisesRegex(ValueError, "сначала выберите и активируйте валидный узел"):
                     gui_server.handle_start()
 
     def test_handle_start_rejects_not_ready_routing(self) -> None:

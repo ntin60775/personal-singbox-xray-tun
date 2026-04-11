@@ -6,7 +6,7 @@ from typing import Any
 
 
 NATIVE_SHELL_APP_ID = "io.subvost.XrayTunNativeShell"
-NATIVE_SHELL_TITLE = "Subvost Xray TUN Native Shell"
+NATIVE_SHELL_TITLE = "Subvost Xray TUN"
 NATIVE_SHELL_CONTROL_INTERFACE = "io.subvost.XrayTunNativeShell.Control"
 NATIVE_SHELL_CONTROL_OBJECT_PATH = "/io/subvost/XrayTunNativeShell/Control"
 NATIVE_SHELL_TRAY_WATCHER_CANDIDATES = (
@@ -33,12 +33,12 @@ NATIVE_SHELL_STORE_ACTION_LABELS = {
     "subscription-toggle": "Состояние подписки",
     "subscription-delete": "Удаление подписки",
     "node-activate": "Активация узла",
-    "node-ping": "Ping узла",
+    "node-ping": "Проверка узла",
     "routing-import": "Импорт маршрутизации",
-    "routing-toggle": "Master toggle маршрутизации",
+    "routing-toggle": "Переключение маршрутизации",
     "routing-clear-active": "Сброс маршрутизации",
     "routing-activate-profile": "Активация маршрутизации",
-    "routing-toggle-profile": "Состояние routing-профиля",
+    "routing-toggle-profile": "Состояние профиля маршрутизации",
 }
 NATIVE_SHELL_LOG_FILTER_VALUES = (
     "all",
@@ -58,9 +58,25 @@ NATIVE_SHELL_LOG_LEVEL_LABELS = {
     "info": "Событие",
 }
 NATIVE_SHELL_LOG_SOURCE_LABELS = {
-    "shell": "Native shell",
-    "action": "Bundle action",
-    "file": "Runtime log",
+    "shell": "Оболочка интерфейса",
+    "action": "Действие подключения",
+    "file": "Журнал подключения",
+}
+NATIVE_SHELL_LOG_NAME_LABELS = {
+    "system": "Система",
+    "native-shell": "Нативная оболочка",
+    "startup": "Запуск интерфейса",
+    "initial-load": "Первичное состояние",
+    "tray": "Трей",
+    "tray-degraded": "Трей",
+    "dbus": "Управляющий канал",
+    "subscriptions": "Подписки",
+    "routing": "Маршрутизация",
+    "status": "Состояние подключения",
+    "settings": "Настройки",
+    "settings-change": "Настройки",
+    "log": "Журнал",
+    "window": "Окно",
 }
 
 
@@ -74,18 +90,18 @@ class NativeShellPage:
 NATIVE_SHELL_PAGES = (
     NativeShellPage(
         "dashboard",
-        "Dashboard",
-        "Короткий сводный экран: статус bundle, активный узел и действия `Старт / Стоп / Диагностика`.",
+        "Подключение",
+        "Главный экран: состояние подключения, выбранный узел и действия `Подключиться / Отключить / Диагностика`.",
     ),
     NativeShellPage(
         "subscriptions",
-        "Subscriptions",
-        "URL-подписки, узлы и routing без отдельного backend-контура.",
+        "Узлы и подписки",
+        "Выбор узла, управление подписками и правила маршрутизации в одном экране.",
     ),
     NativeShellPage(
         "log",
-        "Log",
-        "Ошибки и события native shell, bundle и runtime в одном журнале.",
+        "Диагностика",
+        "Конфликт экземпляров, служебные файлы подключения и журнал действий в одном экране.",
     ),
 )
 
@@ -100,11 +116,11 @@ class NativeShellTrayAction:
 NATIVE_SHELL_TRAY_ACTIONS = (
     NativeShellTrayAction("show-window", "Показать окно", "Показать главное окно приложения."),
     NativeShellTrayAction("hide-window", "Скрыть окно", "Спрятать окно, не завершая приложение."),
-    NativeShellTrayAction("start-runtime", "Старт", "Запустить runtime bundle через общий service-layer и `pkexec`."),
-    NativeShellTrayAction("stop-runtime", "Стоп", "Остановить текущий runtime bundle через общий service-layer."),
-    NativeShellTrayAction("capture-diagnostics", "Снять диагностику", "Собрать диагностический дамп bundle через общий service-layer."),
-    NativeShellTrayAction("open-settings", "Настройки", "Открыть минимальное окно настроек shell-уровня."),
-    NativeShellTrayAction("quit-app", "Выход", "Полностью завершить native shell."),
+    NativeShellTrayAction("start-runtime", "Подключить", "Запустить подключение через общий сервисный слой и `pkexec`."),
+    NativeShellTrayAction("stop-runtime", "Отключить", "Остановить текущее подключение через общий сервисный слой."),
+    NativeShellTrayAction("capture-diagnostics", "Снять диагностику", "Собрать диагностический дамп через общий сервисный слой."),
+    NativeShellTrayAction("open-settings", "Настройки", "Открыть минимальное окно настроек уровня интерфейса."),
+    NativeShellTrayAction("quit-app", "Выход", "Полностью завершить интерфейс приложения."),
 )
 
 
@@ -196,7 +212,16 @@ def native_shell_log_source_label(value: object) -> str:
         return NATIVE_SHELL_LOG_SOURCE_LABELS[candidate]
     if candidate:
         return candidate
-    return "system"
+    return "система"
+
+
+def native_shell_log_name_label(value: object) -> str:
+    candidate = str(value or "").strip().lower()
+    if candidate in NATIVE_SHELL_LOG_NAME_LABELS:
+        return NATIVE_SHELL_LOG_NAME_LABELS[candidate]
+    if candidate:
+        return str(value).strip()
+    return "Система"
 
 
 def select_indicator_candidate(versions_by_namespace: dict[str, set[str]] | None = None) -> tuple[str, str, str] | None:
@@ -235,13 +260,13 @@ def build_tray_support(
         return NativeShellTraySupport(
             False,
             "fallback",
-            "Не найден GI runtime для Ayatana/AppIndicator.",
+            "Не найдено GI-окружение для Ayatana/AppIndicator.",
         )
     namespace, _, label = indicator_candidate
     return NativeShellTraySupport(
         True,
         label,
-        f"Tray backend активирован через {label}.",
+        f"Трей активирован через {label}.",
         watcher_name=watcher_name,
         indicator_namespace=namespace,
     )
@@ -249,21 +274,21 @@ def build_tray_support(
 
 def build_startup_notes(settings: NativeShellSettings, tray_support: NativeShellTraySupport) -> list[str]:
     notes = [
-        f"Theme: {native_shell_theme_label(settings.theme)}.",
+        f"Тема: {native_shell_theme_label(settings.theme)}.",
         "Файловые логи: включены." if settings.file_logs_enabled else "Файловые логи: выключены.",
     ]
     if tray_support.available:
-        notes.append(f"Tray backend: {tray_support.backend_label}.")
+        notes.append(f"Трей: {tray_support.backend_label}.")
         if settings.start_minimized_to_tray:
             notes.append("Старт выполнен в свёрнутом режиме.")
         if settings.close_to_tray:
             notes.append("Закрытие окна уводит приложение в трей.")
     else:
-        notes.append(f"Tray fallback: {tray_support.reason}")
+        notes.append(f"Трей недоступен: {tray_support.reason}")
         if settings.start_minimized_to_tray:
-            notes.append("Опция старта в tray сохранена, но сейчас окно откроется обычно.")
+            notes.append("Опция старта в трее сохранена, но сейчас окно откроется обычно.")
         if settings.close_to_tray:
-            notes.append("Опция close-to-tray сохранена, но без трея окно будет закрываться полностью.")
+            notes.append("Опция сворачивания в трей сохранена, но без трея окно будет закрываться полностью.")
     return notes
 
 
@@ -350,7 +375,7 @@ def format_native_shell_log_entry(entry: dict[str, Any]) -> str:
     timestamp = format_native_shell_log_timestamp(entry.get("timestamp"))
     level_label = native_shell_log_level_label(entry.get("level"))
     source_label = native_shell_log_source_label(entry.get("source"))
-    name = str(entry.get("name") or "system")
+    name = native_shell_log_name_label(entry.get("name"))
     message = str(entry.get("message") or "").strip() or "Сообщение отсутствует."
     lines = [
         f"{timestamp} | {level_label} | {source_label} | {name}",
@@ -372,8 +397,8 @@ def build_native_shell_log_text(
     filtered_shell = filter_log_entries(shell_entries, normalized_filter)
     filtered_bundle = filter_log_entries(bundle_entries, normalized_filter)
     sections = [
-        ("Native shell", filtered_shell),
-        ("Bundle и runtime", filtered_bundle),
+        ("Оболочка интерфейса", filtered_shell),
+        ("Подключение и служебный журнал", filtered_bundle),
     ]
     chunks = [f"Фильтр: {native_shell_log_filter_label(normalized_filter)}"]
     for title, entries in sections:
