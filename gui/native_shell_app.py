@@ -101,6 +101,29 @@ window {
     linear-gradient(180deg, @app_bg 0%, #0d1016 100%);
 }
 
+headerbar {
+  min-height: 36px;
+  padding: 0 8px;
+  background: rgba(21, 24, 33, 0.98);
+  box-shadow: inset 0 -1px rgba(58, 66, 86, 0.72);
+}
+
+stackswitcher button {
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background-image: none;
+  background-color: rgba(34, 39, 53, 0.72);
+  border-color: rgba(58, 66, 86, 0.82);
+  color: @text_secondary;
+}
+
+stackswitcher button:checked {
+  background-color: rgba(255, 99, 99, 0.18);
+  border-color: rgba(255, 99, 99, 0.44);
+  color: @text_primary;
+}
+
 .native-shell-root {
   color: @text_primary;
   padding: 14px;
@@ -119,6 +142,12 @@ window {
 
 .native-shell-muted {
   color: @text_muted;
+}
+
+.native-shell-window-title {
+  color: @text_primary;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .native-shell-status {
@@ -164,11 +193,37 @@ window {
   font-size: 13px;
 }
 
+.native-shell-connection-row {
+  min-height: 38px;
+}
+
 .native-shell-status-pill {
   background: rgba(34, 39, 53, 0.82);
   border-radius: 999px;
   border: 1px solid rgba(58, 66, 86, 0.68);
   padding: 7px 12px;
+}
+
+.native-shell-status-dot {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.native-shell-status-dot-running {
+  color: @state_success;
+}
+
+.native-shell-status-dot-warning {
+  color: @state_warning;
+}
+
+.native-shell-status-dot-stopped {
+  color: @state_info;
+}
+
+.native-shell-status-feedback {
+  color: @text_secondary;
+  font-size: 12px;
 }
 
 .native-shell-value {
@@ -223,6 +278,7 @@ window {
 
 button {
   border-radius: 10px;
+  min-height: 38px;
   padding: 8px 12px;
 }
 
@@ -294,6 +350,12 @@ button.native-shell-icon-button {
 .native-shell-page-scroll,
 .native-shell-log-scroller {
   background: transparent;
+}
+
+.native-shell-conflict-bar {
+  background: rgba(255, 184, 77, 0.12);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 184, 77, 0.42);
 }
 
 .native-shell-subscriptions-root,
@@ -490,10 +552,8 @@ class NativeShellApp:
         self.window = None
         self.settings_window = None
         self.stack = None
-        self.sidebar = None
-        self.sidebar_buttons: dict[str, object] = {}
+        self.stack_switcher = None
         self.status_label = None
-        self.shell_status_labels: dict[str, object] = {}
         self.log_buffer = None
         self.log_summary_label = None
         self.log_meta_label = None
@@ -514,6 +574,12 @@ class NativeShellApp:
         self.dashboard_action_buttons: dict[str, object] = {}
         self.dashboard_primary_action_id: str | None = None
         self.dashboard_badge_box = None
+        self.dashboard_conflict_bar = None
+        self.dashboard_conflict_label = None
+        self.dashboard_takeover_button = None
+        self.diagnostic_takeover_button = None
+        self.dashboard_dns_button = None
+        self.dashboard_dns_full_text = "—"
         self.diagnostic_labels: dict[str, object] = {}
         self.last_store_payload: dict[str, Any] | None = None
         self.selected_subscription_id: str | None = None
@@ -635,6 +701,8 @@ class NativeShellApp:
         window = self.Gtk.ApplicationWindow(application=app)
         window.set_title(NATIVE_SHELL_TITLE)
         window.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        window.set_size_request(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        window.set_resizable(False)
         if hasattr(window, "set_icon_name"):
             window.set_icon_name("network-vpn")
         window.connect("close-request", self.on_close_request)
@@ -651,120 +719,43 @@ class NativeShellApp:
         root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         root.set_vexpand(True)
         add_css_class(root, "native-shell-root")
-        header = self.build_header_bar()
         stack = self.build_stack()
-        statusbar = self.build_shell_status_bar()
-
-        root.append(statusbar)
+        header = self.build_header_bar(stack)
         root.append(stack)
         window.set_titlebar(header)
         window.set_child(root)
         return window
 
-    def build_header_bar(self):
+    def build_header_bar(self, stack):
         header = self.Gtk.HeaderBar()
         header.set_show_title_buttons(True)
 
-        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
-        title_label = self.Gtk.Label(label="Subvost Xray TUN", xalign=0)
-        add_css_class(title_label, "native-shell-card-title")
-        title_box.append(title_label)
-        header.set_title_widget(title_box)
+        title_label = self.Gtk.Label(label=NATIVE_SHELL_TITLE, xalign=0)
+        add_css_class(title_label, "native-shell-window-title")
+        header.pack_start(title_label)
+
+        switcher = self.Gtk.StackSwitcher()
+        switcher.set_stack(stack)
+        self.stack_switcher = switcher
+        header.set_title_widget(switcher)
 
         settings_button = self.Gtk.Button(label="Настройки")
+        add_css_class(settings_button, "native-shell-button-secondary")
         settings_button.connect("clicked", lambda *_args: self.open_settings_window())
         header.pack_end(settings_button)
         return header
 
-    def build_shell_status_bar(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
-        add_css_class(panel, "native-shell-panel")
-        add_css_class(panel, "native-shell-statusbar")
-
-        top_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
-        top_row.set_hexpand(True)
-
-        state_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=3)
-        state_box.set_hexpand(True)
-        state_label = self.Gtk.Label(label="Состояние подключения обновляется…", xalign=0)
-        add_css_class(state_label, "native-shell-statusline")
-        target_label = self.Gtk.Label(label="Выбранный узел: —", xalign=0)
-        add_css_class(target_label, "native-shell-statusline-meta")
-        state_box.append(state_label)
-        state_box.append(target_label)
-
-        traffic_label = self.Gtk.Label(label="↓ — ↑ —", xalign=0)
-        add_css_class(traffic_label, "native-shell-status-pill")
-        tun_label = self.Gtk.Label(label="TUN: —", xalign=0)
-        add_css_class(tun_label, "native-shell-status-pill")
-
-        top_row.append(state_box)
-        top_row.append(traffic_label)
-        top_row.append(tun_label)
-
-        self.status_label = self.Gtk.Label(xalign=0)
-        self.status_label.set_wrap(True)
-        add_css_class(self.status_label, "native-shell-status")
-        self.set_status("Считываю текущее состояние подключения и подготавливаю компактный shell.")
-
-        self.dashboard_labels["hero_state"] = state_label
-        self.dashboard_labels["hero_active"] = target_label
-        self.shell_status_labels["traffic"] = traffic_label
-        self.shell_status_labels["tun"] = tun_label
-
-        panel.append(top_row)
-        panel.append(self.status_label)
-        return panel
-
     def build_stack(self):
-        outer = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
-        outer.set_vexpand(True)
-        add_css_class(outer, "native-shell-panel")
-
         stack = self.Gtk.Stack()
         stack.set_hexpand(True)
         stack.set_vexpand(True)
-        stack.set_transition_type(self.Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        stack.set_transition_type(self.Gtk.StackTransitionType.CROSSFADE)
         self.stack = stack
-
-        sidebar = self.build_sidebar()
-        self.sidebar = sidebar
-        outer.append(sidebar)
 
         for page in NATIVE_SHELL_PAGES:
             stack.add_titled(self.build_page(page), page.page_id, page.title)
-
-        outer.append(stack)
-        self.update_sidebar_selection("dashboard")
-        return outer
-
-    def build_sidebar(self):
-        sidebar = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
-        sidebar.set_size_request(208, -1)
-        add_css_class(sidebar, "native-shell-sidebar")
-        for page in NATIVE_SHELL_PAGES:
-            sidebar.append(self.build_sidebar_button(page))
-        return sidebar
-
-    def build_sidebar_button(self, page):
-        button = self.Gtk.Button()
-        add_css_class(button, "native-shell-nav-button")
-        button.connect("clicked", lambda *_args, page_id=page.page_id: self.show_page(page_id))
-
-        content = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-        icon = self.Gtk.Image()
-        if hasattr(icon, "set_from_icon_name"):
-            icon.set_from_icon_name(page.icon_name)
-        elif hasattr(icon, "set_icon_name"):
-            icon.set_icon_name(page.icon_name)
-        label = self.Gtk.Label(label=page.title, xalign=0)
-        content.append(icon)
-        content.append(label)
-        button.set_child(content)
-        button.set_tooltip_text(page.description)
-
-        self.sidebar_buttons[page.page_id] = button
-        return button
+        stack.set_visible_child_name("dashboard")
+        return stack
 
     def build_page(self, page):
         page_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
@@ -786,27 +777,87 @@ class NativeShellApp:
         scrolled.set_child(page_box)
         return scrolled
 
+    def build_named_panel(self, title_text: str, *, subtitle: str | None = None):
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        add_css_class(panel, "native-shell-panel")
+        title = self.Gtk.Label(label=title_text, xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        panel.append(title)
+        if subtitle:
+            subtitle_label = self.Gtk.Label(label=subtitle, xalign=0)
+            subtitle_label.set_wrap(True)
+            add_css_class(subtitle_label, "native-shell-muted")
+            panel.append(subtitle_label)
+        body = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        panel.append(body)
+        return panel, body
+
+    def build_dashboard_status_row(self):
+        row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_hexpand(True)
+        add_css_class(row, "native-shell-connection-row")
+
+        icon_label = self.Gtk.Label(label="●", xalign=0)
+        add_css_class(icon_label, "native-shell-status-dot")
+        add_css_class(icon_label, "native-shell-status-dot-stopped")
+        self.dashboard_labels["hero_state_icon"] = icon_label
+
+        state_label = self.Gtk.Label(label="Состояние обновляется…", xalign=0)
+        add_css_class(state_label, "native-shell-statusline")
+        self.dashboard_labels["hero_state"] = state_label
+
+        node_label = self.Gtk.Label(label="Узел не выбран", xalign=0)
+        node_label.set_hexpand(True)
+        add_css_class(node_label, "native-shell-statusline-meta")
+        self.dashboard_labels["hero_active"] = node_label
+
+        traffic_label = self.Gtk.Label(label="↓ — ↑ —", xalign=0)
+        add_css_class(traffic_label, "native-shell-status-pill")
+        self.dashboard_labels["hero_traffic"] = traffic_label
+
+        tun_label = self.Gtk.Label(label="TUN: —", xalign=0)
+        add_css_class(tun_label, "native-shell-status-pill")
+        self.dashboard_labels["hero_tun"] = tun_label
+
+        row.append(icon_label)
+        row.append(state_label)
+        row.append(node_label)
+        row.append(traffic_label)
+        row.append(tun_label)
+        return row
+
     def build_dashboard_page(self):
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        split = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
-        split.set_hexpand(True)
-        action_panel = self.build_dashboard_action_panel()
-        action_panel.set_size_request(0, -1)
-        action_panel.set_hexpand(True)
-        metrics_panel = self.build_dashboard_metrics_panel()
-        metrics_panel.set_size_request(420, -1)
-        metrics_panel.set_hexpand(True)
-        split.append(action_panel)
-        split.append(metrics_panel)
-        container.append(split)
-        return container
-
-    def build_dashboard_action_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Подключение", xalign=0)
-        add_css_class(title, "native-shell-card-title")
+
+        detail = self.Gtk.Label(
+            label="Состояние подключения, выбранный узел и служебные признаки собраны на одной вкладке.",
+            xalign=0,
+        )
+        detail.set_wrap(True)
+        add_css_class(detail, "native-shell-muted")
+        self.dashboard_labels["hero_detail"] = detail
+
+        primary_button = self.Gtk.Button(label="Подключиться")
+        add_css_class(primary_button, "native-shell-button-primary")
+        primary_button.connect("clicked", self.on_dashboard_primary_action_clicked)
+        self.dashboard_action_buttons["primary-connect"] = primary_button
+
+        diagnostics_button = self.Gtk.Button(label="Диагностика")
+        add_css_class(diagnostics_button, "native-shell-button-secondary")
+        diagnostics_button.connect("clicked", lambda *_args: self.show_page("log"))
+        self.dashboard_action_buttons["open-diagnostics"] = diagnostics_button
+
+        nodes_button = self.Gtk.Button(label="Узлы")
+        add_css_class(nodes_button, "native-shell-button-secondary")
+        nodes_button.connect("clicked", lambda *_args: self.show_page("subscriptions"))
+        self.dashboard_action_buttons["open-subscriptions"] = nodes_button
+
+        action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        action_row.append(primary_button)
+        action_row.append(diagnostics_button)
+        action_row.append(nodes_button)
 
         summary = self.Gtk.Label(
             label="Главное действие доступно сразу: запуск, остановка или переход к выбору узла.",
@@ -814,140 +865,159 @@ class NativeShellApp:
         )
         summary.set_wrap(True)
         add_css_class(summary, "native-shell-card-subtitle")
-
-        detail = self.Gtk.Label(
-            label="Сводка подключения и служебные детали вынесены в компактные секции ниже.",
-            xalign=0,
-        )
-        detail.set_wrap(True)
-        add_css_class(detail, "native-shell-muted")
-
-        primary_button = self.Gtk.Button(label="Подключиться к выбранному узлу")
-        add_css_class(primary_button, "native-shell-button-primary")
-        primary_button.connect("clicked", self.on_dashboard_primary_action_clicked)
-        self.dashboard_action_buttons["primary-connect"] = primary_button
-
-        action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
-
-        nodes_button = self.Gtk.Button(label="Узлы")
-        add_css_class(nodes_button, "native-shell-button-secondary")
-        nodes_button.connect("clicked", lambda *_args: self.show_page("subscriptions"))
-        self.dashboard_action_buttons["open-subscriptions"] = nodes_button
-
-        diagnostics_button = self.Gtk.Button(label="Диагностика")
-        add_css_class(diagnostics_button, "native-shell-button-secondary")
-        diagnostics_button.connect("clicked", lambda *_args: self.show_page("log"))
-        self.dashboard_action_buttons["open-diagnostics"] = diagnostics_button
-
-        action_row.append(nodes_button)
-        action_row.append(diagnostics_button)
+        self.dashboard_labels["action_summary"] = summary
 
         hint = self.Gtk.Label(
             label="Запрос прав появится только при запуске, остановке подключения или снятии дампа в диагностике.",
             xalign=0,
         )
         hint.set_wrap(True)
-        add_css_class(hint, "native-shell-card-subtitle")
-        panel.append(title)
-        panel.append(summary)
-        panel.append(detail)
-        panel.append(primary_button)
-        panel.append(action_row)
-        panel.append(hint)
-        self.dashboard_labels["action_summary"] = summary
-        self.dashboard_labels["hero_detail"] = detail
+        add_css_class(hint, "native-shell-muted")
         self.dashboard_labels["action_hint"] = hint
-        return panel
 
-    def build_dashboard_metrics_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
-        panel.set_hexpand(True)
-        add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Трафик и служебные признаки", xalign=0)
-        add_css_class(title, "native-shell-card-title")
-        grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
+        self.status_label = self.Gtk.Label(xalign=0)
+        self.status_label.set_wrap(True)
+        add_css_class(self.status_label, "native-shell-status-feedback")
+        self.set_status("Считываю текущее состояние подключения.")
 
-        metric_specs = (
-            ("uptime", "Время"),
-            ("rx", "RX"),
-            ("tx", "TX"),
-            ("tun", "TUN"),
-            ("dns", "DNS"),
-        )
-        for index, (key, title_text) in enumerate(metric_specs):
-            card = self.build_metric_card(title_text, key)
-            grid.attach(card, index % 2, index // 2, 1, 1)
+        info_bar = self.Gtk.InfoBar()
+        info_bar.set_message_type(self.Gtk.MessageType.WARNING)
+        info_bar.set_visible(False)
+        info_bar.set_revealed(False)
+        add_css_class(info_bar, "native-shell-conflict-bar")
+        info_label = self.Gtk.Label(label="—", xalign=0)
+        info_label.set_wrap(True)
+        info_bar.add_child(info_label)
+        takeover_button = self.Gtk.Button(label="Перехватить")
+        add_css_class(takeover_button, "native-shell-button-secondary")
+        takeover_button.set_tooltip_text("Автоперехват пока не реализован: кнопка переводит в диагностику по конфликту.")
+        takeover_button.connect("clicked", self.on_takeover_requested)
+        info_bar.add_action_widget(takeover_button, self.Gtk.ResponseType.ACCEPT)
+        self.dashboard_conflict_bar = info_bar
+        self.dashboard_conflict_label = info_label
+        self.dashboard_takeover_button = takeover_button
 
-        tray_note = self.Gtk.Label(
-            label=f"Трей: {self.tray_support.reason}",
-            xalign=0,
-        )
-        tray_note.set_wrap(True)
-        add_css_class(tray_note, "native-shell-card-subtitle")
-        self.dashboard_labels["tray_note"] = tray_note
+        details_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
+        details_row.set_hexpand(True)
 
-        panel.append(title)
-        panel.append(grid)
-        panel.append(tray_note)
-        return panel
+        traffic_panel, traffic_body = self.build_named_panel("Трафик")
+        traffic_panel.set_hexpand(True)
+        traffic_value = self.Gtk.Label(label="RX: —\nTX: —", xalign=0)
+        traffic_value.set_wrap(True)
+        add_css_class(traffic_value, "native-shell-value-muted")
+        self.dashboard_metrics["traffic"] = traffic_value
+        traffic_body.append(traffic_value)
 
-    def build_metric_card(self, title_text: str, key: str):
-        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
-        add_css_class(card, "native-shell-metric-card")
-        title = self.Gtk.Label(label=title_text, xalign=0)
-        add_css_class(title, "native-shell-card-subtitle")
-        value = self.Gtk.Label(label="—", xalign=0)
-        value.set_wrap(True)
-        add_css_class(value, "native-shell-value")
-        card.append(title)
-        card.append(value)
-        self.dashboard_metrics[key] = value
-        return card
+        interface_panel, interface_body = self.build_named_panel("Интерфейс")
+        interface_panel.set_hexpand(True)
+        interface_value = self.Gtk.Label(label="TUN: —\nDNS: —", xalign=0)
+        interface_value.set_wrap(True)
+        add_css_class(interface_value, "native-shell-value-muted")
+        self.dashboard_metrics["interface"] = interface_value
+        dns_button = self.Gtk.Button(label="Показать все")
+        add_css_class(dns_button, "native-shell-button-secondary")
+        dns_button.set_sensitive(False)
+        dns_button.connect("clicked", self.on_show_dashboard_dns_clicked)
+        self.dashboard_dns_button = dns_button
+        interface_body.append(interface_value)
+        interface_body.append(dns_button)
+
+        details_row.append(traffic_panel)
+        details_row.append(interface_panel)
+
+        states_head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        states_head.set_hexpand(True)
+        states_title = self.Gtk.Label(label="Статусы", xalign=0)
+        add_css_class(states_title, "native-shell-card-subtitle")
+        badges_box = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        badges_box.set_hexpand(True)
+        self.dashboard_badge_box = badges_box
+        states_head.append(states_title)
+        states_head.append(badges_box)
+
+        panel.append(self.build_dashboard_status_row())
+        panel.append(detail)
+        panel.append(action_row)
+        panel.append(summary)
+        panel.append(hint)
+        panel.append(self.status_label)
+        panel.append(info_bar)
+        panel.append(details_row)
+        panel.append(states_head)
+        container.append(panel)
+        return container
 
     def build_diagnostics_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
-        head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
-        head.set_hexpand(True)
-        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
-        title = self.Gtk.Label(label="Сводка подключения", xalign=0)
-        add_css_class(title, "native-shell-card-title")
-        summary = self.Gtk.Label(
-            label="Только ключевые параметры, конфликт экземпляров, файлы и последнее действие.",
-            xalign=0,
-        )
-        summary.set_wrap(True)
-        add_css_class(summary, "native-shell-muted")
-        title_box.append(title)
-        title_box.append(summary)
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
 
+        state_panel, state_body = self.build_named_panel(
+            "Состояние",
+            subtitle="Конфликт экземпляров и текущее управляющее состояние подключения.",
+        )
+        state_label = self.Gtk.Label(label="—", xalign=0)
+        state_label.set_wrap(True)
+        add_css_class(state_label, "native-shell-value-muted")
+        state_body.append(state_label)
+        state_actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        takeover_button = self.Gtk.Button(label="Перехватить")
+        add_css_class(takeover_button, "native-shell-button-secondary")
+        takeover_button.set_tooltip_text("Автоперехват пока не реализован: кнопка переводит в диагностику по конфликту.")
+        takeover_button.connect("clicked", self.on_takeover_requested)
+        self.diagnostic_takeover_button = takeover_button
+        state_actions.append(takeover_button)
+        state_body.append(state_actions)
+        self.diagnostic_labels["diagnostic_status"] = state_label
+
+        connection_panel, connection_body = self.build_named_panel(
+            "Параметры подключения",
+            subtitle="Протокол, адрес, SNI и состояние маршрутизации.",
+        )
+        connection_label = self.Gtk.Label(label="—", xalign=0)
+        connection_label.set_wrap(True)
+        add_css_class(connection_label, "native-shell-value-muted")
+        connection_body.append(connection_label)
+        self.diagnostic_labels["diagnostic_connection"] = connection_label
+
+        files_panel, files_body = self.build_named_panel(
+            "Файлы и дампы",
+            subtitle="Рабочие пути и диагностический дамп текущего окна.",
+        )
+        files_label = self.Gtk.Label(label="—", xalign=0)
+        files_label.set_wrap(True)
+        add_css_class(files_label, "native-shell-value-muted")
+        files_body.append(files_label)
         capture_button = self.Gtk.Button(label="Снять дамп")
         add_css_class(capture_button, "native-shell-button-secondary")
         capture_button.connect("clicked", self.on_stub_button_clicked, "capture-diagnostics")
         self.dashboard_action_buttons["capture-diagnostics"] = capture_button
+        files_body.append(capture_button)
+        self.diagnostic_labels["diagnostic_files"] = files_label
 
-        head.append(title_box)
-        head.append(capture_button)
-
-        detail_specs = (
-            ("diagnostic_status", "Состояние"),
-            ("diagnostic_instance", "Экземпляры"),
-            ("diagnostic_connection", "Подключение"),
-            ("diagnostic_files", "Файлы и дампы"),
-            ("diagnostic_last_action", "Последнее действие"),
+        instance_panel, instance_body = self.build_named_panel(
+            "Экземпляры",
+            subtitle="Где сейчас работает активный runtime и какой проект открыт в этом окне.",
         )
-        panel.append(head)
-        for index, (key, title_text) in enumerate(detail_specs):
-            expander = self.Gtk.Expander(label=title_text)
-            expander.set_expanded(index == 0)
-            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
-            content.set_margin_top(6)
-            value = self.Gtk.Label(label="—", xalign=0)
-            value.set_wrap(True)
-            add_css_class(value, "native-shell-value-muted")
-            content.append(value)
-            expander.set_child(content)
-            self.diagnostic_labels[key] = value
-            panel.append(expander)
+        instance_label = self.Gtk.Label(label="—", xalign=0)
+        instance_label.set_wrap(True)
+        add_css_class(instance_label, "native-shell-value-muted")
+        instance_body.append(instance_label)
+        self.diagnostic_labels["diagnostic_instance"] = instance_label
+
+        last_action_panel, last_action_body = self.build_named_panel(
+            "Последнее действие",
+            subtitle="Итог последней команды и её временная отметка.",
+        )
+        last_action_label = self.Gtk.Label(label="—", xalign=0)
+        last_action_label.set_wrap(True)
+        add_css_class(last_action_label, "native-shell-value-muted")
+        last_action_body.append(last_action_label)
+        self.diagnostic_labels["diagnostic_last_action"] = last_action_label
+
+        panel.append(state_panel)
+        panel.append(connection_panel)
+        panel.append(files_panel)
+        panel.append(instance_panel)
+        panel.append(last_action_panel)
         return panel
 
     def build_subscriptions_page(self):
@@ -958,7 +1028,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="Узлы и подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Компактный экран выбора: подписки сверху, узлы ниже, маршрутизация свёрнута до отдельной секции.",
+            label="Широкий рабочий экран: подписки слева, узлы выбранного источника справа, маршрутизация ниже отдельным блоком.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -996,7 +1066,7 @@ class NativeShellApp:
         body.set_vexpand(True)
         add_css_class(body, "native-shell-subscriptions-root")
         subscriptions_panel = self.build_subscription_list_panel()
-        subscriptions_panel.set_size_request(380, -1)
+        subscriptions_panel.set_size_request(420, -1)
         body.append(subscriptions_panel)
         right_column = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         right_column.set_hexpand(True)
@@ -1696,7 +1766,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="Диагностика", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Сводка подключения отделена от журнала, чтобы технические детали не забивали весь экран.",
+            label="Сводка подключения и журнал разделены, чтобы технические детали оставались читаемыми и не захламляли экран.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -2234,17 +2304,20 @@ class NativeShellApp:
             return "Источник подключения не подтверждён"
         return str(summary.get("label") or "—")
 
-    def update_sidebar_selection(self, page_id: str) -> None:
-        for current_page_id, button in getattr(self, "sidebar_buttons", {}).items():
-            if current_page_id == page_id:
-                add_css_class(button, "native-shell-nav-button-active")
-            else:
-                remove_css_class(button, "native-shell-nav-button-active")
-
     def show_page(self, page_id: str) -> None:
         if self.stack is not None:
             self.stack.set_visible_child_name(page_id)
-        self.update_sidebar_selection(page_id)
+
+    def on_takeover_requested(self, _button) -> None:
+        self.show_page("log")
+        message = "Автоперехват чужого подключения пока не реализован: открыта диагностика по конфликту экземпляров."
+        self.set_status(message)
+        self.append_log("window", message)
+
+    def on_show_dashboard_dns_clicked(self, _button) -> None:
+        dns_text = getattr(self, "dashboard_dns_full_text", "—")
+        self.set_status(f"DNS: {dns_text}")
+        self.append_log("window", f"Показан полный список DNS: {dns_text}")
 
     def on_dashboard_primary_action_clicked(self, _button) -> None:
         action_id = getattr(self, "dashboard_primary_action_id", None)
@@ -2390,16 +2463,62 @@ class NativeShellApp:
             remove_css_class(button, f"native-shell-button-{current_variant}")
         add_css_class(button, f"native-shell-button-{variant}")
 
+    def update_dashboard_state_icon(self, summary: dict[str, Any], runtime: dict[str, Any]) -> None:
+        label = getattr(self, "dashboard_labels", {}).get("hero_state_icon")
+        if label is None:
+            return
+        for css_class in (
+            "native-shell-status-dot-running",
+            "native-shell-status-dot-warning",
+            "native-shell-status-dot-stopped",
+        ):
+            remove_css_class(label, css_class)
+        state = str(summary.get("state") or "stopped")
+        if runtime.get("start_blocked") or state == "degraded":
+            add_css_class(label, "native-shell-status-dot-warning")
+        elif state == "running":
+            add_css_class(label, "native-shell-status-dot-running")
+        else:
+            add_css_class(label, "native-shell-status-dot-stopped")
+
+    def format_dns_summary(self, value: object) -> tuple[str, str]:
+        raw = str(value or "").strip()
+        servers = [item.strip() for item in raw.split(",") if item.strip()]
+        if not servers:
+            return "—", "—"
+        full = ", ".join(servers)
+        if len(servers) == 1:
+            return full, full
+        return f"{servers[0]} · ещё {len(servers) - 1}", full
+
+    def update_dashboard_conflict_bar(self, runtime: dict[str, Any]) -> None:
+        if self.dashboard_conflict_bar is None or self.dashboard_conflict_label is None:
+            return
+        ownership = str(runtime.get("ownership") or "")
+        state_root = str(runtime.get("state_bundle_project_root") or "—")
+        visible = ownership == "foreign"
+        self.dashboard_conflict_bar.set_visible(visible)
+        self.dashboard_conflict_bar.set_revealed(visible)
+        if not visible:
+            return
+        self.dashboard_conflict_label.set_label(
+            f"Подключением управляет другой экземпляр. Путь активного bundle: {state_root}."
+        )
+        if self.dashboard_takeover_button is not None:
+            self.dashboard_takeover_button.set_sensitive(True)
+
     def update_dashboard_from_status(self, payload: dict[str, Any]) -> None:
         summary = payload.get("summary", {}) or {}
+        settings = payload.get("settings", {}) or {}
+        processes = payload.get("processes", {}) or {}
         runtime = payload.get("runtime", {}) or {}
         connection = payload.get("connection", {}) or {}
         routing = payload.get("routing", {}) or {}
         traffic = payload.get("traffic", {}) or {}
         artifacts = payload.get("artifacts", {}) or {}
-        active_node = payload.get("active_node", {}) or {}
         last_action = payload.get("last_action", {}) or {}
 
+        self.update_dashboard_state_icon(summary, runtime)
         self.set_dashboard_label("hero_state", self.user_facing_runtime_state_label(summary, runtime))
         hero_detail = str(summary.get("description") or "Состояние подключения обновлено.")
         if runtime.get("start_blocked") and summary.get("state") != "running":
@@ -2407,28 +2526,49 @@ class NativeShellApp:
         self.set_dashboard_label("hero_detail", hero_detail)
 
         _node_name, node_label = self.connection_target_label(payload)
-        node_caption = "Активный узел" if str(summary.get("state") or "") == "running" else "Выбранный узел"
-        self.set_dashboard_label("hero_active", f"{node_caption}: {node_label}")
-        self.refresh_dashboard_badges(summary.get("badges", []), str(summary.get("state") or "stopped"))
-        self.set_shell_status_label(
-            "traffic",
+        self.set_dashboard_label("hero_active", self.shorten_text(node_label, 64))
+        self.set_dashboard_label(
+            "hero_traffic",
             f"↓ {traffic.get('rx_rate_label') or '—'} ↑ {traffic.get('tx_rate_label') or '—'}",
         )
-        self.set_shell_status_label(
-            "tun",
-            self.shorten_text(summary.get("tun_line") or connection.get("tun_interface") or "TUN: —", 18),
+        tun_line = str(summary.get("tun_line") or connection.get("tun_interface") or "—")
+        self.set_dashboard_label("hero_tun", self.shorten_text(tun_line, 26))
+
+        dns_summary, dns_full = self.format_dns_summary(summary.get("dns_line") or connection.get("dns_servers") or "—")
+        self.dashboard_dns_full_text = dns_full
+        if self.dashboard_dns_button is not None:
+            self.dashboard_dns_button.set_sensitive(dns_full != "—")
+            self.dashboard_dns_button.set_tooltip_text(dns_full)
+
+        self.set_metric_value(
+            "traffic",
+            (
+                f"RX: {traffic.get('rx_rate_label') or '—'} (Всего: {traffic.get('rx_total_label') or '—'})\n"
+                f"TX: {traffic.get('tx_rate_label') or '—'} (Всего: {traffic.get('tx_total_label') or '—'})"
+            ),
+        )
+        self.set_metric_value(
+            "interface",
+            f"TUN: {tun_line}\nDNS: {dns_summary}",
         )
 
-        self.set_metric_value("uptime", self.format_connected_since(runtime.get("connected_since")))
-        self.set_metric_value("rx", self.combine_rate_and_total(traffic.get("rx_rate_label"), traffic.get("rx_total_label")))
-        self.set_metric_value("tx", self.combine_rate_and_total(traffic.get("tx_rate_label"), traffic.get("tx_total_label")))
-        tun_line = str(summary.get("tun_line") or connection.get("tun_interface") or "—")
-        self.set_metric_value("tun", tun_line)
-        self.set_metric_value("dns", str(summary.get("dns_line") or connection.get("dns_servers") or "—"))
+        self.refresh_dashboard_badges(
+            tun_interface=str(connection.get("tun_interface") or processes.get("tun_interface") or "tun0"),
+            tun_present=bool(processes.get("tun_present")),
+            file_logs_enabled=bool(settings.get("file_logs_enabled")),
+            routing=routing,
+        )
+        self.update_dashboard_conflict_bar(runtime)
 
         last_action_message = str(last_action.get("message") or "Действий ещё не было.")
         if last_action.get("timestamp"):
             last_action_message = f"{last_action.get('timestamp')} · {last_action_message}"
+
+        self.set_metric_value("uptime", self.format_connected_since(runtime.get("connected_since")))
+        self.set_metric_value("rx", self.combine_rate_and_total(traffic.get("rx_rate_label"), traffic.get("rx_total_label")))
+        self.set_metric_value("tx", self.combine_rate_and_total(traffic.get("tx_rate_label"), traffic.get("tx_total_label")))
+        self.set_metric_value("tun", tun_line)
+        self.set_metric_value("dns", dns_full)
 
         latest_diagnostic = str(artifacts.get("latest_diagnostic") or "Диагностические дампы ещё не снимались.")
         self.update_diagnostics_from_status(
@@ -2469,10 +2609,16 @@ class NativeShellApp:
 
         diagnostic_status = self.user_facing_runtime_state_label(summary, runtime)
         if runtime.get("start_blocked"):
-            diagnostic_status = f"{diagnostic_status}\n{self.concise_runtime_block_message(runtime, for_action_hint=True)}"
+            diagnostic_status = (
+                f"{diagnostic_status}\n"
+                f"{self.concise_runtime_block_message(runtime, for_action_hint=True)}\n"
+                f"Путь активного экземпляра: {state_root}"
+            )
         else:
             diagnostic_status = f"{diagnostic_status}\n{str(summary.get('description') or 'Подключение работает в штатном режиме.')}"
         self.set_diagnostic_label("diagnostic_status", diagnostic_status)
+        if self.diagnostic_takeover_button is not None:
+            self.diagnostic_takeover_button.set_sensitive(ownership == "foreign")
 
         if ownership == "foreign":
             diagnostic_instance = (
@@ -2504,14 +2650,18 @@ class NativeShellApp:
             routing_text = f"Маршрутизация: ошибка ({routing.get('runtime_error') or 'служебный режим не готов'})"
         self.set_diagnostic_label(
             "diagnostic_connection",
-            f"{transport}\nАдрес узла: {remote_endpoint}\nSNI: {remote_sni}\n{routing_text}",
+            f"Протокол: {transport}\nАдрес: {remote_endpoint}\nSNI: {remote_sni}\n{routing_text}",
         )
 
         config_origin = self.user_facing_config_origin_label(runtime.get("config_origin"))
-        config_value = f"{config_origin}\n{runtime.get('active_xray_config') or '—'}"
+        config_value = runtime.get("active_xray_config") or artifacts.get("generated_xray_config") or "—"
         self.set_diagnostic_label(
             "diagnostic_files",
-            f"Рабочий конфиг:\n{config_value}\n\nПоследний дамп:\n{latest_diagnostic}",
+            (
+                f"Конфиг ({config_origin}): {config_value}\n"
+                f"State-файл: {artifacts.get('state_file') or '—'}\n"
+                f"Последний дамп: {latest_diagnostic}"
+            ),
         )
 
         last_action_message = str(last_action.get("message") or "Действий ещё не было.")
@@ -2537,12 +2687,6 @@ class NativeShellApp:
             return
         label.set_label(value)
 
-    def set_shell_status_label(self, key: str, value: str) -> None:
-        label = getattr(self, "shell_status_labels", {}).get(key)
-        if label is None:
-            return
-        label.set_label(value)
-
     def combine_rate_and_total(self, rate_label: object, total_label: object) -> str:
         rate = str(rate_label or "—")
         total = str(total_label or "—")
@@ -2559,7 +2703,14 @@ class NativeShellApp:
         except ValueError:
             return raw
 
-    def refresh_dashboard_badges(self, badges: object, summary_state: str) -> None:
+    def refresh_dashboard_badges(
+        self,
+        *,
+        tun_interface: str,
+        tun_present: bool,
+        file_logs_enabled: bool,
+        routing: dict[str, Any],
+    ) -> None:
         if self.dashboard_badge_box is None:
             return
         child = self.dashboard_badge_box.get_first_child()
@@ -2568,17 +2719,22 @@ class NativeShellApp:
             self.dashboard_badge_box.remove(child)
             child = next_child
 
-        state_class = {
-            "running": "native-shell-badge-running",
-            "degraded": "native-shell-badge-degraded",
-            "stopped": "native-shell-badge-stopped",
-        }.get(summary_state, "native-shell-badge-stopped")
-        for index, badge_text in enumerate(badges if isinstance(badges, list) else []):
-            badge = self.Gtk.Label(label=str(badge_text), xalign=0)
-            add_css_class(badge, "native-shell-badge")
-            if index == 0:
-                add_css_class(badge, state_class)
-            self.dashboard_badge_box.append(badge)
+        routing_enabled = bool(routing.get("enabled") and routing.get("runtime_ready"))
+        routing_profile = routing.get("active_profile", {}) or {}
+        routing_name = str(routing_profile.get("name") or "").strip()
+        routing_label = f"✔ маршрут {routing_name}" if routing_enabled and routing_name else "✔ маршрут"
+        routing_tone = "success"
+        if not routing_enabled:
+            routing_label = f"✘ маршрут {routing_name}" if routing_name else "✘ маршрут"
+            routing_tone = "danger" if routing.get("enabled") else "warning"
+
+        badge_specs = (
+            (f"✔ {tun_interface} найден" if tun_present else f"✘ {tun_interface} не найден", "success" if tun_present else "danger"),
+            ("✔ логирование" if file_logs_enabled else "✘ логирование", "success" if file_logs_enabled else "warning"),
+            (routing_label, routing_tone),
+        )
+        for label, tone in badge_specs:
+            self.dashboard_badge_box.append(self.make_badge(label, tone))
 
     def refresh_dashboard_controls(self) -> None:
         is_busy = getattr(self, "action_in_flight", None) is not None

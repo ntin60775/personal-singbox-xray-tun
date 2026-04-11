@@ -108,6 +108,12 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_action_buttons = {}
         app.dashboard_primary_action_id = None
         app.dashboard_badge_box = None
+        app.dashboard_conflict_bar = None
+        app.dashboard_conflict_label = None
+        app.dashboard_takeover_button = None
+        app.diagnostic_takeover_button = None
+        app.dashboard_dns_button = None
+        app.dashboard_dns_full_text = "—"
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
@@ -272,8 +278,10 @@ class NativeShellAppTests(unittest.TestCase):
         app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
         app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
         app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
-        app.refresh_dashboard_badges = lambda badges, state: captured.__setitem__("badges", f"{state}:{len(badges)}")
+        app.refresh_dashboard_badges = lambda **kwargs: captured.__setitem__("badges", str(kwargs))
         app.refresh_dashboard_controls = lambda: None
+        app.update_dashboard_conflict_bar = lambda runtime: captured.__setitem__("conflict", str(runtime.get("ownership")))
+        app.update_dashboard_state_icon = lambda summary, runtime: captured.__setitem__("state_icon", str(summary.get("state")))
 
         app.update_dashboard_from_status(
             {
@@ -313,7 +321,7 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(captured["hero_state"], "Подключением управляет другой экземпляр")
         self.assertEqual(captured["hero_detail"], "Это окно не управляет чужим подключением.")
-        self.assertEqual(captured["hero_active"], "Выбранный узел: Node · VLESS")
+        self.assertEqual(captured["hero_active"], "Node · VLESS")
         self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
         self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
 
