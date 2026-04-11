@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from embedded_webview import ensure_graphical_session
 from native_shell_shared import (
@@ -71,8 +72,8 @@ CONTROL_INTROSPECTION_XML = f"""
   </interface>
 </node>
 """.strip()
-DEFAULT_WINDOW_WIDTH = 1180
-DEFAULT_WINDOW_HEIGHT = 820
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 960
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -102,7 +103,7 @@ window {
 
 .native-shell-root {
   color: @text_primary;
-  padding: 16px;
+  padding: 14px;
   background:
     radial-gradient(circle at top left, rgba(255, 99, 99, 0.12), transparent 28%),
     linear-gradient(180deg, rgba(21, 24, 33, 0.96), rgba(16, 18, 24, 0.98));
@@ -110,10 +111,10 @@ window {
 
 .native-shell-panel {
   background: rgba(27, 31, 42, 0.92);
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid rgba(58, 66, 86, 0.72);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
-  padding: 16px;
+  padding: 14px;
 }
 
 .native-shell-muted {
@@ -127,19 +128,19 @@ window {
 
 .native-shell-page-title {
   color: @text_primary;
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .native-shell-card-title {
   color: @text_primary;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .native-shell-card-subtitle {
   color: @text_secondary;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .native-shell-hero {
@@ -148,15 +149,37 @@ window {
     radial-gradient(circle at top right, rgba(255, 99, 99, 0.16), transparent 38%);
 }
 
+.native-shell-statusbar {
+  padding: 12px 14px;
+}
+
+.native-shell-statusline {
+  color: @text_primary;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.native-shell-statusline-meta {
+  color: @text_secondary;
+  font-size: 13px;
+}
+
+.native-shell-status-pill {
+  background: rgba(34, 39, 53, 0.82);
+  border-radius: 999px;
+  border: 1px solid rgba(58, 66, 86, 0.68);
+  padding: 7px 12px;
+}
+
 .native-shell-value {
   color: @text_primary;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .native-shell-value-large {
   color: @text_primary;
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 700;
 }
 
@@ -195,12 +218,12 @@ window {
   background: rgba(34, 39, 53, 0.82);
   border-radius: 14px;
   border: 1px solid rgba(58, 66, 86, 0.72);
-  padding: 12px;
+  padding: 10px;
 }
 
 button {
-  border-radius: 12px;
-  padding: 10px 14px;
+  border-radius: 10px;
+  padding: 8px 12px;
 }
 
 button.native-shell-button-primary {
@@ -246,6 +269,28 @@ textview.native-shell-input {
   border-spacing: 8px 0;
 }
 
+button.native-shell-nav-button,
+button.native-shell-icon-button {
+  background-image: none;
+  background-color: rgba(34, 39, 53, 0.72);
+  border-color: rgba(58, 66, 86, 0.82);
+  color: @text_primary;
+}
+
+button.native-shell-nav-button {
+  padding: 10px 14px;
+}
+
+button.native-shell-nav-button-active {
+  background-color: rgba(255, 99, 99, 0.18);
+  border-color: rgba(255, 99, 99, 0.44);
+}
+
+button.native-shell-icon-button {
+  min-width: 0;
+  padding: 6px 8px;
+}
+
 .native-shell-page-scroll,
 .native-shell-log-scroller {
   background: transparent;
@@ -263,22 +308,6 @@ textview.native-shell-input {
   padding: 8px;
 }
 
-stacksidebar.native-shell-sidebar row {
-  min-height: 0;
-  margin-bottom: 6px;
-  border-radius: 12px;
-  background: rgba(34, 39, 53, 0.54);
-}
-
-stacksidebar.native-shell-sidebar row:selected,
-stacksidebar.native-shell-sidebar row:hover {
-  background: rgba(255, 99, 99, 0.18);
-}
-
-stacksidebar.native-shell-sidebar label {
-  color: @text_primary;
-}
-
 .native-shell-listbox {
   background: transparent;
 }
@@ -287,7 +316,7 @@ stacksidebar.native-shell-sidebar label {
   background: rgba(34, 39, 53, 0.58);
   border-radius: 14px;
   border: 1px solid rgba(58, 66, 86, 0.6);
-  padding: 14px;
+  padding: 10px;
 }
 
 .native-shell-list-row:selected {
@@ -297,18 +326,18 @@ stacksidebar.native-shell-sidebar label {
 
 .native-shell-row-title {
   color: @text_primary;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .native-shell-row-meta {
   color: @text_secondary;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .native-shell-row-copy {
   color: @text_muted;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .native-shell-chip-success {
@@ -461,7 +490,10 @@ class NativeShellApp:
         self.window = None
         self.settings_window = None
         self.stack = None
+        self.sidebar = None
+        self.sidebar_buttons: dict[str, object] = {}
         self.status_label = None
+        self.shell_status_labels: dict[str, object] = {}
         self.log_buffer = None
         self.log_summary_label = None
         self.log_meta_label = None
@@ -616,12 +648,14 @@ class NativeShellApp:
             self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-        root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         root.set_vexpand(True)
         add_css_class(root, "native-shell-root")
         header = self.build_header_bar()
         stack = self.build_stack()
+        statusbar = self.build_shell_status_bar()
 
+        root.append(statusbar)
         root.append(stack)
         window.set_titlebar(header)
         window.set_child(root)
@@ -631,13 +665,10 @@ class NativeShellApp:
         header = self.Gtk.HeaderBar()
         header.set_show_title_buttons(True)
 
-        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=2)
+        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
         title_label = self.Gtk.Label(label="Subvost Xray TUN", xalign=0)
         add_css_class(title_label, "native-shell-card-title")
-        subtitle_label = self.Gtk.Label(label="Нативная GTK4-оболочка для управления подключением", xalign=0)
-        add_css_class(subtitle_label, "native-shell-muted")
         title_box.append(title_label)
-        title_box.append(subtitle_label)
         header.set_title_widget(title_box)
 
         settings_button = self.Gtk.Button(label="Настройки")
@@ -645,33 +676,48 @@ class NativeShellApp:
         header.pack_end(settings_button)
         return header
 
-    def build_dashboard_status_panel(self):
+    def build_shell_status_bar(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
         add_css_class(panel, "native-shell-panel")
+        add_css_class(panel, "native-shell-statusbar")
 
-        title_label = self.Gtk.Label(label="Статус интерфейса", xalign=0)
-        add_css_class(title_label, "native-shell-card-title")
+        top_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        top_row.set_hexpand(True)
+
+        state_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=3)
+        state_box.set_hexpand(True)
+        state_label = self.Gtk.Label(label="Состояние подключения обновляется…", xalign=0)
+        add_css_class(state_label, "native-shell-statusline")
+        target_label = self.Gtk.Label(label="Выбранный узел: —", xalign=0)
+        add_css_class(target_label, "native-shell-statusline-meta")
+        state_box.append(state_label)
+        state_box.append(target_label)
+
+        traffic_label = self.Gtk.Label(label="↓ — ↑ —", xalign=0)
+        add_css_class(traffic_label, "native-shell-status-pill")
+        tun_label = self.Gtk.Label(label="TUN: —", xalign=0)
+        add_css_class(tun_label, "native-shell-status-pill")
+
+        top_row.append(state_box)
+        top_row.append(traffic_label)
+        top_row.append(tun_label)
 
         self.status_label = self.Gtk.Label(xalign=0)
         self.status_label.set_wrap(True)
         add_css_class(self.status_label, "native-shell-status")
-        self.set_status("Считываю текущее состояние подключения и подготавливаю главный экран.")
+        self.set_status("Считываю текущее состояние подключения и подготавливаю компактный shell.")
 
-        tray_note = self.Gtk.Label(
-            label=f"Трей: {self.tray_support.reason}",
-            xalign=0,
-        )
-        tray_note.set_wrap(True)
-        add_css_class(tray_note, "native-shell-card-subtitle")
-        self.dashboard_labels["tray_note"] = tray_note
+        self.dashboard_labels["hero_state"] = state_label
+        self.dashboard_labels["hero_active"] = target_label
+        self.shell_status_labels["traffic"] = traffic_label
+        self.shell_status_labels["tun"] = tun_label
 
-        panel.append(title_label)
+        panel.append(top_row)
         panel.append(self.status_label)
-        panel.append(tray_note)
         return panel
 
     def build_stack(self):
-        outer = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=16)
+        outer = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         outer.set_vexpand(True)
         add_css_class(outer, "native-shell-panel")
 
@@ -681,33 +727,51 @@ class NativeShellApp:
         stack.set_transition_type(self.Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self.stack = stack
 
-        sidebar = self.Gtk.StackSidebar()
-        sidebar.set_stack(stack)
-        sidebar.set_size_request(184, -1)
-        add_css_class(sidebar, "native-shell-sidebar")
+        sidebar = self.build_sidebar()
+        self.sidebar = sidebar
         outer.append(sidebar)
 
         for page in NATIVE_SHELL_PAGES:
             stack.add_titled(self.build_page(page), page.page_id, page.title)
 
         outer.append(stack)
+        self.update_sidebar_selection("dashboard")
         return outer
 
+    def build_sidebar(self):
+        sidebar = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        sidebar.set_size_request(208, -1)
+        add_css_class(sidebar, "native-shell-sidebar")
+        for page in NATIVE_SHELL_PAGES:
+            sidebar.append(self.build_sidebar_button(page))
+        return sidebar
+
+    def build_sidebar_button(self, page):
+        button = self.Gtk.Button()
+        add_css_class(button, "native-shell-nav-button")
+        button.connect("clicked", lambda *_args, page_id=page.page_id: self.show_page(page_id))
+
+        content = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        icon = self.Gtk.Image()
+        if hasattr(icon, "set_from_icon_name"):
+            icon.set_from_icon_name(page.icon_name)
+        elif hasattr(icon, "set_icon_name"):
+            icon.set_icon_name(page.icon_name)
+        label = self.Gtk.Label(label=page.title, xalign=0)
+        content.append(icon)
+        content.append(label)
+        button.set_child(content)
+        button.set_tooltip_text(page.description)
+
+        self.sidebar_buttons[page.page_id] = button
+        return button
+
     def build_page(self, page):
-        page_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
-        page_box.set_margin_top(6)
-        page_box.set_margin_bottom(6)
-        page_box.set_margin_start(6)
-        page_box.set_margin_end(6)
-
-        title_label = self.Gtk.Label(label=page.title, xalign=0)
-        add_css_class(title_label, "native-shell-page-title")
-        text_label = self.Gtk.Label(label=page.description, xalign=0)
-        text_label.set_wrap(True)
-        add_css_class(text_label, "native-shell-muted")
-
-        page_box.append(title_label)
-        page_box.append(text_label)
+        page_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        page_box.set_margin_top(4)
+        page_box.set_margin_bottom(4)
+        page_box.set_margin_start(4)
+        page_box.set_margin_end(4)
         if page.page_id == "dashboard":
             page_box.append(self.build_dashboard_page())
         elif page.page_id == "subscriptions":
@@ -724,40 +788,16 @@ class NativeShellApp:
 
     def build_dashboard_page(self):
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        container.append(self.build_dashboard_status_panel())
-
-        hero = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
-        add_css_class(hero, "native-shell-panel")
-        add_css_class(hero, "native-shell-hero")
-        hero_title = self.Gtk.Label(label="Подключение", xalign=0)
-        add_css_class(hero_title, "native-shell-card-title")
-        hero_state = self.Gtk.Label(label="Обновляю состояние…", xalign=0)
-        add_css_class(hero_state, "native-shell-value-large")
-        hero_detail = self.Gtk.Label(
-            label="Состояние подключения, выбранный узел и ключевые действия без перехода на другие вкладки.",
-            xalign=0,
-        )
-        hero_detail.set_wrap(True)
-        add_css_class(hero_detail, "native-shell-muted")
-        hero_active = self.Gtk.Label(label="Активный узел: —", xalign=0)
-        add_css_class(hero_active, "native-shell-card-subtitle")
-        badge_box = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-        hero.append(hero_title)
-        hero.append(hero_state)
-        hero.append(hero_detail)
-        hero.append(hero_active)
-        hero.append(badge_box)
-
-        self.dashboard_labels["hero_state"] = hero_state
-        self.dashboard_labels["hero_detail"] = hero_detail
-        self.dashboard_labels["hero_active"] = hero_active
-        self.dashboard_badge_box = badge_box
-
-        split = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        split.append(self.build_dashboard_action_panel())
-        split.append(self.build_dashboard_metrics_panel())
-
-        container.append(hero)
+        split = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
+        split.set_hexpand(True)
+        action_panel = self.build_dashboard_action_panel()
+        action_panel.set_size_request(0, -1)
+        action_panel.set_hexpand(True)
+        metrics_panel = self.build_dashboard_metrics_panel()
+        metrics_panel.set_size_request(420, -1)
+        metrics_panel.set_hexpand(True)
+        split.append(action_panel)
+        split.append(metrics_panel)
         container.append(split)
         return container
 
@@ -765,15 +805,22 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Быстрое действие", xalign=0)
+        title = self.Gtk.Label(label="Подключение", xalign=0)
         add_css_class(title, "native-shell-card-title")
 
         summary = self.Gtk.Label(
-            label="Если узел уже выбран, подключение можно запустить сразу из этого экрана.",
+            label="Главное действие доступно сразу: запуск, остановка или переход к выбору узла.",
             xalign=0,
         )
         summary.set_wrap(True)
         add_css_class(summary, "native-shell-card-subtitle")
+
+        detail = self.Gtk.Label(
+            label="Сводка подключения и служебные детали вынесены в компактные секции ниже.",
+            xalign=0,
+        )
+        detail.set_wrap(True)
+        add_css_class(detail, "native-shell-muted")
 
         primary_button = self.Gtk.Button(label="Подключиться к выбранному узлу")
         add_css_class(primary_button, "native-shell-button-primary")
@@ -782,45 +829,41 @@ class NativeShellApp:
 
         action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
 
-        nodes_button = self.Gtk.Button(label="Открыть узлы")
+        nodes_button = self.Gtk.Button(label="Узлы")
         add_css_class(nodes_button, "native-shell-button-secondary")
         nodes_button.connect("clicked", lambda *_args: self.show_page("subscriptions"))
         self.dashboard_action_buttons["open-subscriptions"] = nodes_button
 
-        capture_button = self.Gtk.Button(label="Снять диагностику")
-        add_css_class(capture_button, "native-shell-button-secondary")
-        capture_button.connect("clicked", self.on_stub_button_clicked, "capture-diagnostics")
-        self.dashboard_action_buttons["capture-diagnostics"] = capture_button
-
-        diagnostics_button = self.Gtk.Button(label="Открыть диагностику")
+        diagnostics_button = self.Gtk.Button(label="Диагностика")
         add_css_class(diagnostics_button, "native-shell-button-secondary")
         diagnostics_button.connect("clicked", lambda *_args: self.show_page("log"))
         self.dashboard_action_buttons["open-diagnostics"] = diagnostics_button
 
         action_row.append(nodes_button)
-        action_row.append(capture_button)
         action_row.append(diagnostics_button)
 
         hint = self.Gtk.Label(
-            label="Запрос прав появится только при запуске, остановке или снятии диагностики.",
+            label="Запрос прав появится только при запуске, остановке подключения или снятии дампа в диагностике.",
             xalign=0,
         )
         hint.set_wrap(True)
         add_css_class(hint, "native-shell-card-subtitle")
         panel.append(title)
         panel.append(summary)
+        panel.append(detail)
         panel.append(primary_button)
         panel.append(action_row)
         panel.append(hint)
         self.dashboard_labels["action_summary"] = summary
+        self.dashboard_labels["hero_detail"] = detail
         self.dashboard_labels["action_hint"] = hint
         return panel
 
     def build_dashboard_metrics_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         panel.set_hexpand(True)
         add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Сводка", xalign=0)
+        title = self.Gtk.Label(label="Трафик и служебные признаки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
 
@@ -835,8 +878,17 @@ class NativeShellApp:
             card = self.build_metric_card(title_text, key)
             grid.attach(card, index % 2, index // 2, 1, 1)
 
+        tray_note = self.Gtk.Label(
+            label=f"Трей: {self.tray_support.reason}",
+            xalign=0,
+        )
+        tray_note.set_wrap(True)
+        add_css_class(tray_note, "native-shell-card-subtitle")
+        self.dashboard_labels["tray_note"] = tray_note
+
         panel.append(title)
         panel.append(grid)
+        panel.append(tray_note)
         return panel
 
     def build_metric_card(self, title_text: str, key: str):
@@ -853,17 +905,28 @@ class NativeShellApp:
         return card
 
     def build_diagnostics_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        add_css_class(panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Диагностика подключения", xalign=0)
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+        head.set_hexpand(True)
+        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
+        title = self.Gtk.Label(label="Сводка подключения", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Здесь собраны детали конфликта экземпляров, служебные файлы подключения и последнее действие.",
+            label="Только ключевые параметры, конфликт экземпляров, файлы и последнее действие.",
             xalign=0,
         )
         summary.set_wrap(True)
         add_css_class(summary, "native-shell-muted")
-        grid = self.Gtk.Grid(column_spacing=12, row_spacing=12)
+        title_box.append(title)
+        title_box.append(summary)
+
+        capture_button = self.Gtk.Button(label="Снять дамп")
+        add_css_class(capture_button, "native-shell-button-secondary")
+        capture_button.connect("clicked", self.on_stub_button_clicked, "capture-diagnostics")
+        self.dashboard_action_buttons["capture-diagnostics"] = capture_button
+
+        head.append(title_box)
+        head.append(capture_button)
 
         detail_specs = (
             ("diagnostic_status", "Состояние"),
@@ -872,22 +935,19 @@ class NativeShellApp:
             ("diagnostic_files", "Файлы и дампы"),
             ("diagnostic_last_action", "Последнее действие"),
         )
+        panel.append(head)
         for index, (key, title_text) in enumerate(detail_specs):
-            card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
-            add_css_class(card, "native-shell-metric-card")
-            label = self.Gtk.Label(label=title_text, xalign=0)
-            add_css_class(label, "native-shell-card-subtitle")
+            expander = self.Gtk.Expander(label=title_text)
+            expander.set_expanded(index == 0)
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
+            content.set_margin_top(6)
             value = self.Gtk.Label(label="—", xalign=0)
             value.set_wrap(True)
             add_css_class(value, "native-shell-value-muted")
-            card.append(label)
-            card.append(value)
+            content.append(value)
+            expander.set_child(content)
             self.diagnostic_labels[key] = value
-            grid.attach(card, index % 2, index // 2, 1, 1)
-
-        panel.append(title)
-        panel.append(summary)
-        panel.append(grid)
+            panel.append(expander)
         return panel
 
     def build_subscriptions_page(self):
@@ -898,7 +958,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="Узлы и подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Добавьте URL-подписку, обновите сохранённые списки или выберите узел для следующего подключения.",
+            label="Компактный экран выбора: подписки сверху, узлы ниже, маршрутизация свёрнута до отдельной секции.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -935,8 +995,10 @@ class NativeShellApp:
         body = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         body.set_vexpand(True)
         add_css_class(body, "native-shell-subscriptions-root")
-        body.append(self.build_subscription_list_panel())
-        right_column = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        subscriptions_panel = self.build_subscription_list_panel()
+        subscriptions_panel.set_size_request(380, -1)
+        body.append(subscriptions_panel)
+        right_column = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         right_column.set_hexpand(True)
         right_column.set_vexpand(True)
         add_css_class(right_column, "native-shell-subscriptions-right")
@@ -948,15 +1010,14 @@ class NativeShellApp:
 
     def build_subscription_list_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        panel.set_size_request(280, -1)
-        panel.set_hexpand(False)
+        panel.set_hexpand(True)
         panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
 
-        title = self.Gtk.Label(label="URL-подписки", xalign=0)
+        title = self.Gtk.Label(label="Подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         copy_label = self.Gtk.Label(
-            label="Слева выбирается источник узлов, справа доступны сами узлы и правила маршрутизации.",
+            label="Выберите источник узлов. Длинные URL сокращаются, полное значение доступно во всплывающей подсказке.",
             xalign=0,
         )
         copy_label.set_wrap(True)
@@ -984,7 +1045,7 @@ class NativeShellApp:
         head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         head.set_hexpand(True)
         title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
-        title = self.Gtk.Label(label="Узлы", xalign=0)
+        title = self.Gtk.Label(label="Узлы выбранной подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         badge = self.Gtk.Label(label="Нет подписки", xalign=0)
         add_css_class(badge, "native-shell-badge")
@@ -992,7 +1053,7 @@ class NativeShellApp:
         title_box.append(title)
         title_box.append(badge)
         copy_label = self.Gtk.Label(
-            label="Выберите подписку слева, чтобы загрузить доступные узлы.",
+            label="Клик по строке делает узел активным для следующего запуска, а `Пинг` проверяет доступность без смены выбора.",
             xalign=0,
         )
         copy_label.set_wrap(True)
@@ -1015,13 +1076,19 @@ class NativeShellApp:
         return panel
 
     def build_routing_panel(self):
-        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         panel.set_hexpand(True)
-        panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
 
         title = self.Gtk.Label(label="Маршрутизация", xalign=0)
         add_css_class(title, "native-shell-card-title")
+        expander = self.Gtk.Expander()
+        expander.set_expanded(False)
+        expander_title = self.Gtk.Label(label="Маршрутизация: профиль не выбран", xalign=0)
+        add_css_class(expander_title, "native-shell-card-subtitle")
+        expander.set_label_widget(expander_title)
+
+        body = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         badge = self.Gtk.Label(label="Нет профиля", xalign=0)
         add_css_class(badge, "native-shell-badge")
         add_css_class(badge, "native-shell-chip-warning")
@@ -1032,13 +1099,14 @@ class NativeShellApp:
         geodata_line.set_wrap(True)
         add_css_class(geodata_line, "native-shell-card-subtitle")
         self.subscription_labels["routing_badge"] = badge
+        self.subscription_labels["routing_expander_title"] = expander_title
         self.subscription_labels["routing_status"] = status_line
         self.subscription_labels["routing_geodata"] = geodata_line
 
         import_view = self.Gtk.TextView()
         import_view.set_wrap_mode(self.Gtk.WrapMode.WORD_CHAR)
         import_view.set_vexpand(False)
-        import_view.set_size_request(-1, 110)
+        import_view.set_size_request(-1, 88)
         add_css_class(import_view, "native-shell-input")
         self.routing_import_buffer = import_view.get_buffer()
         import_scroller = self.Gtk.ScrolledWindow()
@@ -1070,13 +1138,16 @@ class NativeShellApp:
         add_css_class(list_box, "native-shell-listbox")
         self.routing_profile_list_box = list_box
 
+        body.append(badge)
+        body.append(status_line)
+        body.append(geodata_line)
+        body.append(import_scroller)
+        body.append(action_row)
+        body.append(self.build_list_scroller(list_box))
+        expander.set_child(body)
+
         panel.append(title)
-        panel.append(badge)
-        panel.append(status_line)
-        panel.append(geodata_line)
-        panel.append(import_scroller)
-        panel.append(action_row)
-        panel.append(self.build_list_scroller(list_box))
+        panel.append(expander)
         return panel
 
     def build_list_scroller(self, child):
@@ -1104,6 +1175,83 @@ class NativeShellApp:
         widget.set_wrap(True)
         add_css_class(widget, css_class)
         return widget
+
+    def shorten_text(self, value: object, limit: int = 56) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return f"{text[: max(0, limit - 1)].rstrip()}…"
+
+    def make_trimmed_row_text(self, label: object, css_class: str, *, limit: int = 56):
+        raw = str(label or "").strip()
+        widget = self.make_row_text(self.shorten_text(raw, limit), css_class)
+        if raw and widget.get_label() != raw:
+            widget.set_tooltip_text(raw)
+        return widget
+
+    def subscription_display_name(self, subscription: dict[str, Any]) -> str:
+        name = str(subscription.get("name") or "").strip()
+        url = str(subscription.get("url") or "").strip()
+        parsed = urlparse(url) if url else None
+        host = ""
+        if parsed is not None:
+            host = parsed.netloc or parsed.path.split("/")[0]
+        return host or name or "Без имени"
+
+    def build_icon_button(self, icon_name: str, tooltip: str, *, label: str | None = None, variant: str = "secondary"):
+        button = self.Gtk.Button(label=label) if label else self.Gtk.Button()
+        add_css_class(button, f"native-shell-button-{variant}")
+        if label is None:
+            add_css_class(button, "native-shell-icon-button")
+            if hasattr(button, "set_icon_name"):
+                button.set_icon_name(icon_name)
+            else:
+                image = self.Gtk.Image()
+                if hasattr(image, "set_from_icon_name"):
+                    image.set_from_icon_name(icon_name)
+                elif hasattr(image, "set_icon_name"):
+                    image.set_icon_name(icon_name)
+                button.set_child(image)
+        button.set_tooltip_text(tooltip)
+        return button
+
+    def build_subscription_menu_button(self, subscription: dict[str, Any], subscription_id: str):
+        menu_button = self.Gtk.MenuButton()
+        add_css_class(menu_button, "native-shell-button-secondary")
+        add_css_class(menu_button, "native-shell-icon-button")
+        menu_button.set_tooltip_text("Дополнительные действия для подписки.")
+        if hasattr(menu_button, "set_icon_name"):
+            menu_button.set_icon_name("open-menu-symbolic")
+
+        popover = self.Gtk.Popover()
+        popover_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=6)
+        popover_box.set_margin_top(8)
+        popover_box.set_margin_bottom(8)
+        popover_box.set_margin_start(8)
+        popover_box.set_margin_end(8)
+
+        toggle_button = self.Gtk.Button(label="Выключить" if subscription.get("enabled", True) else "Включить")
+        add_css_class(toggle_button, "native-shell-button-secondary")
+        toggle_button.set_sensitive(self.action_in_flight is None)
+        toggle_button.connect(
+            "clicked",
+            self.on_subscription_action_clicked,
+            "subscription-toggle",
+            subscription_id,
+            not bool(subscription.get("enabled", True)),
+        )
+
+        delete_button = self.Gtk.Button(label="Удалить")
+        add_css_class(delete_button, "native-shell-button-danger")
+        delete_button.set_sensitive(self.action_in_flight is None)
+        delete_button.connect("clicked", self.on_subscription_action_clicked, "subscription-delete", subscription_id, None)
+
+        popover_box.append(toggle_button)
+        popover_box.append(delete_button)
+        popover.set_child(popover_box)
+        menu_button.set_popover(popover)
+        menu_button.set_sensitive(self.action_in_flight is None)
+        return menu_button
 
     def build_subscriptions_empty_row(self, message: str):
         row = self.Gtk.ListBoxRow()
@@ -1173,15 +1321,15 @@ class NativeShellApp:
             row.set_selectable(True)
             row.set_activatable(True)
 
-            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
             add_css_class(content, "native-shell-list-row")
 
-            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
             header.set_hexpand(True)
             title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
             title_box.set_hexpand(True)
-            title_box.append(self.make_row_text(str(subscription.get("name") or "Без имени"), "native-shell-row-title"))
-            title_box.append(self.make_row_text(str(subscription.get("url") or "—"), "native-shell-row-meta"))
+            title_box.append(self.make_trimmed_row_text(self.subscription_display_name(subscription), "native-shell-row-title", limit=38))
+            title_box.append(self.make_trimmed_row_text(str(subscription.get("url") or "—"), "native-shell-row-meta", limit=64))
 
             status_tone = "success"
             status_label = "актуальна"
@@ -1191,38 +1339,17 @@ class NativeShellApp:
             elif subscription.get("last_status") != "ok":
                 status_tone = "warning"
                 status_label = "ожидает обновления"
-            enabled_label = "включена" if subscription.get("enabled", True) else "выключена"
-            enabled_tone = "accent" if subscription.get("enabled", True) else "danger"
             node_count = len(profile.get("nodes", [])) if isinstance(profile, dict) else 0
             badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
             badge_row.append(self.make_badge(status_label, status_tone))
             badge_row.append(self.make_badge(f"узлов {node_count}", "accent"))
-            badge_row.append(self.make_badge(enabled_label, enabled_tone))
 
             action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-            refresh_button = self.Gtk.Button(label="Обновить")
-            add_css_class(refresh_button, "native-shell-button-secondary")
+            refresh_button = self.build_icon_button("view-refresh-symbolic", "Обновить подписку.")
             refresh_button.set_sensitive(self.action_in_flight is None)
             refresh_button.connect("clicked", self.on_subscription_action_clicked, "subscription-refresh", row.subscription_id, None)
             action_row.append(refresh_button)
-
-            toggle_button = self.Gtk.Button(label="Выключить" if subscription.get("enabled", True) else "Включить")
-            add_css_class(toggle_button, "native-shell-button-secondary")
-            toggle_button.set_sensitive(self.action_in_flight is None)
-            toggle_button.connect(
-                "clicked",
-                self.on_subscription_action_clicked,
-                "subscription-toggle",
-                row.subscription_id,
-                not bool(subscription.get("enabled", True)),
-            )
-            action_row.append(toggle_button)
-
-            delete_button = self.Gtk.Button(label="Удалить")
-            add_css_class(delete_button, "native-shell-button-danger")
-            delete_button.set_sensitive(self.action_in_flight is None)
-            delete_button.connect("clicked", self.on_subscription_action_clicked, "subscription-delete", row.subscription_id, None)
-            action_row.append(delete_button)
+            action_row.append(self.build_subscription_menu_button(subscription, row.subscription_id))
 
             header.append(title_box)
             header.append(badge_row)
@@ -1237,7 +1364,7 @@ class NativeShellApp:
                         "native-shell-row-copy",
                     )
                 )
-            content.append(action_row)
+            header.append(action_row)
             row.set_child(content)
             list_box.append(row)
 
@@ -1293,10 +1420,10 @@ class NativeShellApp:
             content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
             add_css_class(content, "native-shell-list-row")
 
-            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
+            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
             title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
             title_box.set_hexpand(True)
-            title_box.append(self.make_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title"))
+            title_box.append(self.make_trimmed_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title", limit=40))
             meta = [
                 str(node.get("protocol") or "—").upper(),
                 f"{node.get('normalized', {}).get('address', '—')}:{node.get('normalized', {}).get('port', '—')}",
@@ -1304,7 +1431,7 @@ class NativeShellApp:
             network = str(node.get("normalized", {}).get("network") or "").strip()
             if network:
                 meta.append(f"транспорт={network}")
-            title_box.append(self.make_row_text(" · ".join(meta), "native-shell-row-meta"))
+            title_box.append(self.make_trimmed_row_text(" · ".join(meta), "native-shell-row-meta", limit=68))
 
             badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
             if active_node_id and row.node_id == active_node_id:
@@ -1319,10 +1446,9 @@ class NativeShellApp:
             if ping:
                 badge_row.append(self.make_badge(str(ping.get("label") or "ping"), "success" if ping.get("ok") else "danger"))
             else:
-                badge_row.append(self.make_badge("ping не проверен", "warning"))
+                badge_row.append(self.make_badge("без ping", "warning"))
 
-            ping_button = self.Gtk.Button(label="Пинг")
-            add_css_class(ping_button, "native-shell-button-secondary")
+            ping_button = self.build_icon_button("network-wireless-symbolic", "Проверить доступность узла.")
             ping_button.set_sensitive(self.action_in_flight is None)
             ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, row.node_id)
             header.append(title_box)
@@ -1368,9 +1494,12 @@ class NativeShellApp:
                 if enabled and ready
                 else f"Выбран профиль '{active_routing_profile['name']}', правил {active_routing_profile.get('supported_entry_count', 0)}, режим {mode_label}."
             )
+            expander_title = f"Маршрутизация: {active_routing_profile['name']}"
         else:
             status_text = "Профиль маршрутизации ещё не выбран."
+            expander_title = "Маршрутизация: отключена"
         self.set_subscription_label("routing_status", status_text)
+        self.set_subscription_label("routing_expander_title", expander_title)
 
         geodata_text = "Наборы GeoIP и GeoSite пока не подготовлены."
         if geodata.get("ready"):
@@ -1561,34 +1690,57 @@ class NativeShellApp:
                 button.set_sensitive(not busy)
 
     def build_log_page(self):
-        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         add_css_class(container, "native-shell-panel")
 
-        title = self.Gtk.Label(label="Диагностика и журнал", xalign=0)
+        title = self.Gtk.Label(label="Диагностика", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Конфликт экземпляров, служебные файлы подключения и журнал действий этого окна.",
+            label="Сводка подключения отделена от журнала, чтобы технические детали не забивали весь экран.",
             xalign=0,
         )
         summary.set_wrap(True)
         add_css_class(summary, "native-shell-muted")
-        self.log_summary_label = summary
+        container.append(title)
+        container.append(summary)
 
-        meta = self.Gtk.Label(
+        view_stack = self.Gtk.Stack()
+        view_stack.set_hexpand(True)
+        view_stack.set_vexpand(True)
+        view_stack.set_transition_type(self.Gtk.StackTransitionType.CROSSFADE)
+        switcher = self.Gtk.StackSwitcher()
+        switcher.set_stack(view_stack)
+
+        view_stack.add_titled(self.build_diagnostics_panel(), "diagnostic-summary", "Сводка")
+        view_stack.add_titled(self.build_log_journal_panel(), "diagnostic-log", "Журнал")
+
+        container.append(switcher)
+        container.append(view_stack)
+        return container
+
+    def build_log_journal_panel(self):
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+
+        self.log_summary_label = self.Gtk.Label(
+            label="Ошибок пока нет. Последних действий тоже нет.",
+            xalign=0,
+        )
+        self.log_summary_label.set_wrap(True)
+        add_css_class(self.log_summary_label, "native-shell-muted")
+
+        self.log_meta_label = self.Gtk.Label(
             label="Фильтр: Все. Источники появятся после первого обновления.",
             xalign=0,
         )
-        meta.set_wrap(True)
-        add_css_class(meta, "native-shell-muted")
-        self.log_meta_label = meta
+        self.log_meta_label.set_wrap(True)
+        add_css_class(self.log_meta_label, "native-shell-muted")
 
-        export_label = self.Gtk.Label(
+        self.log_export_label = self.Gtk.Label(
             label=f"Экспорт: {self.resolve_log_export_dir()}",
             xalign=0,
         )
-        export_label.set_wrap(True)
-        add_css_class(export_label, "native-shell-muted")
-        self.log_export_label = export_label
+        self.log_export_label.set_wrap(True)
+        add_css_class(self.log_export_label, "native-shell-muted")
 
         toolbar = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
         toolbar.set_hexpand(True)
@@ -1624,11 +1776,10 @@ class NativeShellApp:
         self.log_buffer = text_view.get_buffer()
         self.refresh_log_view()
         scrolled.set_child(text_view)
-        container.append(title)
-        container.append(summary)
-        container.append(self.build_diagnostics_panel())
-        container.append(meta)
-        container.append(export_label)
+
+        container.append(self.log_summary_label)
+        container.append(self.log_meta_label)
+        container.append(self.log_export_label)
         container.append(toolbar)
         container.append(scrolled)
         return container
@@ -2083,9 +2234,17 @@ class NativeShellApp:
             return "Источник подключения не подтверждён"
         return str(summary.get("label") or "—")
 
+    def update_sidebar_selection(self, page_id: str) -> None:
+        for current_page_id, button in getattr(self, "sidebar_buttons", {}).items():
+            if current_page_id == page_id:
+                add_css_class(button, "native-shell-nav-button-active")
+            else:
+                remove_css_class(button, "native-shell-nav-button-active")
+
     def show_page(self, page_id: str) -> None:
         if self.stack is not None:
             self.stack.set_visible_child_name(page_id)
+        self.update_sidebar_selection(page_id)
 
     def on_dashboard_primary_action_clicked(self, _button) -> None:
         action_id = getattr(self, "dashboard_primary_action_id", None)
@@ -2251,6 +2410,14 @@ class NativeShellApp:
         node_caption = "Активный узел" if str(summary.get("state") or "") == "running" else "Выбранный узел"
         self.set_dashboard_label("hero_active", f"{node_caption}: {node_label}")
         self.refresh_dashboard_badges(summary.get("badges", []), str(summary.get("state") or "stopped"))
+        self.set_shell_status_label(
+            "traffic",
+            f"↓ {traffic.get('rx_rate_label') or '—'} ↑ {traffic.get('tx_rate_label') or '—'}",
+        )
+        self.set_shell_status_label(
+            "tun",
+            self.shorten_text(summary.get("tun_line") or connection.get("tun_interface") or "TUN: —", 18),
+        )
 
         self.set_metric_value("uptime", self.format_connected_since(runtime.get("connected_since")))
         self.set_metric_value("rx", self.combine_rate_and_total(traffic.get("rx_rate_label"), traffic.get("rx_total_label")))
@@ -2366,6 +2533,12 @@ class NativeShellApp:
 
     def set_metric_value(self, key: str, value: str) -> None:
         label = getattr(self, "dashboard_metrics", {}).get(key)
+        if label is None:
+            return
+        label.set_label(value)
+
+    def set_shell_status_label(self, key: str, value: str) -> None:
+        label = getattr(self, "shell_status_labels", {}).get(key)
         if label is None:
             return
         label.set_label(value)
