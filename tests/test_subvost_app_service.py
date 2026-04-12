@@ -270,6 +270,53 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["connection"]["security_label"], "REALITY")
             self.assertEqual(payload["connection"]["remote_sni"], "cdn.example.com")
 
+    def test_collect_status_keeps_connected_since_for_foreign_live_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            template = {
+                "outbounds": [{"tag": "proxy"}],
+                "inbounds": [],
+                "dns": {"servers": []},
+            }
+            (root / "xray-tun-subvost.json").write_text(json.dumps(template), encoding="utf-8")
+            service = self.make_service(root, real_home)
+
+            state = {
+                "STARTED_AT": "2026-04-12T13:14:15+02:00",
+                "TUN_INTERFACE": "tun0",
+                "XRAY_CONFIG_SOURCE": "store",
+                "BUNDLE_PROJECT_ROOT": "/tmp/foreign-subvost-bundle",
+            }
+            runtime_info = {
+                "state": state,
+                "has_state": True,
+                "ownership": "foreign",
+                "ownership_label": "Другой экземпляр",
+                "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+                "tun_interface": "tun0",
+                "xray_pid": "1234",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "load_state_file", return_value=state),
+                patch.object(service, "inspect_runtime_state", return_value=runtime_info),
+                patch.object(service, "read_resolv_conf_nameservers", return_value=["192.168.100.1"]),
+                patch.object(service, "collect_traffic_metrics", return_value={"rx_rate_label": "0 B/s", "tx_rate_label": "0 B/s"}),
+                patch.object(service, "collect_log_payload", return_value={}),
+                patch.object(service, "find_latest_diagnostic", return_value=None),
+                patch.object(service, "read_interface_addresses", return_value="10.0.0.2/30"),
+            ):
+                payload = service.collect_status()
+
+            self.assertEqual(payload["runtime"]["ownership"], "foreign")
+            self.assertEqual(payload["runtime"]["connected_since"], "2026-04-12T13:14:15+02:00")
+
     def test_ping_node_by_id_updates_cache_and_returns_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -191,13 +191,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_desktop_launcher_does_not_force_backend_restart(self) -> None:
         desktop_entry = (REPO_ROOT / "subvost-xray-tun.desktop").read_text(encoding="utf-8")
+        gtk_desktop_entry = (REPO_ROOT / "subvost-xray-tun-gtk-ui.desktop").read_text(encoding="utf-8")
         menu_installer = (REPO_ROOT / "libexec" / "install-subvost-gui-menu-entry.sh").read_text(encoding="utf-8")
         common_shell = (REPO_ROOT / "lib" / "subvost-common.sh").read_text(encoding="utf-8")
         expected_icon_name = "subvost-xray-tun-icon"
 
         self.assertIn("open-subvost-gui.sh", desktop_entry)
+        self.assertIn("open-subvost-gtk-ui.sh", gtk_desktop_entry)
         self.assertIn(f"Icon={expected_icon_name}", desktop_entry)
+        self.assertIn(f"Icon={expected_icon_name}", gtk_desktop_entry)
         self.assertNotIn("/assets/subvost-xray-tun-icon.svg", desktop_entry)
+        self.assertNotIn("/assets/subvost-xray-tun-icon.svg", gtk_desktop_entry)
         self.assertIn("SUBVOST_GUI_LAUNCH_MODE", desktop_entry)
         self.assertIn("'browser'", desktop_entry)
         self.assertIn('ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"', menu_installer)
@@ -207,6 +211,11 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("'browser'", menu_installer)
         self.assertIn('SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"', common_shell)
         self.assertIn('ln -sfn -- "$icon_path" "$icon_link_path"', common_shell)
+        self.assertIn('gtk-update-icon-cache -f -t "$icon_theme_root"', common_shell)
+        self.assertIn('touch -c -- "$desktop_file" 2>/dev/null || true', common_shell)
+        self.assertIn('installed_gtk_desktop_file="${data_home}/applications/subvost-xray-tun-gtk-ui.desktop"', common_shell)
+        self.assertIn('subvost_sync_desktop_icon_value "$gtk_desktop_file" "$icon_name"', common_shell)
+        self.assertIn('subvost_sync_desktop_icon_value "$installed_gtk_desktop_file" "$icon_name"', common_shell)
         self.assertNotIn("--force-restart-backend", desktop_entry)
         self.assertNotIn("--force-restart-backend", menu_installer)
 

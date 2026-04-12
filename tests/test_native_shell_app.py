@@ -61,6 +61,7 @@ class FakeButton:
         self.sensitive = True
         self.tooltip = None
         self.variant = None
+        self.visible = True
 
     def set_label(self, value: str) -> None:
         self.label = value
@@ -70,6 +71,9 @@ class FakeButton:
 
     def set_tooltip_text(self, value: str) -> None:
         self.tooltip = value
+
+    def set_visible(self, value: bool) -> None:
+        self.visible = bool(value)
 
 
 class NativeShellAppTests(unittest.TestCase):
@@ -92,6 +96,9 @@ class NativeShellAppTests(unittest.TestCase):
         app.last_status_payload = None
         app.selected_subscription_id = None
         app.subscription_url_entry = None
+        app.dashboard_node_grid_box = None
+        app.dashboard_node_grid_scroller = None
+        app.dashboard_node_empty_label = None
         app.routing_import_buffer = None
         app.shell_log_entries = []
         app.log_filter = "all"
@@ -108,9 +115,26 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_action_buttons = {}
         app.dashboard_primary_action_id = None
         app.dashboard_badge_box = None
+        app.dashboard_status_meta_box = None
+        app.dashboard_conflict_bar = None
+        app.dashboard_conflict_label = None
+        app.dashboard_takeover_button = None
+        app.diagnostic_takeover_button = None
+        app.dashboard_dns_button = None
+        app.dashboard_dns_compact_text = "—"
+        app.dashboard_dns_full_text = "—"
+        app.dashboard_dns_server_count = 0
+        app.dashboard_dns_expanded = False
+        app.dashboard_tun_line = "—"
+        app.dashboard_uptime_source_id = None
+        app.node_row_click_suppressed = False
+        app.action_in_flight = None
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
+
+    def test_native_shell_uses_named_app_icon(self) -> None:
+        self.assertEqual(native_shell_app.APP_ICON_NAME, "subvost-xray-tun-icon")
 
     def test_apply_theme_preference_forces_dark_contract(self) -> None:
         fake_settings = FakeGtkSettings(dark_preference=True)
@@ -128,6 +152,11 @@ class NativeShellAppTests(unittest.TestCase):
         app.apply_theme_preference("system")
 
         self.assertEqual(fake_settings.calls, [True, True])
+
+    def test_subscriptions_page_title_is_shortened_to_subscriptions(self) -> None:
+        page = next(page for page in native_shell_app.NATIVE_SHELL_PAGES if page.page_id == "subscriptions")
+
+        self.assertEqual(page.title, "Подписки")
 
     def test_handle_tray_helper_failure_shows_hidden_window(self) -> None:
         app = self.make_app()
@@ -272,8 +301,10 @@ class NativeShellAppTests(unittest.TestCase):
         app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
         app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
         app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
-        app.refresh_dashboard_badges = lambda badges, state: captured.__setitem__("badges", f"{state}:{len(badges)}")
+        app.refresh_dashboard_badges = lambda **kwargs: captured.__setitem__("badges", str(kwargs))
         app.refresh_dashboard_controls = lambda: None
+        app.update_dashboard_conflict_bar = lambda runtime: captured.__setitem__("conflict", str(runtime.get("ownership")))
+        app.update_dashboard_state_icon = lambda summary, runtime: captured.__setitem__("state_icon", str(summary.get("state")))
 
         app.update_dashboard_from_status(
             {
@@ -300,6 +331,8 @@ class NativeShellAppTests(unittest.TestCase):
                     "active_name": "Node",
                     "remote_endpoint": "edge.example.com:443",
                     "remote_sni": "edge.example.com",
+                    "tun_interface": "tun0",
+                    "dns_servers": "1.1.1.1, 8.8.8.8",
                 },
                 "routing": {"enabled": False},
                 "traffic": {},
@@ -311,11 +344,12 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(captured["hero_state"], "Подключением управляет другой экземпляр")
-        self.assertEqual(captured["hero_detail"], "Это окно не управляет чужим подключением.")
-        self.assertEqual(captured["hero_active"], "Выбранный узел: Node · VLESS")
+        self.assertEqual(captured["hero_state"], "Подключение недоступно")
+        self.assertEqual(captured["hero_active"], "Node · VLESS")
         self.assertIn("Где он запущен: /foreign/project", captured["diag:diagnostic_instance"])
         self.assertIn("Сгенерированный конфиг", captured["diag:diagnostic_files"])
+        self.assertIn("TUN: tun0 готов", captured["diag:diagnostic_connection"])
+        self.assertIn("DNS: 1.1.1.1, 8.8.8.8", captured["diag:diagnostic_connection"])
 
     def test_refresh_dashboard_controls_uses_compact_foreign_bundle_action_hint(self) -> None:
         app = self.make_app()
@@ -342,11 +376,8 @@ class NativeShellAppTests(unittest.TestCase):
 
         app.refresh_dashboard_controls()
 
-        self.assertEqual(
-            captured["action_hint"],
-            "Откройте диагностику: там виден путь к активному экземпляру и можно снять дамп.",
-        )
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключение недоступно")
+        self.assertEqual(captured["action_hint"], "")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться")
         self.assertFalse(app.dashboard_action_buttons["primary-connect"].sensitive)
 
     def test_refresh_dashboard_controls_exposes_connect_button_for_last_selected_node(self) -> None:
@@ -371,10 +402,27 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_dashboard_controls()
 
         self.assertEqual(app.dashboard_primary_action_id, "start-runtime")
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться к Финляндия")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Подключиться")
         self.assertTrue(app.dashboard_action_buttons["primary-connect"].sensitive)
         self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "primary")
         self.assertEqual(captured["action_summary"], "Готово к запуску через узел: Финляндия · VLESS.")
+        self.assertEqual(captured["action_hint"], "")
+
+    def test_dashboard_primary_action_spec_points_to_dashboard_node_cards_when_node_missing(self) -> None:
+        app = self.make_app()
+        app.last_status_payload = {
+            "summary": {"state": "stopped"},
+            "runtime": {"stop_allowed": True},
+            "processes": {"xray_alive": False, "tun_present": False},
+            "connection": {},
+            "active_node": {},
+        }
+
+        spec = app.dashboard_primary_action_spec()
+
+        self.assertIsNone(spec["action_id"])
+        self.assertEqual(spec["summary"], "Выберите узел ниже на этой вкладке.")
+        self.assertEqual(spec["tooltip"], "Сначала выберите узел в карточках ниже.")
 
     def test_refresh_dashboard_controls_switches_primary_button_to_disconnect(self) -> None:
         app = self.make_app()
@@ -398,9 +446,50 @@ class NativeShellAppTests(unittest.TestCase):
         app.refresh_dashboard_controls()
 
         self.assertEqual(app.dashboard_primary_action_id, "stop-runtime")
-        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Отключить")
+        self.assertEqual(app.dashboard_action_buttons["primary-connect"].label, "Отключиться")
         self.assertEqual(app.dashboard_action_buttons["primary-connect"].variant, "danger")
         self.assertEqual(captured["action_summary"], "Сейчас подключено через узел: Финляндия · VLESS.")
+
+    def test_update_dashboard_appends_subscription_to_active_node_line(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.last_store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1", "url": "https://sub.subvost.fun/profile"},
+                ],
+            },
+            "active_profile": {"id": "profile-1", "source_subscription_id": "sub-1"},
+        }
+        app.set_dashboard_label = lambda key, value: captured.__setitem__(key, value)
+        app.set_diagnostic_label = lambda key, value: captured.__setitem__(f"diag:{key}", value)
+        app.set_metric_value = lambda key, value: captured.__setitem__(f"metric:{key}", value)
+        app.refresh_dashboard_badges = lambda **kwargs: captured.__setitem__("badges", str(kwargs))
+        app.refresh_dashboard_controls = lambda: None
+        app.update_dashboard_conflict_bar = lambda runtime: None
+        app.update_dashboard_state_icon = lambda summary, runtime: None
+        app.dashboard_labels = {
+            "hero_active": FakeButton(),
+            "hero_subscription": FakeButton(),
+        }
+
+        app.update_dashboard_from_status(
+            {
+                "summary": {"state": "stopped", "label": "Остановлено", "tun_line": "tun0 готов", "dns_line": "1.1.1.1"},
+                "runtime": {},
+                "connection": {"protocol_label": "VLESS", "active_name": "Финляндия"},
+                "routing": {"enabled": False},
+                "traffic": {},
+                "artifacts": {},
+                "active_node": {"name": "Финляндия"},
+                "last_action": {},
+                "project_root": "/tmp/project",
+                "logs": {},
+            }
+        )
+
+        self.assertEqual(captured["hero_active"], "Финляндия · VLESS")
+        self.assertEqual(captured["hero_subscription"], "Подписка: sub.subvost.fun")
 
     def test_status_message_from_payload_humanizes_foreign_instance_conflict(self) -> None:
         app = self.make_app()
@@ -412,7 +501,276 @@ class NativeShellAppTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(message, "Сейчас подключением управляет другой экземпляр Subvost.")
+        self.assertEqual(message, "Снимок состояния обновлён.")
+
+    def test_format_dns_summary_collapses_extra_addresses(self) -> None:
+        app = self.make_app()
+
+        summary, full, count = app.format_dns_summary("192.168.100.1, 1.1.1.1, 8.8.8.8, 9.9.9.9")
+
+        self.assertEqual(summary, "192.168.100.1 + ещё 3")
+        self.assertEqual(full, "192.168.100.1, 1.1.1.1, 8.8.8.8, 9.9.9.9")
+        self.assertEqual(count, 4)
+
+    def test_active_subscription_display_name_prefers_active_profile_source(self) -> None:
+        app = self.make_app()
+        app.last_store_payload = {
+            "store": {
+                "subscriptions": [
+                    {"id": "sub-1", "profile_id": "profile-1", "url": "https://sub.subvost.fun/profile"},
+                ],
+            },
+            "active_profile": {"id": "profile-1", "source_subscription_id": "sub-1"},
+        }
+
+        self.assertEqual(app.active_subscription_display_name(), "sub.subvost.fun")
+
+    def test_refresh_dashboard_interface_metric_shows_full_dns_and_hides_button(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        dns_button = FakeButton()
+        app.dashboard_dns_button = dns_button
+        app.set_metric_value = lambda key, value: captured.__setitem__(key, value)
+        app.dashboard_tun_line = "tun0 готов"
+        app.dashboard_dns_compact_text = "192.168.100.1 + ещё 3"
+        app.dashboard_dns_full_text = "192.168.100.1, fe80::1%eth0, 192.168.1.1, fe80::52ff:20ff:fe52:1234"
+        app.dashboard_dns_server_count = 4
+
+        app.refresh_dashboard_interface_metric()
+
+        self.assertEqual(
+            captured["interface"],
+            "TUN: tun0 готов\nDNS (4):\n  Основной: 192.168.100.1\n  Доп.: fe80::1%eth0\n  Доп.: 192.168.1.1\n  Доп.: fe80::52ff:20ff:fe52:1234",
+        )
+        self.assertFalse(dns_button.visible)
+        self.assertFalse(dns_button.sensitive)
+
+    def test_dashboard_interface_text_keeps_single_dns_compact(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.dashboard_interface_text("tun0 готов", "192.168.100.1"), "TUN: tun0 готов\nDNS: 192.168.100.1")
+
+    def test_dashboard_interface_markup_highlights_primary_dns(self) -> None:
+        app = self.make_app()
+
+        markup = app.dashboard_interface_markup("tun0 готов", "192.168.100.1, 1.1.1.1")
+
+        self.assertIn("DNS (2):", markup)
+        self.assertIn("Основной:", markup)
+        self.assertIn("#7BC4FF", markup)
+
+    def test_combine_rate_and_total_keeps_russian_total_label(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.combine_rate_and_total("43.1 KB/s", "5.2 GB"), "43.1 KB/s\nВсего: 5.2 GB")
+
+    def test_dashboard_node_card_size_matches_fixed_four_column_grid(self) -> None:
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_COLUMNS, 4)
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_WIDTH, 283)
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_HEIGHT, 132)
+
+    def test_node_card_meta_text_uses_protocol_endpoint_and_transport(self) -> None:
+        app = self.make_app()
+
+        meta = app.node_card_meta_text(
+            {
+                "protocol": "vless",
+                "normalized": {
+                    "address": "edge.example.com",
+                    "port": 443,
+                    "network": "tcp",
+                },
+            }
+        )
+
+        self.assertEqual(meta, "VLESS · edge.example.com:443 · транспорт=tcp")
+
+    def test_node_display_name_strips_leading_flag(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.node_display_name("🇫🇮 Финляндия (Хельсинки)"), "Финляндия (Хельсинки)")
+        self.assertEqual(app.node_display_name("", fallback=""), "")
+
+    def test_connection_target_label_uses_name_without_flag_prefix(self) -> None:
+        app = self.make_app()
+
+        node_name, node_label = app.connection_target_label(
+            {
+                "active_node": {"name": "🇦🇹 Австрия (Вена)"},
+                "connection": {"protocol_label": "VLESS"},
+            }
+        )
+
+        self.assertEqual(node_name, "Австрия (Вена)")
+        self.assertEqual(node_label, "Австрия (Вена) · VLESS")
+
+    def test_on_node_card_released_activates_node(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.begin_store_action = lambda action_id, **kwargs: captured.update({"action_id": action_id, **kwargs})
+
+        app.on_node_card_released(None, 1, 0.0, 0.0, "profile-7", "node-3")
+
+        self.assertEqual(captured, {"action_id": "node-activate", "profile_id": "profile-7", "node_id": "node-3"})
+
+    def test_on_node_card_released_ignores_suppressed_click(self) -> None:
+        app = self.make_app()
+        app.node_row_click_suppressed = True
+        app.begin_store_action = lambda *_args, **_kwargs: self.fail("node card click should be suppressed")
+
+        app.on_node_card_released(None, 1, 0.0, 0.0, "profile-7", "node-3")
+
+        self.assertFalse(app.node_row_click_suppressed)
+
+    def test_dashboard_traffic_text_combines_speed_and_volume(self) -> None:
+        app = self.make_app()
+
+        text = app.dashboard_traffic_text(
+            {
+                "rx_rate_label": "43.1 KB/s",
+                "tx_rate_label": "1.7 KB/s",
+                "rx_total_label": "5.2 GB",
+                "tx_total_label": "432.9 MB",
+            }
+        )
+
+        self.assertEqual(text, "Скорость: 43.1 KB/s ↓ · 1.7 KB/s ↑\nОбъём: 5.2 GB ↓ · 432.9 MB ↑")
+
+    def test_refresh_dashboard_live_status_line_shows_duration_for_active_connection(self) -> None:
+        app = self.make_app()
+        uptime_widget = FakeButton()
+        traffic_widget = FakeButton()
+        meta_box = FakeButton()
+        app.dashboard_labels = {
+            "hero_uptime": uptime_widget,
+            "hero_traffic": traffic_widget,
+        }
+        app.dashboard_status_meta_box = meta_box
+        app.last_status_payload = {
+            "summary": {"state": "running"},
+            "runtime": {"connected_since": "2026-04-11T12:00:00"},
+            "processes": {"xray_alive": True, "tun_present": True},
+            "traffic": {
+                "rx_rate_label": "43.1 KB/s",
+                "tx_rate_label": "1.7 KB/s",
+                "rx_total_label": "5.2 GB",
+                "tx_total_label": "432.9 MB",
+            },
+        }
+
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 12, 12, 34, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            app.refresh_dashboard_live_status_line()
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(uptime_widget.label, "⏱ 12:34")
+        self.assertTrue(uptime_widget.visible)
+        self.assertEqual(traffic_widget.label, "Скорость: 43.1 KB/s ↓ · 1.7 KB/s ↑\nОбъём: 5.2 GB ↓ · 432.9 MB ↑")
+        self.assertTrue(meta_box.visible)
+
+    def test_format_connection_duration_keeps_time_for_days(self) -> None:
+        app = self.make_app()
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 15, 7, 41, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            formatted = app.format_connection_duration("2026-04-10T10:00:00")
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(formatted, "1д 5:07:41")
+
+    def test_format_connection_duration_keeps_time_for_weeks_and_years(self) -> None:
+        app = self.make_app()
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 17, 7, 40, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            weeks_formatted = app.format_connection_duration("2026-03-25T12:00:00")
+            years_formatted = app.format_connection_duration("2025-02-10T12:00:00")
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(weeks_formatted, "2нед 3д 5:07:40")
+        self.assertEqual(years_formatted, "1г 2мес 5:07:40")
+
+    def test_refresh_dashboard_live_status_line_keeps_traffic_for_foreign_connection(self) -> None:
+        app = self.make_app()
+        uptime_widget = FakeButton()
+        traffic_widget = FakeButton()
+        meta_box = FakeButton()
+        app.dashboard_labels = {
+            "hero_uptime": uptime_widget,
+            "hero_traffic": traffic_widget,
+        }
+        app.dashboard_status_meta_box = meta_box
+        app.last_status_payload = {
+            "summary": {"state": "degraded"},
+            "runtime": {
+                "ownership": "foreign",
+                "connected_since": "2026-04-11T12:00:00",
+            },
+            "processes": {"xray_alive": True, "tun_present": True},
+            "traffic": {
+                "rx_rate_label": "43.1 KB/s",
+                "tx_rate_label": "1.7 KB/s",
+                "rx_total_label": "5.2 GB",
+                "tx_total_label": "432.9 MB",
+            },
+        }
+
+        original_datetime = native_shell_app.datetime
+
+        class FixedDateTime:
+            @staticmethod
+            def fromisoformat(value: str):
+                return original_datetime.fromisoformat(value)
+
+            @staticmethod
+            def now(tz=None):
+                return original_datetime(2026, 4, 11, 12, 12, 34, tzinfo=tz)
+
+        native_shell_app.datetime = FixedDateTime
+        try:
+            app.refresh_dashboard_live_status_line()
+        finally:
+            native_shell_app.datetime = original_datetime
+
+        self.assertEqual(uptime_widget.label, "⏱ 12:34")
+        self.assertTrue(uptime_widget.visible)
+        self.assertEqual(traffic_widget.label, "Скорость: 43.1 KB/s ↓ · 1.7 KB/s ↑\nОбъём: 5.2 GB ↓ · 432.9 MB ↑")
+        self.assertTrue(traffic_widget.visible)
+        self.assertTrue(meta_box.visible)
 
     def test_show_page_switches_stack_child(self) -> None:
         class FakeStack:

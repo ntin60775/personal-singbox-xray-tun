@@ -84,6 +84,7 @@ NATIVE_SHELL_LOG_NAME_LABELS = {
 class NativeShellPage:
     page_id: str
     title: str
+    icon_name: str
     description: str
 
 
@@ -91,16 +92,19 @@ NATIVE_SHELL_PAGES = (
     NativeShellPage(
         "dashboard",
         "Подключение",
+        "network-wireless-symbolic",
         "Главный экран: состояние подключения, выбранный узел и действия `Подключиться / Отключить / Диагностика`.",
     ),
     NativeShellPage(
         "subscriptions",
-        "Узлы и подписки",
-        "Выбор узла, управление подписками и правила маршрутизации в одном экране.",
+        "Подписки",
+        "view-list-symbolic",
+        "Управление подписками и правилами маршрутизации в одном экране.",
     ),
     NativeShellPage(
         "log",
         "Диагностика",
+        "utilities-terminal-symbolic",
         "Конфликт экземпляров, служебные файлы подключения и журнал действий в одном экране.",
     ),
 )

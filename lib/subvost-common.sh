@@ -162,6 +162,7 @@ subvost_sync_desktop_icon_value() {
 
   if cmp -s -- "$desktop_file" "$tmp_file"; then
     rm -f -- "$tmp_file"
+    touch -c -- "$desktop_file" 2>/dev/null || true
     return 0
   fi
 
@@ -169,15 +170,28 @@ subvost_sync_desktop_icon_value() {
   mv -- "$tmp_file" "$desktop_file"
 }
 
+subvost_refresh_icon_theme_cache() {
+  local icon_theme_root="$1"
+
+  [[ -n "$icon_theme_root" ]] || return 0
+  [[ -d "$icon_theme_root" ]] || return 0
+  command -v gtk-update-icon-cache >/dev/null 2>&1 || return 0
+
+  gtk-update-icon-cache -f -t "$icon_theme_root" >/dev/null 2>&1 || true
+}
+
 subvost_sync_desktop_launcher_icon() {
   local desktop_file="${SUBVOST_DESKTOP_LAUNCHER:-}"
+  local gtk_desktop_file="${SUBVOST_GTK_DESKTOP_LAUNCHER:-}"
   local icon_path="${SUBVOST_DESKTOP_ICON_PATH:-}"
   local icon_name="${SUBVOST_DESKTOP_ICON_NAME:-}"
   local real_home
   local data_home
+  local icon_theme_root
   local icon_dir
   local icon_link_path
   local installed_desktop_file
+  local installed_gtk_desktop_file
 
   [[ -n "$icon_name" ]] || return 0
   [[ -n "$icon_path" ]] || return 0
@@ -185,15 +199,20 @@ subvost_sync_desktop_launcher_icon() {
 
   real_home="$(subvost_resolve_real_home)" || return 0
   data_home="$(subvost_resolve_real_data_home "$real_home")" || return 0
-  icon_dir="${data_home}/icons/hicolor/scalable/apps"
+  icon_theme_root="${data_home}/icons/hicolor"
+  icon_dir="${icon_theme_root}/scalable/apps"
   icon_link_path="${icon_dir}/${icon_name}.svg"
   installed_desktop_file="${data_home}/applications/subvost-xray-tun.desktop"
+  installed_gtk_desktop_file="${data_home}/applications/subvost-xray-tun-gtk-ui.desktop"
 
   mkdir -p "$icon_dir" 2>/dev/null || return 0
   ln -sfn -- "$icon_path" "$icon_link_path" 2>/dev/null || return 0
+  subvost_refresh_icon_theme_cache "$icon_theme_root"
 
   subvost_sync_desktop_icon_value "$desktop_file" "$icon_name"
+  subvost_sync_desktop_icon_value "$gtk_desktop_file" "$icon_name"
   subvost_sync_desktop_icon_value "$installed_desktop_file" "$icon_name"
+  subvost_sync_desktop_icon_value "$installed_gtk_desktop_file" "$icon_name"
 }
 
 subvost_resolve_real_config_home() {
