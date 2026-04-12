@@ -409,6 +409,11 @@ button.native-shell-icon-button {
   padding: 12px;
 }
 
+.native-shell-node-card-clickable:hover {
+  background: rgba(42, 48, 64, 0.72);
+  border-color: rgba(123, 196, 255, 0.32);
+}
+
 .native-shell-node-card-active {
   background: rgba(123, 196, 255, 0.12);
   border-color: rgba(123, 196, 255, 0.46);
@@ -1160,24 +1165,10 @@ class NativeShellApp:
 
         head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         head.set_hexpand(True)
-        title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
         title = self.Gtk.Label(label="Узлы текущей подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
-        badge = self.Gtk.Label(label="Нет подписки", xalign=0)
-        add_css_class(badge, "native-shell-badge")
-        add_css_class(badge, "native-shell-chip-warning")
-        title_box.append(title)
-        title_box.append(badge)
-        copy_label = self.Gtk.Label(
-            label="Выберите подписку на вкладке `Узлы и подписки`, затем переключайте узлы и проверяйте `Пинг` прямо отсюда.",
-            xalign=0,
-        )
-        copy_label.set_wrap(True)
-        add_css_class(copy_label, "native-shell-muted")
         self.subscription_labels["node_panel_title"] = title
-        self.subscription_labels["node_panel_badge"] = badge
-        self.subscription_labels["node_panel_copy"] = copy_label
-        head.append(title_box)
+        head.append(title)
 
         empty_label = self.Gtk.Label(
             label="Выберите подписку, чтобы здесь появились карточки узлов.",
@@ -1200,7 +1191,6 @@ class NativeShellApp:
         self.dashboard_node_grid_scroller = scroller
 
         panel.append(head)
-        panel.append(copy_label)
         panel.append(empty_label)
         panel.append(scroller)
         return panel
@@ -1642,6 +1632,8 @@ class NativeShellApp:
             add_css_class(card, "native-shell-node-card-active")
         if node_disabled:
             add_css_class(card, "native-shell-node-card-disabled")
+        elif not is_active:
+            add_css_class(card, "native-shell-node-card-clickable")
 
         title = self.make_trimmed_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title", limit=34)
         meta = self.make_trimmed_row_text(self.node_card_meta_text(node), "native-shell-row-meta", limit=52)
@@ -1677,27 +1669,19 @@ class NativeShellApp:
         spacer.set_vexpand(True)
         card.append(spacer)
 
-        action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-        action_row.set_hexpand(True)
-
-        activate_label = "Сделать текущим"
-        if is_active:
-            activate_label = "Текущий"
-        elif node_disabled:
-            activate_label = "Недоступен"
-        activate_button = self.Gtk.Button(label=activate_label)
-        add_css_class(activate_button, "native-shell-button-secondary")
-        activate_button.set_hexpand(True)
-        activate_button.set_sensitive(not node_disabled and not is_active and self.action_in_flight is None)
-        activate_button.connect("clicked", self.on_node_activate_clicked, profile_id, node_id)
-
         ping_button = self.build_icon_button("network-wireless-symbolic", "Проверить доступность узла.")
         ping_button.set_sensitive(not node_disabled and self.action_in_flight is None)
         ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, node_id)
+        if hasattr(ping_button, "set_halign") and hasattr(self.Gtk, "Align"):
+            ping_button.set_halign(self.Gtk.Align.END)
+        card.append(ping_button)
 
-        action_row.append(activate_button)
-        action_row.append(ping_button)
-        card.append(action_row)
+        if not node_disabled and not is_active:
+            gesture = self.Gtk.GestureClick()
+            if hasattr(gesture, "set_button"):
+                gesture.set_button(1)
+            gesture.connect("released", self.on_node_card_released, profile_id, node_id)
+            card.add_controller(gesture)
         return card
 
     def render_dashboard_node_grid(
@@ -1747,7 +1731,7 @@ class NativeShellApp:
         self.set_subscription_label("summary", summary_message)
         self.set_subscription_label(
             "subscription_copy",
-            "Клик по строке выбирает источник узлов; его карточки и действия `Сделать текущим` / `Пинг` показываются на вкладке `Подключение`."
+            "Клик по строке выбирает источник узлов; его карточки и действие `Пинг` показываются на вкладке `Подключение`, а выбор узла происходит по нажатию на карточку."
             if subscriptions
             else "Сохранённых подписок пока нет.",
         )
@@ -1854,8 +1838,6 @@ class NativeShellApp:
 
         if not selected_subscription or not selected_profile:
             self.set_subscription_label("node_panel_title", "Узлы текущей подписки")
-            self.set_subscription_label("node_panel_badge", "Нет подписки", tone="warning")
-            self.set_subscription_label("node_panel_copy", "Выберите подписку на вкладке `Узлы и подписки`, чтобы здесь появились карточки узлов.")
             self.clear_list_widget(grid_box)
             if empty_label is not None:
                 empty_label.set_label("Для выбора узла сначала укажите источник на вкладке `Узлы и подписки`.")
@@ -1865,18 +1847,7 @@ class NativeShellApp:
             return
 
         nodes = selected_profile.get("nodes", []) if isinstance(selected_profile.get("nodes"), list) else []
-        ready_nodes = [node for node in nodes if node.get("enabled", True) and not node.get("parse_error")]
-        subscription_name = self.subscription_display_name(selected_subscription)
         self.set_subscription_label("node_panel_title", "Узлы текущей подписки")
-        self.set_subscription_label(
-            "node_panel_badge",
-            f"{len(ready_nodes)}/{len(nodes)} готовы",
-            tone="success" if nodes and len(ready_nodes) == len(nodes) else ("warning" if not ready_nodes else "accent"),
-        )
-        self.set_subscription_label(
-            "node_panel_copy",
-            f"Источник: {subscription_name}. `Сделать текущим` переключает узел, `Пинг` проверяет доступность без запуска.",
-        )
 
         if not nodes:
             self.clear_list_widget(grid_box)
@@ -2065,6 +2036,9 @@ class NativeShellApp:
         self.begin_store_action("node-ping", profile_id=profile_id, node_id=node_id)
 
     def on_node_activate_clicked(self, _button, profile_id: str, node_id: str) -> None:
+        self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
+
+    def on_node_card_released(self, _gesture, _press_count: int, _x: float, _y: float, profile_id: str, node_id: str) -> None:
         self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
 
     def on_routing_profile_action_clicked(self, _button, action_id: str, profile_id: str, enabled_value: object) -> None:

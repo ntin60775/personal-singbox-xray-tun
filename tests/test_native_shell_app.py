@@ -575,6 +575,15 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(meta, "VLESS · edge.example.com:443 · транспорт=tcp")
 
+    def test_on_node_card_released_activates_node(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.begin_store_action = lambda action_id, **kwargs: captured.update({"action_id": action_id, **kwargs})
+
+        app.on_node_card_released(None, 1, 0.0, 0.0, "profile-7", "node-3")
+
+        self.assertEqual(captured, {"action_id": "node-activate", "profile_id": "profile-7", "node_id": "node-3"})
+
     def test_dashboard_traffic_text_combines_speed_and_volume(self) -> None:
         app = self.make_app()
 
