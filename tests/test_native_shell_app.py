@@ -96,6 +96,9 @@ class NativeShellAppTests(unittest.TestCase):
         app.last_status_payload = None
         app.selected_subscription_id = None
         app.subscription_url_entry = None
+        app.dashboard_node_grid_box = None
+        app.dashboard_node_grid_scroller = None
+        app.dashboard_node_empty_label = None
         app.routing_import_buffer = None
         app.shell_log_entries = []
         app.log_filter = "all"
@@ -395,6 +398,22 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(captured["action_summary"], "Готово к запуску через узел: Финляндия · VLESS.")
         self.assertEqual(captured["action_hint"], "")
 
+    def test_dashboard_primary_action_spec_points_to_dashboard_node_cards_when_node_missing(self) -> None:
+        app = self.make_app()
+        app.last_status_payload = {
+            "summary": {"state": "stopped"},
+            "runtime": {"stop_allowed": True},
+            "processes": {"xray_alive": False, "tun_present": False},
+            "connection": {},
+            "active_node": {},
+        }
+
+        spec = app.dashboard_primary_action_spec()
+
+        self.assertIsNone(spec["action_id"])
+        self.assertEqual(spec["summary"], "Выберите узел ниже на этой вкладке.")
+        self.assertEqual(spec["tooltip"], "Сначала выберите узел в карточках ниже.")
+
     def test_refresh_dashboard_controls_switches_primary_button_to_disconnect(self) -> None:
         app = self.make_app()
         captured: dict[str, str] = {}
@@ -534,6 +553,27 @@ class NativeShellAppTests(unittest.TestCase):
         app = self.make_app()
 
         self.assertEqual(app.combine_rate_and_total("43.1 KB/s", "5.2 GB"), "43.1 KB/s\nВсего: 5.2 GB")
+
+    def test_dashboard_node_card_size_matches_fixed_four_column_grid(self) -> None:
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_COLUMNS, 4)
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_WIDTH, 283)
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_HEIGHT, 148)
+
+    def test_node_card_meta_text_uses_protocol_endpoint_and_transport(self) -> None:
+        app = self.make_app()
+
+        meta = app.node_card_meta_text(
+            {
+                "protocol": "vless",
+                "normalized": {
+                    "address": "edge.example.com",
+                    "port": 443,
+                    "network": "tcp",
+                },
+            }
+        )
+
+        self.assertEqual(meta, "VLESS · edge.example.com:443 · транспорт=tcp")
 
     def test_dashboard_traffic_text_combines_speed_and_volume(self) -> None:
         app = self.make_app()

@@ -75,6 +75,17 @@ CONTROL_INTROSPECTION_XML = f"""
 """.strip()
 DEFAULT_WINDOW_WIDTH = 1280
 DEFAULT_WINDOW_HEIGHT = 960
+DASHBOARD_NODE_CARD_COLUMNS = 4
+DASHBOARD_NODE_CARD_SPACING = 12
+DASHBOARD_NODE_CARD_WIDTH = (
+    DEFAULT_WINDOW_WIDTH
+    - (14 * 2)  # root padding
+    - (4 * 2)   # page margin
+    - (14 * 2)  # dashboard panel padding
+    - 48        # scroller gutter and layout breathing room
+    - (DASHBOARD_NODE_CARD_SPACING * (DASHBOARD_NODE_CARD_COLUMNS - 1))
+) // DASHBOARD_NODE_CARD_COLUMNS
+DASHBOARD_NODE_CARD_HEIGHT = 148
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -383,6 +394,35 @@ button.native-shell-icon-button {
   min-height: 0;
 }
 
+.native-shell-node-grid {
+  min-height: 0;
+}
+
+.native-shell-node-grid-row {
+  min-height: 0;
+}
+
+.native-shell-node-card {
+  background: rgba(34, 39, 53, 0.58);
+  border-radius: 14px;
+  border: 1px solid rgba(58, 66, 86, 0.6);
+  padding: 12px;
+}
+
+.native-shell-node-card-active {
+  background: rgba(123, 196, 255, 0.12);
+  border-color: rgba(123, 196, 255, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(123, 196, 255, 0.18);
+}
+
+.native-shell-node-card-disabled {
+  opacity: 0.72;
+}
+
+.native-shell-node-empty {
+  padding: 8px 4px 2px 4px;
+}
+
 .native-shell-sidebar {
   background: rgba(13, 16, 22, 0.74);
   border-radius: 14px;
@@ -611,6 +651,9 @@ class NativeShellApp:
         self.subscription_url_entry = None
         self.subscription_list_box = None
         self.node_list_box = None
+        self.dashboard_node_grid_box = None
+        self.dashboard_node_grid_scroller = None
+        self.dashboard_node_empty_label = None
         self.routing_profile_list_box = None
         self.routing_import_buffer = None
         self.subscription_labels: dict[str, object] = {}
@@ -885,7 +928,9 @@ class NativeShellApp:
 
     def build_dashboard_page(self):
         container = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        container.set_vexpand(True)
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
+        panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
 
         primary_button = self.Gtk.Button(label="Подключиться")
@@ -945,6 +990,7 @@ class NativeShellApp:
         panel.append(info_bar)
         panel.append(self.status_label)
         panel.append(states_head)
+        panel.append(self.build_nodes_panel())
         container.append(panel)
         return container
 
@@ -1029,7 +1075,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="Узлы и подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Широкий рабочий экран: подписки слева, узлы выбранного источника справа, маршрутизация ниже отдельным блоком.",
+            label="Подписки управляются здесь, а карточки узлов выбранного источника показываются на вкладке `Подключение`; справа остаётся маршрутизация.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -1073,7 +1119,6 @@ class NativeShellApp:
         right_column.set_hexpand(True)
         right_column.set_vexpand(True)
         add_css_class(right_column, "native-shell-subscriptions-right")
-        right_column.append(self.build_nodes_panel())
         right_column.append(self.build_routing_panel())
         body.append(right_column)
         container.append(body)
@@ -1111,12 +1156,12 @@ class NativeShellApp:
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         panel.set_hexpand(True)
         panel.set_vexpand(True)
-        add_css_class(panel, "native-shell-panel")
+        add_css_class(panel, "native-shell-metric-card")
 
         head = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
         head.set_hexpand(True)
         title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
-        title = self.Gtk.Label(label="Узлы выбранной подписки", xalign=0)
+        title = self.Gtk.Label(label="Узлы текущей подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         badge = self.Gtk.Label(label="Нет подписки", xalign=0)
         add_css_class(badge, "native-shell-badge")
@@ -1124,7 +1169,7 @@ class NativeShellApp:
         title_box.append(title)
         title_box.append(badge)
         copy_label = self.Gtk.Label(
-            label="Клик по строке делает узел активным для следующего запуска, а `Пинг` проверяет доступность без смены выбора.",
+            label="Выберите подписку на вкладке `Узлы и подписки`, затем переключайте узлы и проверяйте `Пинг` прямо отсюда.",
             xalign=0,
         )
         copy_label.set_wrap(True)
@@ -1134,16 +1179,30 @@ class NativeShellApp:
         self.subscription_labels["node_panel_copy"] = copy_label
         head.append(title_box)
 
-        list_box = self.Gtk.ListBox()
-        list_box.set_selection_mode(self.Gtk.SelectionMode.SINGLE)
-        list_box.set_activate_on_single_click(True)
-        add_css_class(list_box, "native-shell-listbox")
-        list_box.connect("row-activated", self.on_node_row_activated)
-        self.node_list_box = list_box
+        empty_label = self.Gtk.Label(
+            label="Выберите подписку, чтобы здесь появились карточки узлов.",
+            xalign=0,
+        )
+        empty_label.set_wrap(True)
+        add_css_class(empty_label, "native-shell-row-copy")
+        add_css_class(empty_label, "native-shell-node-empty")
+        self.dashboard_node_empty_label = empty_label
+
+        grid_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=DASHBOARD_NODE_CARD_SPACING)
+        grid_box.set_hexpand(True)
+        grid_box.set_vexpand(True)
+        add_css_class(grid_box, "native-shell-node-grid")
+        self.dashboard_node_grid_box = grid_box
+
+        scroller = self.build_list_scroller(grid_box)
+        scroller.set_vexpand(True)
+        scroller.set_visible(False)
+        self.dashboard_node_grid_scroller = scroller
 
         panel.append(head)
         panel.append(copy_label)
-        panel.append(self.build_list_scroller(list_box))
+        panel.append(empty_label)
+        panel.append(scroller)
         return panel
 
     def build_routing_panel(self):
@@ -1547,6 +1606,129 @@ class NativeShellApp:
         row.set_child(content)
         return row
 
+    def node_card_meta_text(self, node: dict[str, Any]) -> str:
+        normalized = node.get("normalized", {}) or {}
+        address = str(normalized.get("address") or "—")
+        port = str(normalized.get("port") or "—")
+        protocol = str(node.get("protocol") or "—").strip().upper()
+        network = str(normalized.get("network") or "").strip()
+        parts = [protocol, f"{address}:{port}"]
+        if network:
+            parts.append(f"транспорт={network}")
+        return " · ".join(parts)
+
+    def build_node_card_placeholder(self):
+        spacer = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
+        spacer.set_size_request(DASHBOARD_NODE_CARD_WIDTH, DASHBOARD_NODE_CARD_HEIGHT)
+        if hasattr(spacer, "set_opacity"):
+            spacer.set_opacity(0.0)
+        return spacer
+
+    def build_dashboard_node_card(
+        self,
+        *,
+        node: dict[str, Any],
+        profile_id: str,
+        active_node_id: str | None,
+    ):
+        node_id = str(node.get("id") or "")
+        node_disabled = bool(node.get("parse_error")) or not bool(node.get("enabled", True))
+        is_active = bool(active_node_id and node_id == active_node_id)
+
+        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        card.set_size_request(DASHBOARD_NODE_CARD_WIDTH, DASHBOARD_NODE_CARD_HEIGHT)
+        add_css_class(card, "native-shell-node-card")
+        if is_active:
+            add_css_class(card, "native-shell-node-card-active")
+        if node_disabled:
+            add_css_class(card, "native-shell-node-card-disabled")
+
+        title = self.make_trimmed_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title", limit=34)
+        meta = self.make_trimmed_row_text(self.node_card_meta_text(node), "native-shell-row-meta", limit=52)
+
+        badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
+        if is_active:
+            badge_row.append(self.make_badge("текущий", "accent"))
+        elif node_disabled:
+            badge_row.append(self.make_badge("недоступен", "danger"))
+        else:
+            badge_row.append(self.make_badge("готов", "success"))
+
+        ping = ping_snapshot_from_status(self.last_status_payload, profile_id, node_id)
+        if ping:
+            badge_row.append(self.make_badge(str(ping.get("label") or "ping"), "success" if ping.get("ok") else "danger"))
+        else:
+            badge_row.append(self.make_badge("без ping", "warning"))
+
+        card.append(title)
+        card.append(meta)
+        card.append(badge_row)
+
+        if node.get("parse_error"):
+            card.append(
+                self.make_trimmed_row_text(
+                    f"Ошибка: {node['parse_error']}",
+                    "native-shell-row-copy",
+                    limit=72,
+                )
+            )
+
+        spacer = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
+        spacer.set_vexpand(True)
+        card.append(spacer)
+
+        action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        action_row.set_hexpand(True)
+
+        activate_label = "Сделать текущим"
+        if is_active:
+            activate_label = "Текущий"
+        elif node_disabled:
+            activate_label = "Недоступен"
+        activate_button = self.Gtk.Button(label=activate_label)
+        add_css_class(activate_button, "native-shell-button-secondary")
+        activate_button.set_hexpand(True)
+        activate_button.set_sensitive(not node_disabled and not is_active and self.action_in_flight is None)
+        activate_button.connect("clicked", self.on_node_activate_clicked, profile_id, node_id)
+
+        ping_button = self.build_icon_button("network-wireless-symbolic", "Проверить доступность узла.")
+        ping_button.set_sensitive(not node_disabled and self.action_in_flight is None)
+        ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, node_id)
+
+        action_row.append(activate_button)
+        action_row.append(ping_button)
+        card.append(action_row)
+        return card
+
+    def render_dashboard_node_grid(
+        self,
+        nodes: list[dict[str, Any]],
+        *,
+        profile_id: str,
+        active_node_id: str | None,
+    ) -> None:
+        grid_box = getattr(self, "dashboard_node_grid_box", None)
+        if grid_box is None:
+            return
+        self.clear_list_widget(grid_box)
+        for start in range(0, len(nodes), DASHBOARD_NODE_CARD_COLUMNS):
+            row_nodes = nodes[start : start + DASHBOARD_NODE_CARD_COLUMNS]
+            row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=DASHBOARD_NODE_CARD_SPACING)
+            if hasattr(row, "set_halign") and hasattr(self.Gtk, "Align"):
+                row.set_halign(self.Gtk.Align.CENTER)
+            add_css_class(row, "native-shell-node-grid-row")
+            for node in row_nodes:
+                row.append(
+                    self.build_dashboard_node_card(
+                        node=node,
+                        profile_id=profile_id,
+                        active_node_id=active_node_id,
+                    )
+                )
+            for _index in range(len(row_nodes), DASHBOARD_NODE_CARD_COLUMNS):
+                row.append(self.build_node_card_placeholder())
+            grid_box.append(row)
+
     def render_subscriptions_view(self) -> None:
         store_payload = self.last_store_payload or {}
         subscriptions = subscriptions_from_store_snapshot(store_payload)
@@ -1558,14 +1740,14 @@ class NativeShellApp:
         fresh_subscriptions = sum(1 for item in subscriptions if item.get("last_status") == "ok")
 
         summary_message = (
-            f"{fresh_subscriptions} из {len(subscriptions)} подписок актуальны."
+            f"{fresh_subscriptions} из {len(subscriptions)} подписок актуальны. Карточки узлов доступны на вкладке `Подключение`."
             if subscriptions
             else "Добавьте первую подписку по URL."
         )
         self.set_subscription_label("summary", summary_message)
         self.set_subscription_label(
             "subscription_copy",
-            "Клик по строке выбирает источник узлов; кнопки рядом отвечают за обновление и доступность."
+            "Клик по строке выбирает источник узлов; его карточки и действия `Сделать текущим` / `Пинг` показываются на вкладке `Подключение`."
             if subscriptions
             else "Сохранённых подписок пока нет.",
         )
@@ -1664,89 +1846,54 @@ class NativeShellApp:
         selected_subscription: dict[str, Any] | None,
         active_node: dict[str, Any] | None,
     ) -> None:
-        list_box = self.node_list_box
-        if list_box is None:
+        grid_box = getattr(self, "dashboard_node_grid_box", None)
+        empty_label = getattr(self, "dashboard_node_empty_label", None)
+        grid_scroller = getattr(self, "dashboard_node_grid_scroller", None)
+        if grid_box is None:
             return
 
-        self.clear_list_widget(list_box)
         if not selected_subscription or not selected_profile:
-            self.set_subscription_label("node_panel_title", "Узлы")
+            self.set_subscription_label("node_panel_title", "Узлы текущей подписки")
             self.set_subscription_label("node_panel_badge", "Нет подписки", tone="warning")
-            self.set_subscription_label("node_panel_copy", "Выберите подписку слева, чтобы загрузить доступные узлы.")
-            list_box.append(self.build_subscriptions_empty_row("Для работы с узлами нужна хотя бы одна подписка."))
+            self.set_subscription_label("node_panel_copy", "Выберите подписку на вкладке `Узлы и подписки`, чтобы здесь появились карточки узлов.")
+            self.clear_list_widget(grid_box)
+            if empty_label is not None:
+                empty_label.set_label("Для выбора узла сначала укажите источник на вкладке `Узлы и подписки`.")
+                empty_label.set_visible(True)
+            if grid_scroller is not None:
+                grid_scroller.set_visible(False)
             return
 
         nodes = selected_profile.get("nodes", []) if isinstance(selected_profile.get("nodes"), list) else []
         ready_nodes = [node for node in nodes if node.get("enabled", True) and not node.get("parse_error")]
-        self.set_subscription_label("node_panel_title", str(selected_subscription.get("name") or "Узлы"))
+        subscription_name = self.subscription_display_name(selected_subscription)
+        self.set_subscription_label("node_panel_title", "Узлы текущей подписки")
         self.set_subscription_label(
             "node_panel_badge",
             f"{len(ready_nodes)}/{len(nodes)} готовы",
-            tone="success" if nodes and len(ready_nodes) == len(nodes) else "accent",
+            tone="success" if nodes and len(ready_nodes) == len(nodes) else ("warning" if not ready_nodes else "accent"),
         )
-        self.set_subscription_label("node_panel_copy", "Клик по строке активирует узел, `Пинг` проверяет доступность без смены выбора.")
+        self.set_subscription_label(
+            "node_panel_copy",
+            f"Источник: {subscription_name}. `Сделать текущим` переключает узел, `Пинг` проверяет доступность без запуска.",
+        )
 
         if not nodes:
-            list_box.append(self.build_subscriptions_empty_row("В этой подписке пока нет узлов."))
+            self.clear_list_widget(grid_box)
+            if empty_label is not None:
+                empty_label.set_label("В выбранной подписке пока нет узлов.")
+                empty_label.set_visible(True)
+            if grid_scroller is not None:
+                grid_scroller.set_visible(False)
             return
 
-        selected_row = None
         active_node_id = str(active_node.get("id")) if active_node else None
         profile_id = str(selected_profile.get("id") or "")
-        for node in nodes:
-            row = self.Gtk.ListBoxRow()
-            row.profile_id = profile_id
-            row.node_id = str(node.get("id") or "")
-            row.node_disabled = bool(node.get("parse_error")) or not bool(node.get("enabled", True))
-            row.set_selectable(True)
-            row.set_activatable(not row.node_disabled)
-
-            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
-            add_css_class(content, "native-shell-list-row")
-
-            header = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-            title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
-            title_box.set_hexpand(True)
-            title_box.append(self.make_trimmed_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title", limit=40))
-            meta = [
-                str(node.get("protocol") or "—").upper(),
-                f"{node.get('normalized', {}).get('address', '—')}:{node.get('normalized', {}).get('port', '—')}",
-            ]
-            network = str(node.get("normalized", {}).get("network") or "").strip()
-            if network:
-                meta.append(f"транспорт={network}")
-            title_box.append(self.make_trimmed_row_text(" · ".join(meta), "native-shell-row-meta", limit=68))
-
-            badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
-            if active_node_id and row.node_id == active_node_id:
-                badge_row.append(self.make_badge("активен", "accent"))
-                selected_row = row
-            elif row.node_disabled:
-                badge_row.append(self.make_badge("недоступен", "danger"))
-            else:
-                badge_row.append(self.make_badge("готов", "success"))
-
-            ping = ping_snapshot_from_status(self.last_status_payload, profile_id, row.node_id)
-            if ping:
-                badge_row.append(self.make_badge(str(ping.get("label") or "ping"), "success" if ping.get("ok") else "danger"))
-            else:
-                badge_row.append(self.make_badge("без ping", "warning"))
-
-            ping_button = self.build_icon_button("network-wireless-symbolic", "Проверить доступность узла.")
-            ping_button.set_sensitive(self.action_in_flight is None)
-            ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, row.node_id)
-            header.append(title_box)
-            header.append(badge_row)
-            header.append(ping_button)
-
-            content.append(header)
-            if node.get("parse_error"):
-                content.append(self.make_row_text(f"Ошибка разбора: {node['parse_error']}", "native-shell-row-copy"))
-            row.set_child(content)
-            list_box.append(row)
-
-        if selected_row is not None:
-            list_box.select_row(selected_row)
+        self.render_dashboard_node_grid(nodes, profile_id=profile_id, active_node_id=active_node_id)
+        if empty_label is not None:
+            empty_label.set_visible(False)
+        if grid_scroller is not None:
+            grid_scroller.set_visible(True)
 
     def refresh_routing_panel(
         self,
@@ -1916,6 +2063,9 @@ class NativeShellApp:
         self.node_row_click_suppressed = True
         self.GLib.idle_add(self.reset_node_row_suppression)
         self.begin_store_action("node-ping", profile_id=profile_id, node_id=node_id)
+
+    def on_node_activate_clicked(self, _button, profile_id: str, node_id: str) -> None:
+        self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
 
     def on_routing_profile_action_clicked(self, _button, action_id: str, profile_id: str, enabled_value: object) -> None:
         kwargs: dict[str, Any] = {"profile_id": profile_id}
@@ -2644,11 +2794,11 @@ class NativeShellApp:
             return {
                 "action_id": None,
                 "button_label": "Подключиться",
-                "summary": "Выберите узел на вкладке «Узлы».",
+                "summary": "Выберите узел ниже на этой вкладке.",
                 "hint": "",
                 "variant": "secondary",
                 "enabled": False,
-                "tooltip": "Сначала выберите узел на вкладке «Узлы».",
+                "tooltip": "Сначала выберите узел в карточках ниже.",
             }
 
         if runtime.get("start_ready"):
