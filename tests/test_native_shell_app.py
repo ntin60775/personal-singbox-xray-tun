@@ -133,6 +133,9 @@ class NativeShellAppTests(unittest.TestCase):
         app.last_log_export_path = None
         return app
 
+    def test_native_shell_uses_named_app_icon(self) -> None:
+        self.assertEqual(native_shell_app.APP_ICON_NAME, "subvost-xray-tun-icon")
+
     def test_apply_theme_preference_forces_dark_contract(self) -> None:
         fake_settings = FakeGtkSettings(dark_preference=True)
 

@@ -11,7 +11,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--control-bus-name", required=True)
     parser.add_argument("--control-object-path", required=True)
     parser.add_argument("--indicator-namespace", required=True)
-    parser.add_argument("--icon-name", default="network-vpn")
+    parser.add_argument("--icon-name", default="subvost-xray-tun-icon")
     return parser.parse_args(argv)
 
 

@@ -58,6 +58,7 @@ from subvost_app_service import ServiceState, SubvostAppService, build_default_s
 GUI_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = GUI_DIR.parent / "assets"
 ICON_ASSET_PATH = ASSETS_DIR / "subvost-xray-tun-icon.svg"
+APP_ICON_NAME = "subvost-xray-tun-icon"
 NATIVE_SHELL_LOG_FILENAME = "native-shell.log"
 CONTROL_INTROSPECTION_XML = f"""
 <node>
@@ -782,7 +783,7 @@ class NativeShellApp:
         window.set_size_request(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         window.set_resizable(False)
         if hasattr(window, "set_icon_name"):
-            window.set_icon_name("network-vpn")
+            window.set_icon_name(APP_ICON_NAME)
         window.connect("close-request", self.on_close_request)
 
         display = self.Gdk.Display.get_default()
@@ -3336,7 +3337,7 @@ class NativeShellApp:
             "--indicator-namespace",
             self.tray_support.indicator_namespace or "AyatanaAppIndicator3",
             "--icon-name",
-            "network-vpn",
+            APP_ICON_NAME,
         ]
         self.tray_process = subprocess.Popen(
             command,

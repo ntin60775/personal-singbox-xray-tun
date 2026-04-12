@@ -1,42 +1,43 @@
-<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="256" height="256" rx="56" fill="#08111F"/>
-  <rect x="18" y="18" width="220" height="220" rx="42" fill="url(#panel)"/>
-  <circle cx="128" cy="128" r="76" fill="url(#coreGlow)"/>
-  <circle cx="128" cy="128" r="72" stroke="#E2E8F0" stroke-opacity="0.12" stroke-width="2"/>
-  <path d="M128 54C146 67 167 75 190 78C188 139 170 181 128 204C86 181 68 139 66 78C89 75 110 67 128 54Z" fill="url(#shieldFill)"/>
-  <path d="M128 54C146 67 167 75 190 78C188 139 170 181 128 204C86 181 68 139 66 78C89 75 110 67 128 54Z" stroke="url(#shieldStroke)" stroke-width="10" stroke-linejoin="round"/>
-  <path d="M128 94V162" stroke="url(#routeStroke)" stroke-width="14" stroke-linecap="round"/>
-  <circle cx="128" cy="94" r="12" fill="#22D3EE"/>
-  <circle cx="128" cy="128" r="10" fill="#E2E8F0"/>
-  <circle cx="128" cy="162" r="12" fill="#FB7185"/>
-  <path d="M90 102H108" stroke="#22D3EE" stroke-width="6" stroke-linecap="round" stroke-opacity="0.9"/>
-  <path d="M148 154H166" stroke="#FB7185" stroke-width="6" stroke-linecap="round" stroke-opacity="0.9"/>
-  <rect x="54" y="54" width="148" height="148" rx="40" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="4"/>
-
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="panel" x1="28" y1="24" x2="228" y2="238" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0F1B33"/>
-      <stop offset="0.58" stop-color="#091426"/>
-      <stop offset="1" stop-color="#060D19"/>
-    </linearGradient>
-    <radialGradient id="coreGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(128 116) rotate(90) scale(90)">
-      <stop stop-color="#172554"/>
-      <stop offset="0.68" stop-color="#0F172A"/>
-      <stop offset="1" stop-color="#08111F"/>
+    <radialGradient id="eyeBg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1F2A3A"/>
+      <stop offset="100%" stop-color="#0B1119"/>
     </radialGradient>
-    <linearGradient id="shieldFill" x1="82" y1="62" x2="176" y2="196" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#12233F"/>
-      <stop offset="1" stop-color="#0A162C"/>
+    <linearGradient id="irisGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="100%" stop-color="#4FACFE"/>
     </linearGradient>
-    <linearGradient id="shieldStroke" x1="76" y1="70" x2="182" y2="190" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#22D3EE"/>
-      <stop offset="0.55" stop-color="#E2E8F0"/>
-      <stop offset="1" stop-color="#FB7185"/>
-    </linearGradient>
-    <linearGradient id="routeStroke" x1="128" y1="94" x2="128" y2="162" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#22D3EE"/>
-      <stop offset="0.5" stop-color="#E2E8F0"/>
-      <stop offset="1" stop-color="#FB7185"/>
-    </linearGradient>
+    <filter id="redGlow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
   </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#eyeBg)"/>
+
+  <g stroke="#EF4444" stroke-width="3" fill="none" opacity="0.8" filter="url(#redGlow)">
+    <line x1="60" y1="256" x2="140" y2="256"/>
+    <line x1="372" y1="256" x2="452" y2="256"/>
+    <line x1="256" y1="60" x2="256" y2="140"/>
+    <line x1="256" y1="372" x2="256" y2="452"/>
+    <circle cx="256" cy="256" r="160" stroke-dasharray="10 15"/>
+  </g>
+
+  <ellipse cx="256" cy="256" rx="100" ry="70" fill="#FFFFFF" stroke="#4B5563" stroke-width="6"/>
+
+  <g transform="translate(256, 256)">
+    <circle cx="0" cy="0" r="50" fill="url(#irisGrad)"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.6">
+      <ellipse cx="0" cy="0" rx="50" ry="20"/>
+      <ellipse cx="0" cy="0" rx="20" ry="50"/>
+      <line x1="0" y1="-50" x2="0" y2="50"/>
+      <line x1="-50" y1="0" x2="50" y2="0"/>
+    </g>
+    <circle cx="0" cy="0" r="18" fill="#1F2A3A" stroke="#FFFFFF" stroke-width="3"/>
+    <path d="M -8,-10 L 0,-16 L 8,-10 L 6,2 L -6,2 Z" fill="#EF4444" transform="scale(0.8)"/>
+  </g>
+
+  <ellipse cx="230" cy="230" rx="15" ry="8" fill="#FFFFFF" opacity="0.4" transform="rotate(-30, 230, 230)"/>
+  <ellipse cx="270" cy="285" rx="6" ry="3" fill="#FFFFFF" opacity="0.2" transform="rotate(-30, 270, 285)"/>
 </svg>
