@@ -1077,7 +1077,7 @@ class NativeShellApp:
 
         action_panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
         add_css_class(action_panel, "native-shell-panel")
-        title = self.Gtk.Label(label="Узлы и подписки", xalign=0)
+        title = self.Gtk.Label(label="Подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
             label="Подписки управляются здесь, а карточки узлов выбранного источника показываются на вкладке `Подключение`; справа остаётся маршрутизация.",
@@ -1198,17 +1198,16 @@ class NativeShellApp:
     def build_routing_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
         panel.set_hexpand(True)
+        panel.set_vexpand(True)
         add_css_class(panel, "native-shell-panel")
 
         title = self.Gtk.Label(label="Маршрутизация", xalign=0)
         add_css_class(title, "native-shell-card-title")
-        expander = self.Gtk.Expander()
-        expander.set_expanded(False)
         expander_title = self.Gtk.Label(label="Маршрутизация: профиль не выбран", xalign=0)
         add_css_class(expander_title, "native-shell-card-subtitle")
-        expander.set_label_widget(expander_title)
 
         body = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        body.set_vexpand(True)
         badge = self.Gtk.Label(label="Нет профиля", xalign=0)
         add_css_class(badge, "native-shell-badge")
         add_css_class(badge, "native-shell-chip-warning")
@@ -1264,10 +1263,10 @@ class NativeShellApp:
         body.append(import_scroller)
         body.append(action_row)
         body.append(self.build_list_scroller(list_box))
-        expander.set_child(body)
 
         panel.append(title)
-        panel.append(expander)
+        panel.append(expander_title)
+        panel.append(body)
         return panel
 
     def build_list_scroller(self, child):
@@ -1839,7 +1838,7 @@ class NativeShellApp:
             self.set_subscription_label("node_panel_title", "Узлы текущей подписки")
             self.clear_list_widget(grid_box)
             if empty_label is not None:
-                empty_label.set_label("Для выбора узла сначала укажите источник на вкладке `Узлы и подписки`.")
+                empty_label.set_label("Для выбора узла сначала укажите источник на вкладке `Подписки`.")
                 empty_label.set_visible(True)
             if grid_scroller is not None:
                 grid_scroller.set_visible(False)

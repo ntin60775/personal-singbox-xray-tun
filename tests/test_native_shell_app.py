@@ -150,6 +150,11 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(fake_settings.calls, [True, True])
 
+    def test_subscriptions_page_title_is_shortened_to_subscriptions(self) -> None:
+        page = next(page for page in native_shell_app.NATIVE_SHELL_PAGES if page.page_id == "subscriptions")
+
+        self.assertEqual(page.title, "Подписки")
+
     def test_handle_tray_helper_failure_shows_hidden_window(self) -> None:
         app = self.make_app()
         app.window = FakeWindow(visible=False)
