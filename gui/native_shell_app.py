@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import re
 import subprocess
 import sys
 import threading
@@ -86,6 +87,7 @@ DASHBOARD_NODE_CARD_WIDTH = (
     - (DASHBOARD_NODE_CARD_SPACING * (DASHBOARD_NODE_CARD_COLUMNS - 1))
 ) // DASHBOARD_NODE_CARD_COLUMNS
 DASHBOARD_NODE_CARD_HEIGHT = 132
+NODE_FLAG_PREFIX_RE = re.compile(r"^(?:[\U0001F1E6-\U0001F1FF]{2})\s*")
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -1360,6 +1362,18 @@ class NativeShellApp:
             return ""
         return self.subscription_display_name(matched_subscription)
 
+    def node_display_name(self, value: object, *, fallback: str = "Без имени") -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return fallback
+        normalized = raw
+        while True:
+            stripped = NODE_FLAG_PREFIX_RE.sub("", normalized, count=1).strip()
+            if stripped == normalized:
+                break
+            normalized = stripped
+        return normalized or fallback
+
     def dashboard_connection_is_active(
         self,
         summary: dict[str, Any],
@@ -1634,7 +1648,7 @@ class NativeShellApp:
         elif not is_active:
             add_css_class(card, "native-shell-node-card-clickable")
 
-        title = self.make_trimmed_row_text(str(node.get("name") or "Без имени"), "native-shell-row-title", limit=34)
+        title = self.make_trimmed_row_text(self.node_display_name(node.get("name")), "native-shell-row-title", limit=34)
         meta = self.make_trimmed_row_text(self.node_card_meta_text(node), "native-shell-row-meta", limit=52)
 
         badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -2679,7 +2693,7 @@ class NativeShellApp:
     def connection_target_label(self, payload: dict[str, Any]) -> tuple[str, str]:
         active_node = payload.get("active_node", {}) or {}
         connection = payload.get("connection", {}) or {}
-        node_name = str(active_node.get("name") or connection.get("active_name") or "").strip()
+        node_name = self.node_display_name(active_node.get("name") or connection.get("active_name"), fallback="")
         protocol = str(connection.get("protocol_label") or active_node.get("protocol") or "").strip().upper()
 
         if node_name and protocol and protocol != "—":

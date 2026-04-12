@@ -582,6 +582,25 @@ class NativeShellAppTests(unittest.TestCase):
 
         self.assertEqual(meta, "VLESS · edge.example.com:443 · транспорт=tcp")
 
+    def test_node_display_name_strips_leading_flag(self) -> None:
+        app = self.make_app()
+
+        self.assertEqual(app.node_display_name("🇫🇮 Финляндия (Хельсинки)"), "Финляндия (Хельсинки)")
+        self.assertEqual(app.node_display_name("", fallback=""), "")
+
+    def test_connection_target_label_uses_name_without_flag_prefix(self) -> None:
+        app = self.make_app()
+
+        node_name, node_label = app.connection_target_label(
+            {
+                "active_node": {"name": "🇦🇹 Австрия (Вена)"},
+                "connection": {"protocol_label": "VLESS"},
+            }
+        )
+
+        self.assertEqual(node_name, "Австрия (Вена)")
+        self.assertEqual(node_label, "Австрия (Вена) · VLESS")
+
     def test_on_node_card_released_activates_node(self) -> None:
         app = self.make_app()
         captured: dict[str, str] = {}
