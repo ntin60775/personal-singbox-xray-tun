@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex/OpenCode Session Cleaner"
+  short_description: "Prune old Codex and OpenCode sessions"
+  default_prompt: "Use $codex-opencode-session-cleaner to dry-run cleanup of old Codex and OpenCode session data while keeping only the current day and previous two calendar days."

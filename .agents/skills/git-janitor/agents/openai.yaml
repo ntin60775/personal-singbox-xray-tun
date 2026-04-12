@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Janitor"
+  short_description: "Full-cycle git cleanup: sync, commit, merge, push integration branch, clean merged branches"
+  default_prompt: "Use $git-janitor to inspect divergence and safe sync preconditions, split repository changes into topic branches, prepare atomic commits, merge into the integration branch, finish the run with the planned push of that integration branch, and clean up merged temporary branches without reopening the already confirmed plan."

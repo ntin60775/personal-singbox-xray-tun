@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Knowledge System"
+  short_description: "Разворачивает repo-local операционную систему задач: knowledge/, task lifecycle, git/publish-flow, verification matrix, доказательные артефакты и безопасный upgrade"
+  default_prompt: "Используй $task-centric-knowledge, когда нужно развернуть или обновить repo-local knowledge-систему задач с корнем knowledge/, шаблонами task.md/plan.md/sdd.md, git-aware lifecycle, маршрутизацией текущая задача/подзадача/новая задача, delivery units, PR/MR-oriented publish-flow, verification matrix, локальным хранением доказательных артефактов, безопасным upgrade-transition playbook и managed-блоком AGENTS.md."
