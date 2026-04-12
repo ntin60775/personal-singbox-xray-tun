@@ -2,6 +2,7 @@
 /__pycache__/
 __pycache__/
 /.codex
+.codex
 /.playwright-cli/
 /output/playwright/
 /package-lock.json
