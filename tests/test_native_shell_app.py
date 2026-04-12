@@ -127,6 +127,8 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_dns_expanded = False
         app.dashboard_tun_line = "—"
         app.dashboard_uptime_source_id = None
+        app.node_row_click_suppressed = False
+        app.action_in_flight = None
         app.log_path = REPO_ROOT / "logs" / "native-shell.log"
         app.last_log_export_path = None
         return app
@@ -557,7 +559,7 @@ class NativeShellAppTests(unittest.TestCase):
     def test_dashboard_node_card_size_matches_fixed_four_column_grid(self) -> None:
         self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_COLUMNS, 4)
         self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_WIDTH, 283)
-        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_HEIGHT, 148)
+        self.assertEqual(native_shell_app.DASHBOARD_NODE_CARD_HEIGHT, 132)
 
     def test_node_card_meta_text_uses_protocol_endpoint_and_transport(self) -> None:
         app = self.make_app()
@@ -583,6 +585,15 @@ class NativeShellAppTests(unittest.TestCase):
         app.on_node_card_released(None, 1, 0.0, 0.0, "profile-7", "node-3")
 
         self.assertEqual(captured, {"action_id": "node-activate", "profile_id": "profile-7", "node_id": "node-3"})
+
+    def test_on_node_card_released_ignores_suppressed_click(self) -> None:
+        app = self.make_app()
+        app.node_row_click_suppressed = True
+        app.begin_store_action = lambda *_args, **_kwargs: self.fail("node card click should be suppressed")
+
+        app.on_node_card_released(None, 1, 0.0, 0.0, "profile-7", "node-3")
+
+        self.assertFalse(app.node_row_click_suppressed)
 
     def test_dashboard_traffic_text_combines_speed_and_volume(self) -> None:
         app = self.make_app()

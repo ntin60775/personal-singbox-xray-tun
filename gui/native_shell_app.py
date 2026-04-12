@@ -85,7 +85,7 @@ DASHBOARD_NODE_CARD_WIDTH = (
     - 48        # scroller gutter and layout breathing room
     - (DASHBOARD_NODE_CARD_SPACING * (DASHBOARD_NODE_CARD_COLUMNS - 1))
 ) // DASHBOARD_NODE_CARD_COLUMNS
-DASHBOARD_NODE_CARD_HEIGHT = 148
+DASHBOARD_NODE_CARD_HEIGHT = 132
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -1625,7 +1625,7 @@ class NativeShellApp:
         node_disabled = bool(node.get("parse_error")) or not bool(node.get("enabled", True))
         is_active = bool(active_node_id and node_id == active_node_id)
 
-        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        card = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
         card.set_size_request(DASHBOARD_NODE_CARD_WIDTH, DASHBOARD_NODE_CARD_HEIGHT)
         add_css_class(card, "native-shell-node-card")
         if is_active:
@@ -1654,7 +1654,6 @@ class NativeShellApp:
 
         card.append(title)
         card.append(meta)
-        card.append(badge_row)
 
         if node.get("parse_error"):
             card.append(
@@ -1665,16 +1664,16 @@ class NativeShellApp:
                 )
             )
 
-        spacer = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=0)
-        spacer.set_vexpand(True)
-        card.append(spacer)
+        footer_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+        footer_row.set_hexpand(True)
+        badge_row.set_hexpand(True)
+        footer_row.append(badge_row)
 
         ping_button = self.build_icon_button("network-wireless-symbolic", "Проверить доступность узла.")
         ping_button.set_sensitive(not node_disabled and self.action_in_flight is None)
         ping_button.connect("clicked", self.on_node_ping_clicked, profile_id, node_id)
-        if hasattr(ping_button, "set_halign") and hasattr(self.Gtk, "Align"):
-            ping_button.set_halign(self.Gtk.Align.END)
-        card.append(ping_button)
+        footer_row.append(ping_button)
+        card.append(footer_row)
 
         if not node_disabled and not is_active:
             gesture = self.Gtk.GestureClick()
@@ -2039,6 +2038,9 @@ class NativeShellApp:
         self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
 
     def on_node_card_released(self, _gesture, _press_count: int, _x: float, _y: float, profile_id: str, node_id: str) -> None:
+        if self.node_row_click_suppressed or self.action_in_flight:
+            self.node_row_click_suppressed = False
+            return
         self.begin_store_action("node-activate", profile_id=profile_id, node_id=node_id)
 
     def on_routing_profile_action_clicked(self, _button, action_id: str, profile_id: str, enabled_value: object) -> None:
