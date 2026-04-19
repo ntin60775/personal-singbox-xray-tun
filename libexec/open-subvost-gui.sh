@@ -19,6 +19,8 @@ WEBVIEW_LOG_FILE=""
 BACKEND_PID_FILE=""
 BACKEND_LOG_FILE=""
 FORCE_RESTART=0
+BACKEND_RESTART_REQUIRED=0
+BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
 
 if [[ -z "$REAL_HOME" ]]; then
   echo "Не удалось определить домашний каталог пользователя ${REAL_USER}" >&2
@@ -138,15 +140,16 @@ wait_for_server() {
   return 1
 }
 
-server_contract_matches() {
-  python3 - "$URL" "$CURRENT_GUI_VERSION" "$SUBVOST_PROJECT_ROOT" <<'PY'
+server_contract_status() {
+  python3 - "$URL" "$CURRENT_GUI_VERSION" "$BUNDLE_INSTALL_ID" "$SUBVOST_PROJECT_ROOT" <<'PY'
 import json
 import sys
 import urllib.request
 
 base_url = sys.argv[1]
 expected_version = sys.argv[2]
-expected_root = sys.argv[3]
+expected_install_id = sys.argv[3]
+expected_root = sys.argv[4]
 
 try:
     with urllib.request.urlopen(f"{base_url}/api/status", timeout=0.8) as response:
@@ -155,18 +158,27 @@ except Exception:
     sys.exit(1)
 
 same_version = payload.get("gui_version") == expected_version
-same_root = payload.get("project_root") == expected_root
+identity = payload.get("bundle_identity") if isinstance(payload.get("bundle_identity"), dict) else {}
+same_install_id = identity.get("install_id") == expected_install_id
+same_root = payload.get("project_root") == expected_root or identity.get("project_root") == expected_root
 
-if not same_root and isinstance(payload.get("bundle_identity"), dict):
-    same_root = payload["bundle_identity"].get("project_root") == expected_root
-
-sys.exit(0 if same_version and same_root else 1)
+if same_version and same_install_id and same_root:
+    print("match")
+elif same_version and same_install_id:
+    print("restart")
+else:
+    print("mismatch")
 PY
+}
+
+server_contract_matches() {
+  [[ "$(server_contract_status 2>/dev/null || true)" == "match" ]]
 }
 
 select_gui_port() {
   local candidate
   local preferred_busy=0
+  local contract_status
 
   candidate="${PREFERRED_PORT}"
   while (( 10#${candidate} <= 10#${PORT_FALLBACK_END} )); do
@@ -174,10 +186,15 @@ select_gui_port() {
     refresh_gui_endpoint
 
     if is_server_ready; then
-      if server_contract_matches; then
+      contract_status="$(server_contract_status 2>/dev/null || true)"
+      if [[ "$contract_status" == "match" ]]; then
         if [[ "${preferred_busy}" == "1" && "${candidate}" != "${PREFERRED_PORT}" ]]; then
           echo "GUI порт ${PREFERRED_PORT} занят несовместимым backend-ом; используется совместимый backend на порту ${PORT}." >&2
         fi
+        return 0
+      fi
+      if [[ "$contract_status" == "restart" ]]; then
+        BACKEND_RESTART_REQUIRED=1
         return 0
       fi
 
@@ -318,6 +335,9 @@ if [[ "${FORCE_RESTART}" == "1" ]]; then
   stop_existing_backend
 else
   select_gui_port || exit 1
+  if [[ "${BACKEND_RESTART_REQUIRED}" == "1" ]]; then
+    stop_existing_backend
+  fi
 fi
 
 if is_server_ready; then

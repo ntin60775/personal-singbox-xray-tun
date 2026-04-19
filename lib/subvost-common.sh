@@ -50,6 +50,8 @@ subvost_load_project_layout_from_env() {
   export SUBVOST_GTK_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun-gtk-ui.desktop"
   export SUBVOST_DESKTOP_ICON_NAME="subvost-xray-tun-icon"
   export SUBVOST_DESKTOP_ICON_PATH="${project_root}/assets/subvost-xray-tun-icon.svg"
+  export SUBVOST_INSTALL_STATE_DIR="${project_root}/.subvost"
+  export SUBVOST_INSTALL_ID_FILE="${project_root}/.subvost/install-id"
 }
 
 subvost_export_project_layout() {
@@ -68,6 +70,68 @@ subvost_find_executable() {
     fi
   done
   return 1
+}
+
+subvost_generate_install_id() {
+  local generated=""
+
+  if [[ -r /proc/sys/kernel/random/uuid ]]; then
+    generated="$(tr '[:upper:]' '[:lower:]' </proc/sys/kernel/random/uuid)"
+  elif command -v uuidgen >/dev/null 2>&1; then
+    generated="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+  elif command -v python3 >/dev/null 2>&1; then
+    generated="$(python3 - <<'PY'
+import uuid
+print(uuid.uuid4())
+PY
+)"
+  else
+    generated="subvost-$(date +%s)-$$"
+  fi
+
+  printf '%s\n' "$generated"
+}
+
+subvost_validate_install_id() {
+  local install_id="$1"
+  [[ "$install_id" =~ ^[a-z0-9][a-z0-9._:-]{7,127}$ ]]
+}
+
+subvost_read_install_id_file() {
+  local install_id_file="$1"
+  local install_id=""
+
+  [[ -f "$install_id_file" ]] || return 1
+  IFS= read -r install_id <"$install_id_file" || install_id=""
+  subvost_validate_install_id "$install_id" || subvost_die "Некорректный install-id установки: ${install_id_file}"
+  printf '%s\n' "$install_id"
+}
+
+subvost_ensure_install_id() {
+  local install_id_file="${1:-${SUBVOST_INSTALL_ID_FILE:-}}"
+  local install_id_dir
+  local install_id
+  local tmp_file
+
+  [[ -n "$install_id_file" ]] || subvost_die "Не передан путь к install-id установки."
+  subvost_ensure_absolute_path "$install_id_file" "SUBVOST_INSTALL_ID_FILE"
+
+  if [[ -f "$install_id_file" ]]; then
+    subvost_read_install_id_file "$install_id_file"
+    return 0
+  fi
+
+  install_id_dir="$(dirname -- "$install_id_file")"
+  mkdir -p "$install_id_dir" || subvost_die "Не удалось создать каталог install-id: ${install_id_dir}"
+
+  install_id="$(subvost_generate_install_id)"
+  subvost_validate_install_id "$install_id" || subvost_die "Не удалось сгенерировать корректный install-id."
+
+  tmp_file="$(mktemp "${install_id_dir}/install-id.tmp.XXXXXX")"
+  printf '%s\n' "$install_id" >"$tmp_file"
+  chmod 0600 "$tmp_file" 2>/dev/null || true
+  mv -- "$tmp_file" "$install_id_file"
+  printf '%s\n' "$install_id"
 }
 
 subvost_resolve_real_user_name() {

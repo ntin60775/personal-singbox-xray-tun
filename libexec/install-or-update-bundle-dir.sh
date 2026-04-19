@@ -15,6 +15,7 @@ usage() {
 
 Сценарий копирует bundle в целевой каталог без жёстко зашитых путей.
 Локальные repo-артефакты (`.git`, `.codex`, `.playwright-cli`, `.gitignore`) и содержимое `logs/` не переносятся.
+Локальный идентификатор установки `.subvost/install-id` не копируется из source и сохраняется в целевом каталоге.
 Существующий каталог `logs/` в целевом bundle сохраняется.
 EOF
 }
@@ -75,6 +76,7 @@ copy_bundle_tree() {
       --exclude='./.git' \
       --exclude='./.codex' \
       --exclude='./.playwright-cli' \
+      --exclude='./.subvost' \
       --exclude='./.gitignore' \
       --exclude='./AGENTS.md' \
       --exclude='./logs' \
@@ -120,6 +122,7 @@ mkdir -p "${TARGET_DIR}/logs"
 copy_bundle_tree "$SUBVOST_PROJECT_ROOT" "$TARGET_DIR"
 
 subvost_export_project_layout "$TARGET_DIR"
+subvost_ensure_install_id >/dev/null
 subvost_sync_desktop_launcher_icon
 
 echo

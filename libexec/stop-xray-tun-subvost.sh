@@ -21,12 +21,15 @@ STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
 ARG_XRAY_PID="${1:-}"
 XRAY_PID=""
+STATE_BUNDLE_INSTALL_ID=""
 STATE_BUNDLE_PROJECT_ROOT=""
 RUNTIME_IMPL="${RUNTIME_IMPL:-xray}"
 TUN_INTERFACE="${TUN_INTERFACE:-tun0}"
 ROUTE_TABLE="${ROUTE_TABLE:-18421}"
 ROUTE_MARK="${ROUTE_MARK:-8421}"
 ROUTE_RULE_PREF="${ROUTE_RULE_PREF:-100}"
+SKIP_RUNTIME_PROCESS_STOP=0
+FORCE_TAKEOVER="${SUBVOST_FORCE_TAKEOVER:-0}"
 
 ensure_absolute_path() {
   local path_value="$1"
@@ -39,8 +42,9 @@ ensure_absolute_path() {
 
 ensure_absolute_path "$STATE_FILE" "STATE_FILE"
 ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
+BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
 
-read_state_bundle_project_root() {
+read_state_bundle_install_id() {
   local state_file="$1"
   local key value
 
@@ -48,8 +52,8 @@ read_state_bundle_project_root() {
 
   while IFS='=' read -r key value; do
     case "$key" in
-      BUNDLE_PROJECT_ROOT)
-        if [[ "$value" == /* ]]; then
+      BUNDLE_INSTALL_ID)
+        if subvost_validate_install_id "$value"; then
           printf '%s\n' "$value"
           return 0
         fi
@@ -101,7 +105,7 @@ legacy_state_runtime_is_live() {
 }
 
 if [[ -f "$STATE_FILE" ]]; then
-  STATE_BUNDLE_PROJECT_ROOT="$(read_state_bundle_project_root "$STATE_FILE")"
+  STATE_BUNDLE_INSTALL_ID="$(read_state_bundle_install_id "$STATE_FILE")"
   while IFS='=' read -r key value; do
     case "$key" in
       XRAY_PID)
@@ -120,6 +124,11 @@ if [[ -f "$STATE_FILE" ]]; then
         fi
         ;;
       BUNDLE_PROJECT_ROOT)
+        if [[ "$value" == /* ]]; then
+          STATE_BUNDLE_PROJECT_ROOT="$value"
+        fi
+        ;;
+      BUNDLE_PROJECT_ROOT_HINT)
         if [[ "$value" == /* ]]; then
           STATE_BUNDLE_PROJECT_ROOT="$value"
         fi
@@ -163,6 +172,31 @@ if [[ ! -f "$STATE_FILE" ]]; then
     echo "Для безопасности без state-файла или явного PID текущий bundle не будет выполнять stop." >&2
     exit 1
   fi
+elif [[ -n "$STATE_BUNDLE_INSTALL_ID" ]]; then
+  if [[ "$STATE_BUNDLE_INSTALL_ID" != "$BUNDLE_INSTALL_ID" ]]; then
+    if legacy_state_runtime_is_live "$STATE_FILE"; then
+      if [[ "$FORCE_TAKEOVER" == "1" ]]; then
+        echo "Выполняется явный перехват подключения другой установки bundle: ${STATE_FILE}" >&2
+        echo "Идентификатор установки владельца: ${STATE_BUNDLE_INSTALL_ID}" >&2
+        echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
+      else
+        echo "Файл состояния принадлежит другой установке bundle: ${STATE_FILE}" >&2
+        echo "Идентификатор установки владельца: ${STATE_BUNDLE_INSTALL_ID}" >&2
+        echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
+        if [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+          echo "Последний известный путь владельца: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+        fi
+        echo "Для безопасности текущий bundle не будет останавливать живой runtime другой установки." >&2
+        exit 1
+      fi
+    else
+      echo "Файл состояния принадлежит другой установке bundle: ${STATE_FILE}" >&2
+      echo "Идентификатор установки владельца: ${STATE_BUNDLE_INSTALL_ID}" >&2
+      echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
+      echo "Живой процесс по этому файлу состояния не найден. Выполняется очистка устаревшего состояния и восстановление DNS." >&2
+      SKIP_RUNTIME_PROCESS_STOP=1
+    fi
+  fi
 elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
   if legacy_state_runtime_is_live "$STATE_FILE"; then
     echo "Файл состояния не содержит bundle identity: ${STATE_FILE}" >&2
@@ -171,18 +205,35 @@ elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
   fi
 
   echo "Файл состояния не содержит bundle identity: ${STATE_FILE}" >&2
-  echo "Runtime по этому state уже не активен. Удаляется только stale state-файл." >&2
+  echo "Процесс по этому файлу состояния уже не активен. Удаляется только устаревший файл состояния." >&2
   rm -f "$STATE_FILE"
   exit 0
 elif [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
-  echo "Файл состояния принадлежит другому bundle: ${STATE_FILE}" >&2
-  echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
-  echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
-  exit 1
+  if legacy_state_runtime_is_live "$STATE_FILE"; then
+    if [[ "$FORCE_TAKEOVER" == "1" ]]; then
+      echo "Выполняется явный перехват legacy runtime другого bundle: ${STATE_FILE}" >&2
+      echo "Последний известный путь владельца runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+      echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+    else
+      echo "Legacy state принадлежит другому bundle: ${STATE_FILE}" >&2
+      echo "Последний известный путь владельца runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+      echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+      echo "Для безопасности текущий bundle не будет останавливать живой legacy runtime другого экземпляра." >&2
+      exit 1
+    fi
+  else
+    echo "Legacy state принадлежит другому bundle: ${STATE_FILE}" >&2
+    echo "Последний известный путь владельца runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+    echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+    echo "Живой процесс по этому файлу состояния не найден. Выполняется очистка устаревшего состояния и восстановление DNS." >&2
+    SKIP_RUNTIME_PROCESS_STOP=1
+  fi
 fi
 
 echo "[1/4] Остановка Xray core"
-if [[ -n "${XRAY_PID:-}" ]]; then
+if [[ "$SKIP_RUNTIME_PROCESS_STOP" == "1" ]]; then
+  echo "Живой процесс не найден, остановка процесса пропущена."
+elif [[ -n "${XRAY_PID:-}" ]]; then
   sudo kill "$XRAY_PID" 2>/dev/null || true
 else
   sudo pkill -f "xray run -c ${XRAY_CONFIG}" 2>/dev/null || true

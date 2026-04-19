@@ -161,6 +161,10 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         launcher = (REPO_ROOT / "libexec" / "open-subvost-gui.sh").read_text(encoding="utf-8")
         self.assertIn('CURRENT_GUI_VERSION="$(load_current_gui_version)"', launcher)
         self.assertIn("from gui_contract import GUI_VERSION", launcher)
+        self.assertIn('BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"', launcher)
+        self.assertIn("same_install_id = identity.get(\"install_id\") == expected_install_id", launcher)
+        self.assertIn('"$contract_status" == "restart"', launcher)
+        self.assertIn("BACKEND_RESTART_REQUIRED=1", launcher)
         self.assertIn("SUBVOST_GUI_LAUNCH_MODE", launcher)
         self.assertIn("embedded_webview.py", launcher)
         self.assertIn("open_embedded_webview", launcher)
@@ -326,12 +330,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
                 gui_server.resolve_backend_pid_file(1000)
 
     def test_classify_runtime_ownership_matches_current_bundle(self) -> None:
+        ownership = gui_server.classify_runtime_ownership({"BUNDLE_INSTALL_ID": gui_server.BUNDLE_INSTALL_ID})
+
+        self.assertEqual(ownership, "current")
+
+    def test_classify_runtime_ownership_keeps_legacy_path_fallback(self) -> None:
         ownership = gui_server.classify_runtime_ownership({"BUNDLE_PROJECT_ROOT": str(gui_server.PROJECT_ROOT)})
 
         self.assertEqual(ownership, "current")
 
     def test_classify_runtime_ownership_detects_foreign_bundle(self) -> None:
-        ownership = gui_server.classify_runtime_ownership({"BUNDLE_PROJECT_ROOT": "/tmp/foreign-subvost-bundle"})
+        ownership = gui_server.classify_runtime_ownership({"BUNDLE_INSTALL_ID": "foreign-install-id"})
 
         self.assertEqual(ownership, "foreign")
 
@@ -339,7 +348,8 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         state = {
             "XRAY_PID": "12345",
             "TUN_INTERFACE": "tun0",
-            "BUNDLE_PROJECT_ROOT": "/tmp/foreign-subvost-bundle",
+            "BUNDLE_INSTALL_ID": "foreign-install-id",
+            "BUNDLE_PROJECT_ROOT_HINT": "/tmp/foreign-subvost-bundle",
         }
 
         with patch("gui_server.is_pid_alive", return_value=True):
@@ -347,14 +357,14 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
         self.assertFalse(stop_needed)
 
-    def test_runtime_control_blocked_keeps_foreign_stale_state_blocked(self) -> None:
+    def test_runtime_control_blocked_allows_foreign_stale_state_for_cleanup(self) -> None:
         runtime_info = {
             "has_state": True,
             "ownership": "foreign",
             "stack_is_live": False,
         }
 
-        self.assertTrue(gui_server.runtime_control_blocked(runtime_info))
+        self.assertFalse(gui_server.runtime_control_blocked(runtime_info))
 
     def test_runtime_control_blocked_allows_stale_unknown_state_without_live_runtime(self) -> None:
         runtime_info = {
@@ -482,17 +492,17 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "другого экземпляра Subvost"):
                 gui_server.handle_stop()
 
-    def test_handle_start_rejects_foreign_runtime_before_store_checks(self) -> None:
+    def test_handle_start_rejects_foreign_live_runtime_before_store_checks(self) -> None:
         runtime_info = {
             "has_state": True,
             "ownership": "foreign",
             "ownership_label": "Другой экземпляр",
             "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
             "tun_interface": "tun0",
-            "xray_pid": None,
-            "xray_alive": False,
-            "tun_present": False,
-            "stack_is_live": False,
+            "xray_pid": "12345",
+            "xray_alive": True,
+            "tun_present": True,
+            "stack_is_live": True,
             "owned_stack_is_live": False,
         }
 
@@ -500,20 +510,39 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "другого экземпляра Subvost"):
                 gui_server.handle_start()
 
-    def test_runtime_scripts_persist_and_guard_bundle_project_root(self) -> None:
+    def test_runtime_scripts_persist_and_guard_bundle_install_id(self) -> None:
         run_script = (REPO_ROOT / "libexec" / "run-xray-tun-subvost.sh").read_text(encoding="utf-8")
         stop_script = (REPO_ROOT / "libexec" / "stop-xray-tun-subvost.sh").read_text(encoding="utf-8")
 
-        self.assertIn("BUNDLE_PROJECT_ROOT", run_script)
-        self.assertIn("printf 'BUNDLE_PROJECT_ROOT=%s\\n' \"$SUBVOST_PROJECT_ROOT\" >>\"$STATE_FILE\"", run_script)
-        self.assertIn("read_state_bundle_project_root()", run_script)
-        self.assertIn("STATE_BUNDLE_PROJECT_ROOT", stop_script)
-        self.assertIn("Файл состояния принадлежит другому bundle", stop_script)
-        self.assertIn("не будет останавливать неподтверждённый runtime", stop_script)
+        self.assertIn("BUNDLE_INSTALL_ID", run_script)
+        self.assertIn("printf 'BUNDLE_INSTALL_ID=%s\\n' \"$BUNDLE_INSTALL_ID\" >>\"$STATE_FILE\"", run_script)
+        self.assertIn("BUNDLE_PROJECT_ROOT_HINT", run_script)
+        self.assertNotIn("printf 'BUNDLE_PROJECT_ROOT=%s\\n' \"$SUBVOST_PROJECT_ROOT\" >>\"$STATE_FILE\"", run_script)
+        self.assertIn("read_state_bundle_install_id()", run_script)
+        self.assertIn("STATE_BUNDLE_INSTALL_ID", stop_script)
+        self.assertIn('FORCE_TAKEOVER="${SUBVOST_FORCE_TAKEOVER:-0}"', stop_script)
+        self.assertIn("Выполняется явный перехват подключения другой установки bundle", stop_script)
+        self.assertIn("Файл состояния принадлежит другой установке bundle", stop_script)
+        self.assertIn("не будет останавливать живой runtime другой установки", stop_script)
+        self.assertIn("Выполняется очистка устаревшего состояния и восстановление DNS.", stop_script)
+        self.assertIn("Живой процесс не найден, остановка процесса пропущена.", stop_script)
         self.assertIn("legacy_state_runtime_is_live()", run_script)
+        self.assertIn("Обнаружен устаревший файл состояния другой установки bundle", run_script)
         self.assertIn("Обнаружен stale legacy state без bundle identity", run_script)
-        self.assertIn("Runtime по этому state уже не активен, файл будет перезаписан новым запуском.", run_script)
-        self.assertIn("Runtime по этому state уже не активен. Удаляется только stale state-файл.", stop_script)
+        self.assertIn("Процесс по этому файлу состояния уже не активен, файл будет перезаписан новым запуском.", run_script)
+        self.assertIn("Процесс по этому файлу состояния уже не активен. Удаляется только устаревший файл состояния.", stop_script)
+
+    def test_bundle_sync_preserves_target_install_id(self) -> None:
+        installer = (REPO_ROOT / "libexec" / "install-or-update-bundle-dir.sh").read_text(encoding="utf-8")
+        common_shell = (REPO_ROOT / "lib" / "subvost-common.sh").read_text(encoding="utf-8")
+        gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+        self.assertIn("--exclude='./.subvost'", installer)
+        self.assertIn("subvost_ensure_install_id >/dev/null", installer)
+        self.assertIn('SUBVOST_INSTALL_ID_FILE="${project_root}/.subvost/install-id"', common_shell)
+        self.assertIn("subvost_ensure_install_id()", common_shell)
+        self.assertIn('IFS= read -r install_id <"$install_id_file" || install_id=""', common_shell)
+        self.assertIn("/.subvost/", gitignore)
 
     def test_root_backend_shell_action_runs_script_directly(self) -> None:
         script = Path("/tmp/run-xray-tun-subvost.sh")

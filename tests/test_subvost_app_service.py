@@ -16,6 +16,7 @@ from subvost_app_service import (  # noqa: E402
     ServiceContext,
     ServiceState,
     SubvostAppService,
+    ensure_bundle_install_id,
 )
 from subvost_paths import build_app_paths  # noqa: E402
 from subvost_store import ensure_store_initialized  # noqa: E402
@@ -41,7 +42,7 @@ class SubvostAppServiceTests(unittest.TestCase):
         )
         return SubvostAppService(context=context, state=ServiceState())
 
-    def test_start_runtime_rejects_foreign_runtime_before_store_checks(self) -> None:
+    def test_start_runtime_rejects_foreign_live_runtime_before_store_checks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             real_home = root / "home"
@@ -55,16 +56,49 @@ class SubvostAppServiceTests(unittest.TestCase):
                 "ownership_label": "Другой экземпляр",
                 "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
                 "tun_interface": "tun0",
-                "xray_pid": None,
-                "xray_alive": False,
-                "tun_present": False,
-                "stack_is_live": False,
+                "xray_pid": "12345",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
                 "owned_stack_is_live": False,
             }
 
             with patch.object(service, "inspect_runtime_state", return_value=runtime_info):
                 with self.assertRaisesRegex(ValueError, "другого экземпляра"):
                     service.start_runtime()
+
+    def test_classify_runtime_ownership_prefers_install_id_over_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+
+            current = service.classify_runtime_ownership(
+                {
+                    "BUNDLE_INSTALL_ID": service.context.install_id,
+                    "BUNDLE_PROJECT_ROOT_HINT": "/moved/old-path",
+                }
+            )
+            foreign = service.classify_runtime_ownership(
+                {
+                    "BUNDLE_INSTALL_ID": "foreign-install-id",
+                    "BUNDLE_PROJECT_ROOT_HINT": str(root),
+                }
+            )
+
+            self.assertEqual(current, "current")
+            self.assertEqual(foreign, "foreign")
+
+    def test_ensure_bundle_install_id_rejects_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            install_id_file = root / ".subvost" / "install-id"
+            install_id_file.parent.mkdir()
+            install_id_file.write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(SystemExit, "Некорректный install-id установки"):
+                ensure_bundle_install_id(root)
 
     def test_collect_store_snapshot_returns_store_and_status_envelope(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -316,6 +350,112 @@ class SubvostAppServiceTests(unittest.TestCase):
 
             self.assertEqual(payload["runtime"]["ownership"], "foreign")
             self.assertEqual(payload["runtime"]["connected_since"], "2026-04-12T13:14:15+02:00")
+
+    def test_runtime_control_blocked_allows_foreign_stale_state_for_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            runtime_info = {
+                "has_state": True,
+                "ownership": "foreign",
+                "stack_is_live": False,
+            }
+
+            self.assertFalse(service.runtime_control_blocked(runtime_info))
+
+    def test_stop_runtime_runs_cleanup_for_foreign_stale_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            runtime_info = {
+                "has_state": True,
+                "ownership": "foreign",
+                "ownership_label": "Другой экземпляр",
+                "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+                "tun_interface": "tun0",
+                "xray_pid": "12345",
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "inspect_runtime_state", return_value=runtime_info),
+                patch.object(service, "run_shell_action", return_value=CommandResult("Отключение", True, 0, "stale-cleaned")) as run_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.stop_runtime()
+
+            self.assertEqual(payload["summary"]["state"], "stopped")
+            run_mock.assert_called_once()
+
+    def test_takeover_runtime_for_foreign_live_state_uses_force_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            runtime_info = {
+                "has_state": True,
+                "ownership": "foreign",
+                "ownership_label": "Другой экземпляр",
+                "state_bundle_install_id": "foreign-install-id",
+                "state_bundle_project_root": "/tmp/foreign-subvost-bundle",
+                "tun_interface": "tun0",
+                "xray_pid": "12345",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "inspect_runtime_state", return_value=runtime_info),
+                patch.object(
+                    service,
+                    "run_shell_action",
+                    return_value=CommandResult("Перехват подключения", True, 0, "forced-stop"),
+                ) as run_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.takeover_runtime()
+
+            self.assertEqual(payload["summary"]["state"], "stopped")
+            run_mock.assert_called_once_with(
+                "Перехват подключения",
+                service.context.stop_script,
+                {"SUBVOST_FORCE_TAKEOVER": "1"},
+            )
+            self.assertEqual(service.state.last_action["message"], "Перехват выполнен: чужое подключение остановлено.")
+
+    def test_takeover_runtime_rejects_current_or_stale_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+
+            with patch.object(
+                service,
+                "inspect_runtime_state",
+                return_value={"has_state": True, "ownership": "current", "stack_is_live": True},
+            ):
+                with self.assertRaisesRegex(ValueError, "другой установки"):
+                    service.takeover_runtime()
+
+            with patch.object(
+                service,
+                "inspect_runtime_state",
+                return_value={"has_state": True, "ownership": "foreign", "stack_is_live": False},
+            ):
+                with self.assertRaisesRegex(ValueError, "уже не активно"):
+                    service.takeover_runtime()
 
     def test_ping_node_by_id_updates_cache_and_returns_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

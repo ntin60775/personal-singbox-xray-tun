@@ -211,7 +211,7 @@ PY
   ACTIVE_NODE_ID="$(printf '%s\n' "$selection_data" | sed -n '2p')"
 }
 
-read_state_bundle_project_root() {
+read_state_bundle_install_id() {
   local state_file="$1"
   local key value
 
@@ -219,8 +219,8 @@ read_state_bundle_project_root() {
 
   while IFS='=' read -r key value; do
     case "$key" in
-      BUNDLE_PROJECT_ROOT)
-        if [[ "$value" == /* ]]; then
+      BUNDLE_INSTALL_ID)
+        if subvost_validate_install_id "$value"; then
           printf '%s\n' "$value"
           return 0
         fi
@@ -433,6 +433,7 @@ ACTIVE_NODE_ID=""
 DEFAULT_IPV4_ROUTE_LINE=""
 DEFAULT_IPV4_INTERFACE=""
 XRAY_CONFIG_SOURCE="store"
+BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
 
 ensure_python3_available
 
@@ -494,13 +495,47 @@ if pgrep -xaf 'FlClashX|FlClashCore' >/dev/null 2>&1; then
 fi
 
 if [[ -f "$STATE_FILE" ]]; then
-  STATE_BUNDLE_PROJECT_ROOT="$(read_state_bundle_project_root "$STATE_FILE")"
-  if [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]] && [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
-    echo "Обнаружен файл состояния другого bundle: $STATE_FILE" >&2
-    echo "Bundle-владелец runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+  STATE_BUNDLE_INSTALL_ID="$(read_state_bundle_install_id "$STATE_FILE")"
+  STATE_BUNDLE_PROJECT_ROOT="$(read_state_value "$STATE_FILE" "BUNDLE_PROJECT_ROOT_HINT")"
+  if [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+    STATE_BUNDLE_PROJECT_ROOT="$(read_state_value "$STATE_FILE" "BUNDLE_PROJECT_ROOT")"
+  fi
+
+  if [[ -n "$STATE_BUNDLE_INSTALL_ID" ]]; then
+    if [[ "$STATE_BUNDLE_INSTALL_ID" != "$BUNDLE_INSTALL_ID" ]]; then
+      if legacy_state_runtime_is_live "$STATE_FILE"; then
+        echo "Обнаружен файл состояния другой установки bundle: $STATE_FILE" >&2
+        echo "Идентификатор установки владельца: ${STATE_BUNDLE_INSTALL_ID}" >&2
+        echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
+        if [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
+          echo "Последний известный путь владельца: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+        fi
+        echo "Сначала останови исходную установку или выполни ${SUBVOST_STOP_WRAPPER}, когда runtime уже не активен." >&2
+        exit 1
+      fi
+
+      echo "Обнаружен устаревший файл состояния другой установки bundle: $STATE_FILE" >&2
+      echo "Идентификатор установки владельца: ${STATE_BUNDLE_INSTALL_ID}" >&2
+      echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
+      echo "Живой процесс по этому файлу состояния не найден, новый запуск перезапишет устаревшее состояние." >&2
+    else
+      echo "Обнаружен файл состояния прошлого запуска текущей установки bundle: $STATE_FILE" >&2
+      echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+      exit 1
+    fi
+  elif [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]] && [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
+    if legacy_state_runtime_is_live "$STATE_FILE"; then
+      echo "Обнаружен legacy state другого bundle: $STATE_FILE" >&2
+      echo "Последний известный путь владельца runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
+      echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
+      echo "Сначала останови исходный экземпляр или выполни ${SUBVOST_STOP_WRAPPER}, когда runtime уже не активен." >&2
+      exit 1
+    fi
+
+    echo "Обнаружен stale legacy state другого bundle: $STATE_FILE" >&2
+    echo "Последний известный путь владельца runtime: ${STATE_BUNDLE_PROJECT_ROOT}" >&2
     echo "Текущий bundle: ${SUBVOST_PROJECT_ROOT}" >&2
-    echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
-    exit 1
+    echo "Живой процесс по этому файлу состояния не найден, новый запуск перезапишет устаревшее состояние." >&2
   elif [[ -z "$STATE_BUNDLE_PROJECT_ROOT" ]]; then
     if legacy_state_runtime_is_live "$STATE_FILE"; then
       echo "Обнаружен файл состояния без bundle identity: $STATE_FILE" >&2
@@ -510,7 +545,7 @@ if [[ -f "$STATE_FILE" ]]; then
     fi
 
     echo "Обнаружен stale legacy state без bundle identity: $STATE_FILE" >&2
-    echo "Runtime по этому state уже не активен, файл будет перезаписан новым запуском." >&2
+    echo "Процесс по этому файлу состояния уже не активен, файл будет перезаписан новым запуском." >&2
   else
     echo "Обнаружен файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
     echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
@@ -597,7 +632,8 @@ printf 'XRAY_PID=%s\nRESOLV_BACKUP=%s\nXRAY_CONFIG=%s\nACTIVE_PROFILE_ID=%s\nACT
   >"$STATE_FILE"
 printf 'STARTED_AT=%s\n' "$STARTED_AT" >>"$STATE_FILE"
 printf 'XRAY_CONFIG_SOURCE=%s\n' "$XRAY_CONFIG_SOURCE" >>"$STATE_FILE"
-printf 'BUNDLE_PROJECT_ROOT=%s\n' "$SUBVOST_PROJECT_ROOT" >>"$STATE_FILE"
+printf 'BUNDLE_INSTALL_ID=%s\n' "$BUNDLE_INSTALL_ID" >>"$STATE_FILE"
+printf 'BUNDLE_PROJECT_ROOT_HINT=%s\n' "$SUBVOST_PROJECT_ROOT" >>"$STATE_FILE"
 printf 'RUNTIME_IMPL=%s\n' "xray" >>"$STATE_FILE"
 printf 'TUN_INTERFACE=%s\n' "$TUN_INTERFACE_NAME" >>"$STATE_FILE"
 printf 'TUN_INTERFACE_ADDRESS=%s\n' "$TUN_INTERFACE_ADDRESS" >>"$STATE_FILE"

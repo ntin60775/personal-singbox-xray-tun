@@ -126,6 +126,9 @@ NATIVE_SHELL_TRAY_ACTIONS = (
     NativeShellTrayAction("open-settings", "Настройки", "Открыть минимальное окно настроек уровня интерфейса."),
     NativeShellTrayAction("quit-app", "Выход", "Полностью завершить интерфейс приложения."),
 )
+NATIVE_SHELL_RUNTIME_ACTION_LABELS = {
+    "takeover-runtime": "Перехватить подключение",
+}
 
 
 @dataclass
@@ -191,6 +194,8 @@ def native_shell_action_label(action_id: str) -> str:
     tray_label = tray_action_label(action_id)
     if tray_label != action_id:
         return tray_label
+    if action_id in NATIVE_SHELL_RUNTIME_ACTION_LABELS:
+        return NATIVE_SHELL_RUNTIME_ACTION_LABELS[action_id]
     return NATIVE_SHELL_STORE_ACTION_LABELS.get(action_id, action_id)
 
 

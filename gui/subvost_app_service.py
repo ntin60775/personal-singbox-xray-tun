@@ -8,6 +8,7 @@ import socket
 import subprocess
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -42,6 +43,8 @@ from subvost_store import (
     update_routing_profile_enabled as store_update_routing_profile_enabled,
     update_subscription as store_update_subscription,
 )
+
+INSTALL_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._:-]{7,127}$")
 
 
 def discover_project_root(gui_dir: Path) -> Path:
@@ -146,6 +149,29 @@ def normalize_identity_path(value: str | None) -> str | None:
         return str(path)
 
 
+def validate_install_id(value: str | None) -> bool:
+    return bool(value and INSTALL_ID_PATTERN.fullmatch(value))
+
+
+def ensure_bundle_install_id(project_root: Path) -> str:
+    install_id_file = project_root / ".subvost" / "install-id"
+    if install_id_file.exists():
+        lines = install_id_file.read_text(encoding="utf-8").splitlines()
+        install_id = lines[0].strip() if lines else ""
+        if not validate_install_id(install_id):
+            raise SystemExit(f"Некорректный install-id установки: {install_id_file}")
+        return install_id
+
+    install_id_file.parent.mkdir(parents=True, exist_ok=True)
+    install_id = str(uuid.uuid4())
+    install_id_file.write_text(f"{install_id}\n", encoding="utf-8")
+    try:
+        install_id_file.chmod(0o600)
+    except OSError:
+        pass
+    return install_id
+
+
 def runtime_source_label(source: str | None) -> str:
     if source == "store":
         return "Выбранный узел"
@@ -198,6 +224,7 @@ class ServiceContext:
     stop_script: Path
     diag_script: Path
     xray_template_path: Path
+    install_id: str = "test-install-id"
 
 
 @dataclass
@@ -229,6 +256,7 @@ def build_default_service(gui_dir: Path, *, state: ServiceState | None = None) -
         stop_script=project_root / "stop-xray-tun-subvost.sh",
         diag_script=project_root / "capture-xray-tun-state.sh",
         xray_template_path=project_root / "xray-tun-subvost.json",
+        install_id=ensure_bundle_install_id(project_root),
     )
     return SubvostAppService(context=context, state=state)
 
@@ -294,9 +322,17 @@ class SubvostAppService:
         return result
 
     def state_bundle_project_root(self, state: dict[str, str]) -> str | None:
-        return normalize_identity_path(state.get("BUNDLE_PROJECT_ROOT"))
+        return normalize_identity_path(state.get("BUNDLE_PROJECT_ROOT_HINT") or state.get("BUNDLE_PROJECT_ROOT"))
+
+    def state_bundle_install_id(self, state: dict[str, str]) -> str | None:
+        install_id = state.get("BUNDLE_INSTALL_ID")
+        return install_id if validate_install_id(install_id) else None
 
     def classify_runtime_ownership(self, state: dict[str, str]) -> str:
+        bundle_install_id = self.state_bundle_install_id(state)
+        if bundle_install_id:
+            return "current" if bundle_install_id == self.context.install_id else "foreign"
+
         bundle_root = self.state_bundle_project_root(state)
         if not bundle_root:
             return "unknown"
@@ -332,6 +368,7 @@ class SubvostAppService:
             "has_state": has_state,
             "ownership": ownership,
             "ownership_label": self.runtime_ownership_label(ownership),
+            "state_bundle_install_id": self.state_bundle_install_id(runtime_state),
             "state_bundle_project_root": self.state_bundle_project_root(runtime_state),
             "tun_interface": tun_interface,
             "xray_pid": xray_pid,
@@ -344,20 +381,26 @@ class SubvostAppService:
     def runtime_control_blocked(self, runtime_info: dict[str, Any]) -> bool:
         ownership = runtime_info["ownership"]
         if ownership == "foreign":
-            return bool(runtime_info["has_state"] or runtime_info["stack_is_live"])
+            return bool(runtime_info["stack_is_live"])
         if ownership == "unknown":
             return bool(runtime_info["stack_is_live"])
         return False
 
     def runtime_control_guard_message(self, runtime_info: dict[str, Any], *, action: str) -> str:
         state_root = runtime_info.get("state_bundle_project_root")
+        state_install_id = runtime_info.get("state_bundle_install_id")
         tun_interface = runtime_info.get("tun_interface") or "tun0"
         current_root = str(self.context.project_root)
 
         if runtime_info["ownership"] == "foreign":
+            identity_line = (
+                f"Идентификатор установки: {state_install_id}."
+                if state_install_id
+                else f"Он запущен из: {state_root}."
+            )
             base = (
                 f"Обнаружено активное подключение другого экземпляра Subvost. "
-                f"Он запущен из: {state_root}. Текущий проект: {current_root}."
+                f"{identity_line} Текущий проект: {current_root}."
             )
         elif runtime_info["has_state"]:
             base = (
@@ -752,7 +795,10 @@ class SubvostAppService:
             "next_start_reason": next_start_reason,
             "ownership": runtime_info["ownership"],
             "ownership_label": runtime_info["ownership_label"],
+            "state_bundle_install_id": runtime_info.get("state_bundle_install_id"),
             "state_bundle_project_root": runtime_info["state_bundle_project_root"],
+            "has_state": runtime_info["has_state"],
+            "stack_is_live": runtime_info["stack_is_live"],
             "start_blocked": start_blocked,
             "stop_allowed": not start_blocked,
             "control_message": self.runtime_control_guard_message(runtime_info, action="stop") if start_blocked else "",
@@ -934,6 +980,7 @@ class SubvostAppService:
                 "xray_alive": xray_alive,
                 "tun_present": tun_present,
                 "tun_interface": tun_interface,
+                "state_bundle_install_id": runtime_info.get("state_bundle_install_id"),
                 "state_bundle_project_root": runtime_info["state_bundle_project_root"],
                 "ownership": runtime_info["ownership"],
             },
@@ -983,6 +1030,7 @@ class SubvostAppService:
             "active_node": active_node,
             "active_routing_profile": active_routing_profile,
             "bundle_identity": {
+                "install_id": self.context.install_id,
                 "project_root": str(self.context.project_root),
                 "config_home": str(self.context.app_paths.config_home),
             },
@@ -1385,6 +1433,22 @@ class SubvostAppService:
 
         result = self.run_shell_action("Отключение", self.context.stop_script)
         message = "Остановка выполнена." if result.ok else f"Остановка завершилась ошибкой, код {result.returncode}."
+        self.remember_action(result.name, result.ok, message, result.output)
+        return self.collect_status()
+
+    def takeover_runtime(self) -> dict[str, Any]:
+        runtime_info = self.inspect_runtime_state()
+        if runtime_info["ownership"] != "foreign":
+            raise ValueError("Перехват доступен только для подключения другой установки.")
+        if not runtime_info["has_state"] or not runtime_info["stack_is_live"]:
+            raise ValueError("Перехват не нужен: чужое подключение уже не активно.")
+
+        result = self.run_shell_action("Перехват подключения", self.context.stop_script, {"SUBVOST_FORCE_TAKEOVER": "1"})
+        message = (
+            "Перехват выполнен: чужое подключение остановлено."
+            if result.ok
+            else f"Перехват завершился ошибкой, код {result.returncode}."
+        )
         self.remember_action(result.name, result.ok, message, result.output)
         return self.collect_status()
 

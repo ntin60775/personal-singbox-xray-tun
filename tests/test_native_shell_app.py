@@ -214,6 +214,38 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertTrue(app.subscriptions_rendered)
         self.assertTrue(any("Запуск завершён успешно." in message for _source, message in app.log_lines))
 
+    def test_takeover_button_starts_takeover_runtime_action(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.begin_runtime_action = lambda action_id, *, source: captured.update({"action_id": action_id, "source": source})
+
+        app.on_takeover_requested(None)
+
+        self.assertEqual(captured, {"action_id": "takeover-runtime", "source": "window"})
+
+    def test_run_runtime_action_worker_dispatches_takeover_runtime(self) -> None:
+        app = self.make_app()
+        calls: list[str] = []
+        app.runtime_service = SimpleNamespace(
+            start_runtime=lambda: {"action": "start"},
+            stop_runtime=lambda: {"action": "stop"},
+            takeover_runtime=lambda: calls.append("takeover") or {"action": "takeover"},
+            capture_diagnostics=lambda: {"action": "diag"},
+        )
+        app.GLib = SimpleNamespace(idle_add=lambda func, *args: func(*args))
+        captured: dict[str, object] = {}
+        app.finish_runtime_action = lambda action_id, source, ok, payload: captured.update(
+            {"action_id": action_id, "source": source, "ok": ok, "payload": payload}
+        ) or False
+
+        app.run_runtime_action_worker("takeover-runtime", "window")
+
+        self.assertEqual(calls, ["takeover"])
+        self.assertEqual(captured["action_id"], "takeover-runtime")
+        self.assertEqual(captured["source"], "window")
+        self.assertTrue(captured["ok"])
+        self.assertEqual(captured["payload"], {"action": "takeover"})
+
     def test_apply_combined_snapshot_syncs_selected_subscription_id(self) -> None:
         app = self.make_app()
         app.selected_subscription_id = "missing"
@@ -318,6 +350,7 @@ class NativeShellAppTests(unittest.TestCase):
                 },
                 "runtime": {
                     "start_blocked": True,
+                    "stack_is_live": True,
                     "ownership": "foreign",
                     "ownership_label": "Другой bundle",
                     "state_bundle_project_root": "/foreign/project",

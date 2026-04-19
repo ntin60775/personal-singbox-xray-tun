@@ -976,7 +976,7 @@ class NativeShellApp:
         info_bar.add_child(info_label)
         takeover_button = self.Gtk.Button(label="Перехватить")
         add_css_class(takeover_button, "native-shell-button-secondary")
-        takeover_button.set_tooltip_text("Автоперехват пока не реализован: кнопка переводит в диагностику по конфликту.")
+        takeover_button.set_tooltip_text("Остановить активное подключение другой установки и освободить текущее окно.")
         takeover_button.connect("clicked", self.on_takeover_requested)
         info_bar.add_action_widget(takeover_button, self.Gtk.ResponseType.ACCEPT)
         self.dashboard_conflict_bar = info_bar
@@ -1016,7 +1016,7 @@ class NativeShellApp:
         state_actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         takeover_button = self.Gtk.Button(label="Перехватить")
         add_css_class(takeover_button, "native-shell-button-secondary")
-        takeover_button.set_tooltip_text("Автоперехват пока не реализован: кнопка переводит в диагностику по конфликту.")
+        takeover_button.set_tooltip_text("Остановить активное подключение другой установки и освободить текущее окно.")
         takeover_button.connect("clicked", self.on_takeover_requested)
         self.diagnostic_takeover_button = takeover_button
         state_actions.append(takeover_button)
@@ -2420,6 +2420,7 @@ class NativeShellApp:
         action_handlers = {
             "start-runtime": self.runtime_service.start_runtime,
             "stop-runtime": self.runtime_service.stop_runtime,
+            "takeover-runtime": self.runtime_service.takeover_runtime,
             "capture-diagnostics": self.runtime_service.capture_diagnostics,
         }
         handler = action_handlers.get(action_id)
@@ -2665,10 +2666,7 @@ class NativeShellApp:
             self.stack.set_visible_child_name(page_id)
 
     def on_takeover_requested(self, _button) -> None:
-        self.show_page("log")
-        message = "Автоперехват чужого подключения пока не реализован: открыта диагностика по конфликту экземпляров."
-        self.set_status(message)
-        self.append_log("window", message)
+        self.begin_runtime_action("takeover-runtime", source="window")
 
     def on_show_dashboard_dns_clicked(self, _button) -> None:
         if int(getattr(self, "dashboard_dns_server_count", 0) or 0) <= 1:
@@ -2688,7 +2686,7 @@ class NativeShellApp:
         if action_id == "open-diagnostics":
             self.show_page("log")
             return
-        if action_id in {"start-runtime", "stop-runtime", "capture-diagnostics"}:
+        if action_id in {"start-runtime", "stop-runtime", "takeover-runtime", "capture-diagnostics"}:
             self.trigger_action(action_id, source="window")
 
     def connection_target_label(self, payload: dict[str, Any]) -> tuple[str, str]:
@@ -2868,7 +2866,7 @@ class NativeShellApp:
             return
         ownership = str(runtime.get("ownership") or "")
         state_root = str(runtime.get("state_bundle_project_root") or "—")
-        visible = ownership == "foreign"
+        visible = ownership == "foreign" and bool(runtime.get("stack_is_live"))
         self.dashboard_conflict_bar.set_visible(visible)
         self.dashboard_conflict_bar.set_revealed(visible)
         if not visible:
@@ -3001,12 +2999,18 @@ class NativeShellApp:
             diagnostic_status = f"{diagnostic_status}\n{str(summary.get('description') or 'Подключение работает в штатном режиме.')}"
         self.set_diagnostic_label("diagnostic_status", diagnostic_status)
         if self.diagnostic_takeover_button is not None:
-            self.diagnostic_takeover_button.set_sensitive(ownership == "foreign")
+            self.diagnostic_takeover_button.set_sensitive(ownership == "foreign" and bool(runtime.get("stack_is_live")))
 
-        if ownership == "foreign":
+        if ownership == "foreign" and bool(runtime.get("stack_is_live")):
             diagnostic_instance = (
                 "Активный экземпляр: другой Subvost\n"
                 f"Где он запущен: {state_root}\n"
+                f"Текущий проект: {project_root}"
+            )
+        elif ownership == "foreign":
+            diagnostic_instance = (
+                "Старый state-файл: другой Subvost\n"
+                f"Где он был запущен: {state_root}\n"
                 f"Текущий проект: {project_root}"
             )
         elif ownership == "current":

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from gui_contract import GUI_VERSION
-from subvost_app_service import ServiceContext, ServiceState, SubvostAppService
+from subvost_app_service import ServiceContext, ServiceState, SubvostAppService, ensure_bundle_install_id
 from subvost_parser import preview_links
 from subvost_paths import build_app_paths
 from subvost_runtime import node_can_render_runtime, read_json_config
@@ -113,6 +113,7 @@ def resolve_backend_pid_file(real_uid: int) -> Path:
     return Path(f"/tmp/subvost-xray-tun-gui-user-{real_uid}.pid")
 
 PROJECT_ROOT = discover_project_root()
+BUNDLE_INSTALL_ID = ensure_bundle_install_id(PROJECT_ROOT)
 RUN_SCRIPT = PROJECT_ROOT / "run-xray-tun-subvost.sh"
 STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
 DIAG_SCRIPT = PROJECT_ROOT / "capture-xray-tun-state.sh"
@@ -160,6 +161,7 @@ def build_runtime_service() -> SubvostAppService:
         stop_script=STOP_SCRIPT,
         diag_script=DIAG_SCRIPT,
         xray_template_path=XRAY_TEMPLATE_PATH,
+        install_id=BUNDLE_INSTALL_ID,
     )
     state = ServiceState(
         last_action=LAST_ACTION,
