@@ -73,6 +73,7 @@ class SubvostStoreTests(unittest.TestCase):
                     "close_to_tray": True,
                     "start_minimized_to_tray": True,
                     "theme": "dark",
+                    "artifact_retention_days": 7,
                 },
             )
 

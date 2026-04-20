@@ -48,6 +48,7 @@ class NativeShellSharedTests(unittest.TestCase):
         self.assertTrue(settings.close_to_tray)
         self.assertFalse(settings.start_minimized_to_tray)
         self.assertEqual(settings.theme, "dark")
+        self.assertEqual(settings.artifact_retention_days, 7)
 
     def test_select_indicator_candidate_prefers_ayatana(self) -> None:
         candidate = select_indicator_candidate(

@@ -1098,11 +1098,17 @@ def normalize_gui_theme(value: str | None) -> str:
 
 def normalize_gui_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
     payload = settings or {}
+    try:
+        artifact_retention_days = int(payload.get("artifact_retention_days", 7))
+    except (TypeError, ValueError):
+        artifact_retention_days = 7
+    artifact_retention_days = min(365, max(1, artifact_retention_days))
     return {
         "file_logs_enabled": bool(payload.get("file_logs_enabled", False)),
         "close_to_tray": bool(payload.get("close_to_tray", False)),
         "start_minimized_to_tray": bool(payload.get("start_minimized_to_tray", False)),
         "theme": normalize_gui_theme(payload.get("theme")),
+        "artifact_retention_days": artifact_retention_days,
     }
 
 
@@ -1120,6 +1126,7 @@ def save_gui_settings(
     close_to_tray: bool | None = None,
     start_minimized_to_tray: bool | None = None,
     theme: str | None = None,
+    artifact_retention_days: int | None = None,
 ) -> None:
     ensure_store_dir(paths, uid=uid, gid=gid)
     settings = read_gui_settings(paths, uid=uid, gid=gid)
@@ -1131,4 +1138,6 @@ def save_gui_settings(
         settings["start_minimized_to_tray"] = bool(start_minimized_to_tray)
     if theme is not None:
         settings["theme"] = normalize_gui_theme(theme)
+    if artifact_retention_days is not None:
+        settings["artifact_retention_days"] = min(365, max(1, int(artifact_retention_days)))
     atomic_write_json(paths.gui_settings_file, settings, uid=uid, gid=gid)

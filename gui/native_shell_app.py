@@ -308,6 +308,7 @@ button {
   border-radius: 10px;
   min-height: 38px;
   padding: 8px 12px;
+  transition: background-color 140ms ease-out, border-color 140ms ease-out, box-shadow 140ms ease-out, color 140ms ease-out;
 }
 
 button.native-shell-button-primary {
@@ -321,6 +322,18 @@ button.native-shell-button-primary {
 
 button.native-shell-button-primary:hover {
   background-color: @accent_primary_hover;
+  border-color: @accent_primary_hover;
+  box-shadow: inset 0 0 0 1px rgba(255, 116, 116, 0.34), 0 0 0 2px rgba(255, 99, 99, 0.14);
+}
+
+button.native-shell-button-primary:active {
+  background-color: rgba(255, 116, 116, 0.78);
+  border-color: rgba(255, 116, 116, 0.96);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.34);
+}
+
+button.native-shell-button-primary:focus {
+  box-shadow: inset 0 0 0 1px rgba(255, 116, 116, 0.32), 0 0 0 2px rgba(255, 99, 99, 0.24);
 }
 
 button.native-shell-button-secondary {
@@ -332,6 +345,24 @@ button.native-shell-button-secondary {
   box-shadow: inset 0 0 0 1px rgba(91, 102, 126, 0.42);
 }
 
+button.native-shell-button-secondary:hover {
+  background-color: rgba(47, 54, 72, 0.98);
+  border-color: rgba(123, 196, 255, 0.42);
+  color: @text_primary;
+  box-shadow: inset 0 0 0 1px rgba(123, 196, 255, 0.18), 0 0 0 2px rgba(123, 196, 255, 0.08);
+}
+
+button.native-shell-button-secondary:active {
+  background-color: rgba(23, 27, 37, 0.98);
+  border-color: rgba(123, 196, 255, 0.58);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.34);
+}
+
+button.native-shell-button-secondary:focus {
+  border-color: rgba(123, 196, 255, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(123, 196, 255, 0.22), 0 0 0 2px rgba(123, 196, 255, 0.16);
+}
+
 button.native-shell-button-danger {
   background-image: none;
   background-color: rgba(255, 93, 115, 0.18);
@@ -341,10 +372,47 @@ button.native-shell-button-danger {
   box-shadow: inset 0 0 0 1px rgba(255, 93, 115, 0.16);
 }
 
+button.native-shell-button-danger:hover {
+  background-color: rgba(255, 93, 115, 0.26);
+  border-color: rgba(255, 93, 115, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 93, 115, 0.24), 0 0 0 2px rgba(255, 93, 115, 0.10);
+}
+
+button.native-shell-button-danger:active {
+  background-color: rgba(255, 93, 115, 0.14);
+  border-color: rgba(255, 93, 115, 0.82);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.34);
+}
+
 button.native-shell-button-secondary:disabled,
 button.native-shell-button-primary:disabled,
 button.native-shell-button-danger:disabled {
   opacity: 0.52;
+  box-shadow: none;
+}
+
+.native-shell-action-feedback {
+  background: rgba(34, 39, 53, 0.82);
+  border-radius: 10px;
+  border: 1px solid rgba(58, 66, 86, 0.82);
+  color: @text_secondary;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.native-shell-action-feedback-busy {
+  border-color: rgba(255, 184, 77, 0.42);
+  color: @state_warning;
+}
+
+.native-shell-action-feedback-success {
+  border-color: rgba(61, 220, 151, 0.42);
+  color: @state_success;
+}
+
+.native-shell-action-feedback-error {
+  border-color: rgba(255, 93, 115, 0.48);
+  color: @state_danger;
 }
 
 entry.native-shell-entry,
@@ -647,6 +715,7 @@ class NativeShellApp:
         self.dashboard_conflict_label = None
         self.dashboard_takeover_button = None
         self.diagnostic_takeover_button = None
+        self.diagnostic_action_label = None
         self.dashboard_dns_button = None
         self.dashboard_dns_compact_text = "—"
         self.dashboard_dns_full_text = "—"
@@ -1041,11 +1110,24 @@ class NativeShellApp:
         files_label.set_wrap(True)
         add_css_class(files_label, "native-shell-value-muted")
         files_body.append(files_label)
+        files_actions = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
         capture_button = self.Gtk.Button(label="Снять дамп")
         add_css_class(capture_button, "native-shell-button-secondary")
         capture_button.connect("clicked", self.on_stub_button_clicked, "capture-diagnostics")
         self.dashboard_action_buttons["capture-diagnostics"] = capture_button
-        files_body.append(capture_button)
+        cleanup_button = self.Gtk.Button(label="Очистить служебные файлы")
+        add_css_class(cleanup_button, "native-shell-button-secondary")
+        cleanup_button.set_tooltip_text("Удалить только безопасно очищаемые state, DNS backup и старые диагностические файлы.")
+        cleanup_button.connect("clicked", self.on_cleanup_artifacts_clicked)
+        self.dashboard_action_buttons["cleanup-artifacts"] = cleanup_button
+        files_actions.append(capture_button)
+        files_actions.append(cleanup_button)
+        files_body.append(files_actions)
+        action_feedback_label = self.Gtk.Label(label="Готово к диагностическим действиям.", xalign=0)
+        action_feedback_label.set_wrap(True)
+        add_css_class(action_feedback_label, "native-shell-action-feedback")
+        files_body.append(action_feedback_label)
+        self.diagnostic_action_label = action_feedback_label
         self.diagnostic_labels["diagnostic_files"] = files_label
 
         instance_panel, instance_body = self.build_named_panel(
@@ -2400,11 +2482,15 @@ class NativeShellApp:
             current_label = self.action_label(self.action_in_flight)
             self.set_status(f"Уже выполняется действие: {current_label}.")
             self.append_log(source, f"{self.action_label(action_id)} пропущен: занято действием {current_label}.")
+            if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
+                self.set_diagnostic_action_feedback("busy", f"Уже выполняется: {current_label}.")
             return
 
         action_label = self.action_label(action_id)
         self.action_in_flight = action_id
         self.set_status(f"{action_label}: выполняется через общий сервисный слой…")
+        if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
+            self.set_diagnostic_action_feedback("busy", f"{action_label}: выполняется.")
         self.append_log(source, f"{action_label}: действие передано в службу подключения.")
         self.refresh_dashboard_controls()
         self.refresh_subscriptions_controls()
@@ -2421,6 +2507,7 @@ class NativeShellApp:
             "start-runtime": self.runtime_service.start_runtime,
             "stop-runtime": self.runtime_service.stop_runtime,
             "takeover-runtime": self.runtime_service.takeover_runtime,
+            "cleanup-artifacts": self.runtime_service.cleanup_runtime_artifacts,
             "capture-diagnostics": self.runtime_service.capture_diagnostics,
         }
         handler = action_handlers.get(action_id)
@@ -2443,10 +2530,14 @@ class NativeShellApp:
             self.apply_status_payload(status_payload)
             message = str(status_payload.get("last_action", {}).get("message") or f"{action_label}: выполнено.")
             self.set_status(message)
+            if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
+                self.set_diagnostic_action_feedback("success", message)
             self.append_log(source, f"{action_label}: {message}")
         else:
             message = str(payload)
             self.set_status(f"{action_label}: {message}")
+            if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
+                self.set_diagnostic_action_feedback("error", f"{action_label}: {message}")
             self.append_log(source, f"{action_label}: ошибка: {message}")
             self.request_status_refresh(reason=f"{action_id}-error")
         self.refresh_dashboard_controls()
@@ -2668,6 +2759,9 @@ class NativeShellApp:
     def on_takeover_requested(self, _button) -> None:
         self.begin_runtime_action("takeover-runtime", source="window")
 
+    def on_cleanup_artifacts_clicked(self, _button) -> None:
+        self.begin_runtime_action("cleanup-artifacts", source="diagnostics")
+
     def on_show_dashboard_dns_clicked(self, _button) -> None:
         if int(getattr(self, "dashboard_dns_server_count", 0) or 0) <= 1:
             return
@@ -2686,7 +2780,7 @@ class NativeShellApp:
         if action_id == "open-diagnostics":
             self.show_page("log")
             return
-        if action_id in {"start-runtime", "stop-runtime", "takeover-runtime", "capture-diagnostics"}:
+        if action_id in {"start-runtime", "stop-runtime", "takeover-runtime", "cleanup-artifacts", "capture-diagnostics"}:
             self.trigger_action(action_id, source="window")
 
     def connection_target_label(self, payload: dict[str, Any]) -> tuple[str, str]:
@@ -3051,11 +3145,24 @@ class NativeShellApp:
 
         config_origin = self.user_facing_config_origin_label(runtime.get("config_origin"))
         config_value = runtime.get("active_xray_config") or artifacts.get("generated_xray_config") or "—"
+        runtime_state_status = artifacts.get("runtime_state_status", {}) or {}
+        backup_status = artifacts.get("resolv_backup_status", {}) or {}
+        dumps_status = artifacts.get("diagnostic_dumps", {}) or {}
+        cleanup_label = "доступна" if artifacts.get("cleanup_available") else "не требуется"
+        if not artifacts.get("cleanup_available") and runtime_state_status.get("status") == "active_current":
+            cleanup_label = "не требуется: state текущего подключения сохраняется"
+        if artifacts.get("manual_attention_required"):
+            cleanup_label = f"требуется ручной контроль ({artifacts.get('manual_reason') or 'причина не указана'})"
         self.set_diagnostic_label(
             "diagnostic_files",
             (
                 f"Конфиг ({config_origin}): {config_value}\n"
                 f"State-файл: {artifacts.get('state_file') or '—'}\n"
+                f"Статус state: {runtime_state_status.get('label') or '—'}\n"
+                f"DNS backup: {'есть' if backup_status.get('exists') else 'нет'}\n"
+                f"Диагностические дампы: {dumps_status.get('total_count', 0)} всего, "
+                f"{dumps_status.get('expired_count', 0)} старше retention\n"
+                f"Очистка: {cleanup_label}\n"
                 f"Последний дамп: {latest_diagnostic}"
             ),
         )
@@ -3076,6 +3183,20 @@ class NativeShellApp:
         if label is None:
             return
         label.set_label(value)
+
+    def set_diagnostic_action_feedback(self, state: str, message: str) -> None:
+        label = getattr(self, "diagnostic_action_label", None)
+        if label is None:
+            return
+        for css_class in (
+            "native-shell-action-feedback-busy",
+            "native-shell-action-feedback-success",
+            "native-shell-action-feedback-error",
+        ):
+            remove_css_class(label, css_class)
+        if state in {"busy", "success", "error"}:
+            add_css_class(label, f"native-shell-action-feedback-{state}")
+        label.set_label(message)
 
     def set_metric_value(self, key: str, value: str) -> None:
         label = getattr(self, "dashboard_metrics", {}).get(key)
@@ -3149,6 +3270,7 @@ class NativeShellApp:
         primary_button = action_buttons.get("primary-connect")
         open_nodes_button = action_buttons.get("open-subscriptions")
         diag_button = action_buttons.get("capture-diagnostics")
+        cleanup_button = action_buttons.get("cleanup-artifacts")
         open_diag_button = action_buttons.get("open-diagnostics")
 
         spec = self.dashboard_primary_action_spec()
@@ -3171,6 +3293,10 @@ class NativeShellApp:
         if diag_button is not None:
             diag_button.set_sensitive(not is_busy)
             diag_button.set_tooltip_text("Снять диагностический дамп текущего подключения.")
+
+        if cleanup_button is not None:
+            cleanup_button.set_sensitive(not is_busy)
+            cleanup_button.set_tooltip_text("Очистить stale state, orphan DNS backup и старые служебные дампы.")
 
         if open_diag_button is not None:
             open_diag_button.set_label("Диагностика")
@@ -3240,6 +3366,7 @@ class NativeShellApp:
             close_to_tray=self.settings.close_to_tray,
             start_minimized_to_tray=self.settings.start_minimized_to_tray,
             theme=self.settings.theme,
+            artifact_retention_days=self.settings.artifact_retention_days,
         )
 
     def apply_theme_preference(self, theme: str) -> None:

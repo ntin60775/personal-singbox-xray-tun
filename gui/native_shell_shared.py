@@ -127,6 +127,7 @@ NATIVE_SHELL_TRAY_ACTIONS = (
     NativeShellTrayAction("quit-app", "Выход", "Полностью завершить интерфейс приложения."),
 )
 NATIVE_SHELL_RUNTIME_ACTION_LABELS = {
+    "cleanup-artifacts": "Очистить служебные файлы",
     "takeover-runtime": "Перехватить подключение",
 }
 
@@ -137,15 +138,21 @@ class NativeShellSettings:
     close_to_tray: bool = False
     start_minimized_to_tray: bool = False
     theme: str = NATIVE_SHELL_THEME_DARK
+    artifact_retention_days: int = 7
 
     @classmethod
     def from_mapping(cls, payload: dict[str, object] | None) -> "NativeShellSettings":
         raw = payload or {}
+        try:
+            artifact_retention_days = int(raw.get("artifact_retention_days") or 7)
+        except (TypeError, ValueError):
+            artifact_retention_days = 7
         return cls(
             file_logs_enabled=bool(raw.get("file_logs_enabled", False)),
             close_to_tray=bool(raw.get("close_to_tray", False)),
             start_minimized_to_tray=bool(raw.get("start_minimized_to_tray", False)),
             theme=normalize_native_shell_theme(raw.get("theme")),
+            artifact_retention_days=min(365, max(1, artifact_retention_days)),
         )
 
     def to_mapping(self) -> dict[str, object]:
@@ -154,6 +161,7 @@ class NativeShellSettings:
             "close_to_tray": self.close_to_tray,
             "start_minimized_to_tray": self.start_minimized_to_tray,
             "theme": self.theme,
+            "artifact_retention_days": self.artifact_retention_days,
         }
 
 

@@ -11,7 +11,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +45,7 @@ from subvost_store import (
 )
 
 INSTALL_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._:-]{7,127}$")
+DEFAULT_ARTIFACT_RETENTION_DAYS = 7
 
 
 def discover_project_root(gui_dir: Path) -> Path:
@@ -298,6 +299,7 @@ class SubvostAppService:
         close_to_tray: bool | None = None,
         start_minimized_to_tray: bool | None = None,
         theme: str | None = None,
+        artifact_retention_days: int | None = None,
     ) -> None:
         save_gui_settings(
             self.context.app_paths,
@@ -307,6 +309,7 @@ class SubvostAppService:
             close_to_tray=close_to_tray,
             start_minimized_to_tray=start_minimized_to_tray,
             theme=theme,
+            artifact_retention_days=artifact_retention_days,
         )
 
     def load_state_file(self) -> dict[str, str]:
@@ -377,6 +380,221 @@ class SubvostAppService:
             "stack_is_live": stack_is_live,
             "owned_stack_is_live": owned_stack_is_live,
         }
+
+    def artifact_file_summary(self, path: Path) -> dict[str, Any]:
+        exists = path.exists()
+        result: dict[str, Any] = {
+            "path": str(path),
+            "exists": exists,
+            "size_bytes": 0,
+            "mtime": None,
+            "is_file": False,
+            "is_symlink": False,
+        }
+        if not exists:
+            return result
+
+        try:
+            stat = path.stat()
+            result.update(
+                {
+                    "size_bytes": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(timespec="seconds"),
+                    "is_file": path.is_file(),
+                    "is_symlink": path.is_symlink(),
+                }
+            )
+        except OSError as exc:
+            result["error"] = str(exc)
+        return result
+
+    def managed_log_artifact_candidates(self) -> list[Path]:
+        if not self.context.log_dir.exists():
+            return []
+        candidates: list[Path] = []
+        for pattern in ("xray-tun-state-*.log", "native-shell-log-export-*.log"):
+            candidates.extend(self.context.log_dir.glob(pattern))
+        return sorted(set(candidates), key=lambda item: str(item))
+
+    def retained_log_artifact_summary(self, retention_days: int) -> dict[str, Any]:
+        cutoff = datetime.now().astimezone() - timedelta(days=retention_days)
+        candidates = self.managed_log_artifact_candidates()
+        expired: list[dict[str, Any]] = []
+        fresh: list[dict[str, Any]] = []
+
+        for candidate in candidates:
+            item = self.artifact_file_summary(candidate)
+            mtime = item.get("mtime")
+            is_expired = False
+            if isinstance(mtime, str):
+                try:
+                    is_expired = datetime.fromisoformat(mtime) < cutoff
+                except ValueError:
+                    is_expired = False
+            if is_expired:
+                expired.append(item)
+            else:
+                fresh.append(item)
+
+        return {
+            "retention_days": retention_days,
+            "total_count": len(candidates),
+            "expired_count": len(expired),
+            "fresh_count": len(fresh),
+            "expired": expired,
+            "fresh_latest": sorted(fresh, key=lambda item: str(item.get("mtime") or ""), reverse=True)[:5],
+        }
+
+    def cleanup_retained_log_artifacts(self, retention_days: int) -> dict[str, Any]:
+        summary = self.retained_log_artifact_summary(retention_days)
+        deleted: list[str] = []
+        skipped: list[dict[str, str]] = []
+
+        for item in summary["expired"]:
+            path = Path(str(item.get("path") or ""))
+            if not item.get("is_file") or item.get("is_symlink"):
+                skipped.append({"path": str(path), "reason": "не обычный файл"})
+                continue
+            try:
+                path.unlink()
+                deleted.append(str(path))
+            except OSError as exc:
+                skipped.append({"path": str(path), "reason": str(exc)})
+
+        return {
+            "deleted": deleted,
+            "skipped": skipped,
+            "deleted_count": len(deleted),
+            "skipped_count": len(skipped),
+            "retention_days": retention_days,
+        }
+
+    def settings_artifact_retention_days(self) -> int:
+        settings = self.load_settings()
+        try:
+            retention_days = int(settings.get("artifact_retention_days") or DEFAULT_ARTIFACT_RETENTION_DAYS)
+        except (TypeError, ValueError):
+            retention_days = DEFAULT_ARTIFACT_RETENTION_DAYS
+        return min(365, max(1, retention_days))
+
+    def cleanup_retained_log_artifacts_from_settings(self) -> dict[str, Any]:
+        return self.cleanup_retained_log_artifacts(self.settings_artifact_retention_days())
+
+    def build_runtime_artifacts_audit(
+        self,
+        *,
+        runtime_info: dict[str, Any],
+        retention_days: int,
+        retention_cleanup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        has_state = bool(runtime_info["has_state"])
+        stack_is_live = bool(runtime_info["stack_is_live"])
+        ownership = str(runtime_info["ownership"])
+        state_status = "missing"
+        state_label = "State-файл отсутствует"
+        state_cleanup_available = False
+        manual_required = False
+        manual_reason = ""
+
+        if has_state and stack_is_live and ownership == "current":
+            state_status = "active_current"
+            state_label = "State-файл текущего подключения"
+        elif has_state and stack_is_live:
+            state_status = "manual_required"
+            state_label = "State-файл живого подключения другого или неподтверждённого экземпляра"
+            manual_required = True
+            manual_reason = "Живой runtime не очищается автоматически."
+        elif has_state:
+            state_status = "stale"
+            state_label = "Устаревший state-файл без живого runtime"
+            state_cleanup_available = True
+
+        backup_summary = self.artifact_file_summary(self.context.resolv_backup)
+        backup_orphan = bool(backup_summary["exists"] and not has_state and not stack_is_live)
+        retention_summary = self.retained_log_artifact_summary(retention_days)
+        cleanup_available = state_cleanup_available or backup_orphan or retention_summary["expired_count"] > 0
+
+        return {
+            "runtime_state_status": {
+                "status": state_status,
+                "label": state_label,
+                "cleanup_available": state_cleanup_available,
+                "manual_attention_required": manual_required,
+                "manual_reason": manual_reason,
+                "file": self.artifact_file_summary(self.context.state_file),
+                "ownership": ownership,
+                "stack_is_live": stack_is_live,
+                "xray_pid": runtime_info.get("xray_pid"),
+                "tun_interface": runtime_info.get("tun_interface"),
+                "state_bundle_install_id": runtime_info.get("state_bundle_install_id"),
+                "state_bundle_project_root": runtime_info.get("state_bundle_project_root"),
+            },
+            "resolv_backup_status": {
+                **backup_summary,
+                "orphan": backup_orphan,
+                "cleanup_available": backup_orphan,
+            },
+            "diagnostic_dumps": retention_summary,
+            "retention_days": retention_days,
+            "cleanup_available": cleanup_available,
+            "manual_attention_required": manual_required,
+            "manual_reason": manual_reason,
+            "cleanup_summary": retention_cleanup or {"deleted": [], "skipped": [], "deleted_count": 0, "skipped_count": 0},
+        }
+
+    def cleanup_runtime_artifacts(self) -> dict[str, Any]:
+        retention_days = self.settings_artifact_retention_days()
+        runtime_info = self.inspect_runtime_state()
+        cleanup_results: list[str] = []
+        errors: list[str] = []
+        state_preserved = False
+        state_cleanup_attempted = False
+        manual_blocked = False
+        backup_deleted = False
+
+        if runtime_info["has_state"] and runtime_info["stack_is_live"] and runtime_info["ownership"] == "current":
+            state_preserved = True
+            cleanup_results.append("State текущего подключения сохранён: runtime активен.")
+        elif runtime_info["has_state"] and runtime_info["stack_is_live"]:
+            manual_blocked = True
+            errors.append("Очистка требует ручного контроля: живой runtime не очищается автоматически.")
+        elif runtime_info["has_state"]:
+            state_cleanup_attempted = True
+            result = self.run_shell_action("Очистка служебных файлов", self.context.stop_script)
+            cleanup_results.append(result.output)
+            if not result.ok:
+                errors.append(f"Очистка state завершилась ошибкой, код {result.returncode}.")
+
+        refreshed_runtime = self.inspect_runtime_state()
+        if self.context.resolv_backup.exists() and not refreshed_runtime["has_state"] and not refreshed_runtime["stack_is_live"]:
+            try:
+                self.context.resolv_backup.unlink()
+                backup_deleted = True
+                cleanup_results.append(f"Удалён orphan DNS backup: {self.context.resolv_backup}")
+            except OSError as exc:
+                errors.append(f"Не удалось удалить DNS backup: {exc}")
+
+        retention_cleanup = self.cleanup_retained_log_artifacts(retention_days)
+        if retention_cleanup["deleted_count"]:
+            cleanup_results.append(f"Удалено старых диагностических файлов: {retention_cleanup['deleted_count']}")
+        if retention_cleanup["skipped_count"]:
+            errors.append(f"Пропущено файлов при retention cleanup: {retention_cleanup['skipped_count']}")
+
+        ok = not errors
+        changed = bool(state_cleanup_attempted or backup_deleted or retention_cleanup["deleted_count"])
+        if manual_blocked and not changed:
+            message = "Очистка требует ручного контроля: живой runtime не очищается автоматически."
+        elif errors:
+            message = f"Очистка служебных файлов выполнена частично: {errors[0]}"
+        elif changed:
+            message = "Служебные файлы очищены."
+        elif state_preserved:
+            message = "Очистка не требуется: state относится к текущему подключению, DNS backup сохранён."
+        else:
+            message = "Очистка не требуется: безопасно очищаемые служебные файлы не найдены."
+        details = "\n".join([item for item in cleanup_results if item] + errors) or "cleanup=nothing-to-delete"
+        self.remember_action("Очистка служебных файлов", ok, message, details)
+        return self.collect_status(retention_cleanup=retention_cleanup)
 
     def runtime_control_blocked(self, runtime_info: dict[str, Any]) -> bool:
         ownership = runtime_info["ownership"]
@@ -885,8 +1103,9 @@ class SubvostAppService:
             "active_origin": active_origin,
         }
 
-    def collect_status(self) -> dict[str, Any]:
+    def collect_status(self, *, retention_cleanup: dict[str, Any] | None = None) -> dict[str, Any]:
         settings = self.load_settings()
+        retention_days = self.settings_artifact_retention_days()
         store = self.ensure_store_ready()
         state = self.load_state_file()
         runtime_info = self.inspect_runtime_state(state)
@@ -954,6 +1173,11 @@ class SubvostAppService:
             config_origin = "snapshot"
         else:
             config_origin = "generated"
+        artifact_audit = self.build_runtime_artifacts_audit(
+            runtime_info=runtime_info,
+            retention_days=retention_days,
+            retention_cleanup=retention_cleanup,
+        )
 
         return {
             "summary": {
@@ -1013,6 +1237,7 @@ class SubvostAppService:
             },
             "logs": logs_payload,
             "artifacts": {
+                **artifact_audit,
                 "latest_diagnostic": str(latest_diag) if latest_diag else None,
                 "state_file": str(self.context.state_file),
                 "resolv_backup": str(self.context.resolv_backup),
@@ -1421,7 +1646,8 @@ class SubvostAppService:
         result = self.run_shell_action("Подключение", self.context.run_script, env)
         message = "Запуск завершён успешно." if result.ok else f"Запуск завершился ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
-        return self.collect_status()
+        retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+        return self.collect_status(retention_cleanup=retention_cleanup)
 
     def stop_runtime(self) -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()
@@ -1429,12 +1655,14 @@ class SubvostAppService:
             raise ValueError(self.runtime_control_guard_message(runtime_info, action="stop"))
         if not runtime_info["has_state"] and not runtime_info["stack_is_live"]:
             self.remember_action("Отключение", True, "Остановка не нужна: подключение уже не активно.", "state=already-stopped")
-            return self.collect_status()
+            retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+            return self.collect_status(retention_cleanup=retention_cleanup)
 
         result = self.run_shell_action("Отключение", self.context.stop_script)
         message = "Остановка выполнена." if result.ok else f"Остановка завершилась ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
-        return self.collect_status()
+        retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+        return self.collect_status(retention_cleanup=retention_cleanup)
 
     def takeover_runtime(self) -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()
@@ -1450,7 +1678,8 @@ class SubvostAppService:
             else f"Перехват завершился ошибкой, код {result.returncode}."
         )
         self.remember_action(result.name, result.ok, message, result.output)
-        return self.collect_status()
+        retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+        return self.collect_status(retention_cleanup=retention_cleanup)
 
     def capture_diagnostics(self) -> dict[str, Any]:
         result = self.run_shell_action("Диагностика", self.context.diag_script)
@@ -1462,7 +1691,8 @@ class SubvostAppService:
         else:
             message = f"Диагностика завершилась ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
-        return self.collect_status()
+        retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+        return self.collect_status(retention_cleanup=retention_cleanup)
 
     def terminate_app(self, source: str = "window-close") -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()

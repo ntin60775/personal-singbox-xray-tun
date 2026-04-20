@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -364,6 +365,214 @@ class SubvostAppServiceTests(unittest.TestCase):
             }
 
             self.assertFalse(service.runtime_control_blocked(runtime_info))
+
+    def test_runtime_artifacts_audit_marks_stale_state_cleanup_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            service.context.state_file.write_text("XRAY_PID=999999\nTUN_INTERFACE=tun0\n", encoding="utf-8")
+            runtime_info = {
+                "has_state": True,
+                "ownership": "unknown",
+                "state_bundle_install_id": None,
+                "state_bundle_project_root": None,
+                "tun_interface": "tun0",
+                "xray_pid": "999999",
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+
+            audit = service.build_runtime_artifacts_audit(runtime_info=runtime_info, retention_days=7)
+
+            self.assertEqual(audit["runtime_state_status"]["status"], "stale")
+            self.assertTrue(audit["runtime_state_status"]["cleanup_available"])
+            self.assertTrue(audit["cleanup_available"])
+            self.assertFalse(audit["manual_attention_required"])
+
+    def test_retention_cleanup_removes_only_expired_managed_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            log_dir = root / "logs"
+            log_dir.mkdir()
+            service = self.make_service(root, real_home)
+
+            old_dump = log_dir / "xray-tun-state-20260401-010101.log"
+            fresh_dump = log_dir / "xray-tun-state-20260420-010101.log"
+            unrelated = log_dir / "notes.log"
+            old_dump.write_text("old", encoding="utf-8")
+            fresh_dump.write_text("fresh", encoding="utf-8")
+            unrelated.write_text("keep", encoding="utf-8")
+            old_ts = 1_700_000_000
+            fresh_ts = int(__import__("time").time())
+            os.utime(old_dump, (old_ts, old_ts))
+            os.utime(fresh_dump, (fresh_ts, fresh_ts))
+
+            result = service.cleanup_retained_log_artifacts(7)
+
+            self.assertEqual(result["deleted"], [str(old_dump)])
+            self.assertFalse(old_dump.exists())
+            self.assertTrue(fresh_dump.exists())
+            self.assertTrue(unrelated.exists())
+
+    def test_collect_status_reports_expired_artifacts_without_deleting_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            log_dir = root / "logs"
+            log_dir.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            old_dump = log_dir / "xray-tun-state-20260401-010101.log"
+            old_dump.write_text("old", encoding="utf-8")
+            old_ts = 1_700_000_000
+            os.utime(old_dump, (old_ts, old_ts))
+
+            payload = service.collect_status()
+
+            self.assertTrue(old_dump.exists())
+            self.assertEqual(payload["artifacts"]["diagnostic_dumps"]["expired_count"], 1)
+            self.assertEqual(payload["artifacts"]["cleanup_summary"]["deleted_count"], 0)
+            self.assertTrue(payload["artifacts"]["cleanup_available"])
+
+    def test_cleanup_runtime_artifacts_cleans_stale_state_backup_and_expired_dumps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            log_dir = root / "logs"
+            log_dir.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            service.context.state_file.write_text("XRAY_PID=999999\nTUN_INTERFACE=subvost-test\n", encoding="utf-8")
+            service.context.resolv_backup.write_text("backup", encoding="utf-8")
+            old_dump = log_dir / "native-shell-log-export-20260401-010101.log"
+            old_dump.write_text("old", encoding="utf-8")
+            old_ts = 1_700_000_000
+            os.utime(old_dump, (old_ts, old_ts))
+
+            def fake_stop(_name: str, _script: Path, _extra_env: dict[str, str] | None = None) -> CommandResult:
+                service.context.state_file.unlink()
+                return CommandResult("Очистка служебных файлов", True, 0, "stale-cleaned")
+
+            stale_runtime = {
+                "has_state": True,
+                "ownership": "unknown",
+                "ownership_label": "Источник не подтверждён",
+                "state_bundle_install_id": None,
+                "state_bundle_project_root": None,
+                "tun_interface": "subvost-test",
+                "xray_pid": "999999",
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+            missing_runtime = {
+                "has_state": False,
+                "ownership": "unknown",
+                "ownership_label": "Источник не подтверждён",
+                "state_bundle_install_id": None,
+                "state_bundle_project_root": None,
+                "tun_interface": "subvost-test",
+                "xray_pid": None,
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "run_shell_action", side_effect=fake_stop) as run_mock,
+                patch.object(service, "inspect_runtime_state", side_effect=[stale_runtime, missing_runtime, missing_runtime]),
+            ):
+                payload = service.cleanup_runtime_artifacts()
+
+            run_mock.assert_called_once()
+            self.assertFalse(service.context.state_file.exists())
+            self.assertFalse(service.context.resolv_backup.exists())
+            self.assertFalse(old_dump.exists())
+            self.assertEqual(payload["artifacts"]["cleanup_summary"]["deleted"], [str(old_dump)])
+            self.assertEqual(service.state.last_action["name"], "Очистка служебных файлов")
+
+    def test_cleanup_runtime_artifacts_reports_noop_for_current_live_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            service.context.state_file.write_text("XRAY_PID=12345\nTUN_INTERFACE=tun0\n", encoding="utf-8")
+            service.context.resolv_backup.write_text("backup", encoding="utf-8")
+            live_current = {
+                "has_state": True,
+                "ownership": "current",
+                "ownership_label": "Текущий экземпляр",
+                "state_bundle_install_id": service.context.install_id,
+                "state_bundle_project_root": str(root),
+                "tun_interface": "tun0",
+                "xray_pid": "12345",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
+                "owned_stack_is_live": True,
+            }
+
+            with (
+                patch.object(service, "inspect_runtime_state", return_value=live_current),
+                patch.object(service, "run_shell_action") as run_mock,
+            ):
+                service.cleanup_runtime_artifacts()
+
+            run_mock.assert_not_called()
+            self.assertTrue(service.context.state_file.exists())
+            self.assertTrue(service.context.resolv_backup.exists())
+            self.assertTrue(service.state.last_action["ok"])
+            self.assertEqual(
+                service.state.last_action["message"],
+                "Очистка не требуется: state относится к текущему подключению, DNS backup сохранён.",
+            )
+
+    def test_cleanup_runtime_artifacts_reports_manual_control_for_foreign_live_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            service.context.state_file.write_text("XRAY_PID=12345\nTUN_INTERFACE=tun0\n", encoding="utf-8")
+            live_foreign = {
+                "has_state": True,
+                "ownership": "foreign",
+                "ownership_label": "Другой экземпляр",
+                "state_bundle_install_id": "foreign-install-id",
+                "state_bundle_project_root": "/tmp/foreign-subvost",
+                "tun_interface": "tun0",
+                "xray_pid": "12345",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "inspect_runtime_state", return_value=live_foreign),
+                patch.object(service, "run_shell_action") as run_mock,
+            ):
+                service.cleanup_runtime_artifacts()
+
+            run_mock.assert_not_called()
+            self.assertFalse(service.state.last_action["ok"])
+            self.assertEqual(
+                service.state.last_action["message"],
+                "Очистка требует ручного контроля: живой runtime не очищается автоматически.",
+            )
 
     def test_stop_runtime_runs_cleanup_for_foreign_stale_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

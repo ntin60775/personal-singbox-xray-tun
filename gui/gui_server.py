@@ -848,6 +848,10 @@ def handle_diagnostics() -> dict[str, Any]:
     return collect_status()
 
 
+def handle_cleanup_artifacts() -> dict[str, Any]:
+    return build_runtime_service().cleanup_runtime_artifacts()
+
+
 def summarize_previews(results: list[dict[str, Any]]) -> dict[str, int]:
     valid = sum(1 for item in results if item.get("valid"))
     invalid = sum(1 for item in results if not item.get("valid"))
@@ -1158,6 +1162,8 @@ class Handler(BaseHTTPRequestHandler):
                 response = {"ok": True, "status": handle_stop()}
             elif self.path == "/api/diagnostics":
                 response = {"ok": True, "status": handle_diagnostics()}
+            elif self.path == "/api/artifacts/cleanup":
+                response = {"ok": True, "status": handle_cleanup_artifacts()}
             elif self.path == "/api/import/save":
                 response = handle_import_save(payload)
             elif self.path == "/api/routing/import":
