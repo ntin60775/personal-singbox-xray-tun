@@ -101,6 +101,7 @@ class NativeShellSharedTests(unittest.TestCase):
         self.assertEqual(native_shell_theme_label("dark"), "Тёмная")
         self.assertEqual(tray_action_label("capture-diagnostics"), "Снять диагностику")
         self.assertEqual(native_shell_action_label("subscription-refresh"), "Обновление подписки")
+        self.assertEqual(native_shell_action_label("update-xray-core"), "Обновление ядра Xray")
 
     def test_resolve_selected_subscription_id_prefers_current_then_active_then_first(self) -> None:
         store_payload = {

@@ -136,6 +136,8 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_takeover_button = None
         app.diagnostic_takeover_button = None
         app.diagnostic_action_label = None
+        app.settings_update_button = None
+        app.settings_update_feedback_label = None
         app.dashboard_dns_button = None
         app.dashboard_dns_compact_text = "—"
         app.dashboard_dns_full_text = "—"
@@ -248,6 +250,7 @@ class NativeShellAppTests(unittest.TestCase):
             takeover_runtime=lambda: calls.append("takeover") or {"action": "takeover"},
             cleanup_runtime_artifacts=lambda: {"action": "cleanup"},
             capture_diagnostics=lambda: {"action": "diag"},
+            update_xray_core=lambda: calls.append("update-xray") or {"action": "update-xray"},
         )
         app.GLib = SimpleNamespace(idle_add=lambda func, *args: func(*args))
         captured: dict[str, object] = {}
@@ -271,6 +274,15 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertTrue(captured["ok"])
         self.assertEqual(captured["payload"], {"action": "cleanup"})
 
+        captured.clear()
+        app.run_runtime_action_worker("update-xray-core", "settings")
+
+        self.assertEqual(calls, ["takeover", "update-xray"])
+        self.assertEqual(captured["action_id"], "update-xray-core")
+        self.assertEqual(captured["source"], "settings")
+        self.assertTrue(captured["ok"])
+        self.assertEqual(captured["payload"], {"action": "update-xray"})
+
     def test_cleanup_artifacts_button_starts_diagnostics_cleanup_action(self) -> None:
         app = self.make_app()
         captured: dict[str, str] = {}
@@ -279,6 +291,42 @@ class NativeShellAppTests(unittest.TestCase):
         app.on_cleanup_artifacts_clicked(None)
 
         self.assertEqual(captured, {"action_id": "cleanup-artifacts", "source": "diagnostics"})
+
+    def test_update_xray_core_button_starts_settings_action(self) -> None:
+        app = self.make_app()
+        captured: dict[str, str] = {}
+        app.begin_runtime_action = lambda action_id, *, source: captured.update({"action_id": action_id, "source": source})
+
+        app.on_update_xray_core_clicked(None)
+
+        self.assertEqual(captured, {"action_id": "update-xray-core", "source": "settings"})
+
+    def test_settings_update_feedback_tracks_update_lifecycle(self) -> None:
+        app = self.make_app()
+        app.settings_update_feedback_label = FakeLabel()
+        app.action_in_flight = "update-xray-core"
+        app.apply_status_payload = lambda payload: setattr(app, "dashboard_payload", payload)
+        app.refresh_dashboard_controls = lambda: setattr(app, "controls_refreshed", True)
+        app.refresh_settings_controls = lambda: setattr(app, "settings_controls_refreshed", True)
+        app.refresh_subscriptions_controls = lambda: setattr(app, "subscriptions_controls_refreshed", True)
+        app.controls_refreshed = False
+        app.settings_controls_refreshed = False
+        app.subscriptions_controls_refreshed = False
+
+        app.set_settings_update_feedback("busy", "Обновление ядра Xray выполняется.")
+
+        self.assertEqual(app.settings_update_feedback_label.label, "Обновление ядра Xray выполняется.")
+        self.assertIn("native-shell-action-feedback-busy", app.settings_update_feedback_label.classes)
+
+        payload = {"last_action": {"message": "Ядро Xray обновлено."}}
+        app.finish_runtime_action("update-xray-core", "settings", True, payload)
+
+        self.assertEqual(app.settings_update_feedback_label.label, "Ядро Xray обновлено.")
+        self.assertNotIn("native-shell-action-feedback-busy", app.settings_update_feedback_label.classes)
+        self.assertIn("native-shell-action-feedback-success", app.settings_update_feedback_label.classes)
+        self.assertTrue(app.controls_refreshed)
+        self.assertTrue(app.settings_controls_refreshed)
+        self.assertTrue(app.subscriptions_controls_refreshed)
 
     def test_diagnostics_action_feedback_tracks_cleanup_lifecycle(self) -> None:
         app = self.make_app()

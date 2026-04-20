@@ -129,6 +129,7 @@ NATIVE_SHELL_TRAY_ACTIONS = (
 NATIVE_SHELL_RUNTIME_ACTION_LABELS = {
     "cleanup-artifacts": "Очистить служебные файлы",
     "takeover-runtime": "Перехватить подключение",
+    "update-xray-core": "Обновление ядра Xray",
 }
 
 

@@ -687,6 +687,8 @@ class NativeShellApp:
         self.app = self.Gtk.Application(application_id=NATIVE_SHELL_APP_ID, flags=self.Gio.ApplicationFlags.FLAGS_NONE)
         self.window = None
         self.settings_window = None
+        self.settings_update_button = None
+        self.settings_update_feedback_label = None
         self.stack = None
         self.stack_switcher = None
         self.status_label = None
@@ -2431,11 +2433,39 @@ class NativeShellApp:
         add_css_class(log_path_label, "native-shell-muted")
         root.append(log_path_label)
 
+        update_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+        update_title = self.Gtk.Label(label="Обновление ядра Xray", xalign=0)
+        add_css_class(update_title, "native-shell-card-title")
+        update_hint = self.Gtk.Label(
+            label=(
+                "Обновляет только системный бинарник xray-core через официальный Xray-install. "
+                "Код приложения и подписки не меняются; активное подключение нужно отключить вручную."
+            ),
+            xalign=0,
+        )
+        update_hint.set_wrap(True)
+        add_css_class(update_hint, "native-shell-muted")
+        update_button = self.Gtk.Button(label="Обновить ядро Xray")
+        add_css_class(update_button, "native-shell-button-secondary")
+        update_button.set_tooltip_text("Запустить обновление ядра Xray через pkexec.")
+        update_button.connect("clicked", self.on_update_xray_core_clicked)
+        update_feedback = self.Gtk.Label(label="Готово к обновлению ядра Xray.", xalign=0)
+        update_feedback.set_wrap(True)
+        add_css_class(update_feedback, "native-shell-action-feedback")
+        self.settings_update_button = update_button
+        self.settings_update_feedback_label = update_feedback
+        update_box.append(update_title)
+        update_box.append(update_hint)
+        update_box.append(update_button)
+        update_box.append(update_feedback)
+        root.append(update_box)
+
         close_button = self.Gtk.Button(label="Закрыть")
         close_button.connect("clicked", lambda *_args: window.hide())
         root.append(close_button)
 
         window.set_child(root)
+        self.refresh_settings_controls()
         return window
 
     def build_switch_row(self, title: str, subtitle: str, active: bool):
@@ -2457,6 +2487,9 @@ class NativeShellApp:
 
     def on_stub_button_clicked(self, _button, action_id: str) -> None:
         self.trigger_action(action_id, source="window")
+
+    def on_update_xray_core_clicked(self, _button) -> None:
+        self.begin_runtime_action("update-xray-core", source="settings")
 
     def action_label(self, action_id: str) -> str:
         return native_shell_action_label(action_id)
@@ -2484,6 +2517,8 @@ class NativeShellApp:
             self.append_log(source, f"{self.action_label(action_id)} пропущен: занято действием {current_label}.")
             if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
                 self.set_diagnostic_action_feedback("busy", f"Уже выполняется: {current_label}.")
+            if action_id == "update-xray-core":
+                self.set_settings_update_feedback("busy", f"Уже выполняется: {current_label}.")
             return
 
         action_label = self.action_label(action_id)
@@ -2491,8 +2526,11 @@ class NativeShellApp:
         self.set_status(f"{action_label}: выполняется через общий сервисный слой…")
         if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
             self.set_diagnostic_action_feedback("busy", f"{action_label}: выполняется.")
+        if action_id == "update-xray-core":
+            self.set_settings_update_feedback("busy", "Обновление ядра Xray выполняется.")
         self.append_log(source, f"{action_label}: действие передано в службу подключения.")
         self.refresh_dashboard_controls()
+        self.refresh_settings_controls()
         self.refresh_subscriptions_controls()
         self.render_subscriptions_view()
         worker = threading.Thread(
@@ -2509,6 +2547,7 @@ class NativeShellApp:
             "takeover-runtime": self.runtime_service.takeover_runtime,
             "cleanup-artifacts": self.runtime_service.cleanup_runtime_artifacts,
             "capture-diagnostics": self.runtime_service.capture_diagnostics,
+            "update-xray-core": self.runtime_service.update_xray_core,
         }
         handler = action_handlers.get(action_id)
         if handler is None:
@@ -2532,15 +2571,20 @@ class NativeShellApp:
             self.set_status(message)
             if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
                 self.set_diagnostic_action_feedback("success", message)
+            if action_id == "update-xray-core":
+                self.set_settings_update_feedback("success", message)
             self.append_log(source, f"{action_label}: {message}")
         else:
             message = str(payload)
             self.set_status(f"{action_label}: {message}")
             if action_id in {"capture-diagnostics", "cleanup-artifacts"}:
                 self.set_diagnostic_action_feedback("error", f"{action_label}: {message}")
+            if action_id == "update-xray-core":
+                self.set_settings_update_feedback("error", f"{action_label}: {message}")
             self.append_log(source, f"{action_label}: ошибка: {message}")
             self.request_status_refresh(reason=f"{action_id}-error")
         self.refresh_dashboard_controls()
+        self.refresh_settings_controls()
         self.refresh_subscriptions_controls()
         return False
 
@@ -2556,6 +2600,7 @@ class NativeShellApp:
         self.set_status(f"{action_label}: выполняется через общий сервисный слой…")
         self.append_log(source, f"{action_label}: действие передано в общий сервис подписок и маршрутизации.")
         self.refresh_dashboard_controls()
+        self.refresh_settings_controls()
         self.refresh_subscriptions_controls()
         self.render_subscriptions_view()
         worker = threading.Thread(
@@ -2631,6 +2676,7 @@ class NativeShellApp:
             self.append_log(source, f"{action_label}: ошибка: {message}")
             self.request_status_refresh(reason=f"{action_id}-error")
         self.refresh_dashboard_controls()
+        self.refresh_settings_controls()
         self.refresh_subscriptions_controls()
         return False
 
@@ -3198,6 +3244,31 @@ class NativeShellApp:
             add_css_class(label, f"native-shell-action-feedback-{state}")
         label.set_label(message)
 
+    def set_settings_update_feedback(self, state: str, message: str) -> None:
+        label = getattr(self, "settings_update_feedback_label", None)
+        if label is None:
+            return
+        for css_class in (
+            "native-shell-action-feedback-busy",
+            "native-shell-action-feedback-success",
+            "native-shell-action-feedback-error",
+        ):
+            remove_css_class(label, css_class)
+        if state in {"busy", "success", "error"}:
+            add_css_class(label, f"native-shell-action-feedback-{state}")
+        label.set_label(message)
+
+    def refresh_settings_controls(self) -> None:
+        button = getattr(self, "settings_update_button", None)
+        if button is None:
+            return
+        is_busy = getattr(self, "action_in_flight", None) is not None
+        button.set_sensitive(not is_busy)
+        if is_busy:
+            button.set_tooltip_text(f"Сейчас выполняется: {self.action_label(self.action_in_flight or '')}.")
+        else:
+            button.set_tooltip_text("Запустить обновление ядра Xray через pkexec.")
+
     def set_metric_value(self, key: str, value: str) -> None:
         label = getattr(self, "dashboard_metrics", {}).get(key)
         if label is None:
@@ -3328,6 +3399,7 @@ class NativeShellApp:
     def open_settings_window(self) -> None:
         if self.settings_window is None:
             self.settings_window = self.build_settings_window()
+        self.refresh_settings_controls()
         self.settings_window.present()
         self.append_log("settings", "Открыто окно настроек интерфейса.")
 
