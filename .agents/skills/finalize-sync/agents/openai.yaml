@@ -1,4 +1,0 @@
-interface:
-  display_name: "Finalize Sync"
-  short_description: "Синхронизация плана и точечных doc-комментариев"
-  default_prompt: "Use $finalize-sync to align the active .sisyphus plan with the real git diff, preview tracked vs untracked changes, and add comments only where the public contract is not obvious."
