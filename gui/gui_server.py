@@ -117,6 +117,7 @@ BUNDLE_INSTALL_ID = ensure_bundle_install_id(PROJECT_ROOT)
 RUN_SCRIPT = PROJECT_ROOT / "run-xray-tun-subvost.sh"
 STOP_SCRIPT = PROJECT_ROOT / "stop-xray-tun-subvost.sh"
 DIAG_SCRIPT = PROJECT_ROOT / "capture-xray-tun-state.sh"
+XRAY_UPDATE_SCRIPT = PROJECT_ROOT / "update-xray-core-subvost.sh"
 LOG_DIR = PROJECT_ROOT / "logs"
 XRAY_TEMPLATE_PATH = PROJECT_ROOT / "xray-tun-subvost.json"
 REAL_USER, REAL_HOME = discover_real_user()
@@ -160,6 +161,7 @@ def build_runtime_service() -> SubvostAppService:
         run_script=RUN_SCRIPT,
         stop_script=STOP_SCRIPT,
         diag_script=DIAG_SCRIPT,
+        xray_update_script=XRAY_UPDATE_SCRIPT,
         xray_template_path=XRAY_TEMPLATE_PATH,
         install_id=BUNDLE_INSTALL_ID,
     )

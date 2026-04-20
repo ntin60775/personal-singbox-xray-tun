@@ -39,6 +39,7 @@ class SubvostAppServiceTests(unittest.TestCase):
             run_script=root / "run-xray-tun-subvost.sh",
             stop_script=root / "stop-xray-tun-subvost.sh",
             diag_script=root / "capture-xray-tun-state.sh",
+            xray_update_script=root / "update-xray-core-subvost.sh",
             xray_template_path=root / "xray-tun-subvost.json",
         )
         return SubvostAppService(context=context, state=ServiceState())
@@ -185,6 +186,57 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["state"], "stopped")
             self.assertIn("/tmp/xray-tun-state-2026-04-09.log", service.state.last_action["message"])
             self.assertEqual(service.state.last_action["name"], "Диагностика")
+
+    def test_update_xray_core_rejects_live_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            runtime_info = {
+                "has_state": True,
+                "ownership": "current",
+                "xray_alive": True,
+                "tun_present": True,
+                "stack_is_live": True,
+                "owned_stack_is_live": True,
+            }
+
+            with patch.object(service, "inspect_runtime_state", return_value=runtime_info):
+                with self.assertRaisesRegex(ValueError, "сначала отключи активное подключение"):
+                    service.update_xray_core()
+
+    def test_update_xray_core_runs_update_script_when_runtime_is_stopped(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            runtime_info = {
+                "has_state": False,
+                "ownership": "unknown",
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "inspect_runtime_state", return_value=runtime_info),
+                patch.object(
+                    service,
+                    "run_shell_action",
+                    return_value=CommandResult("Обновление ядра Xray", True, 0, "Xray 26.2.6\nXray 26.3.0"),
+                ) as run_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.update_xray_core()
+
+            self.assertEqual(payload["summary"]["state"], "stopped")
+            run_mock.assert_called_once_with("Обновление ядра Xray", service.context.xray_update_script)
+            self.assertEqual(service.state.last_action["name"], "Обновление ядра Xray")
+            self.assertEqual(service.state.last_action["message"], "Ядро Xray обновлено.")
 
     def test_shutdown_gui_returns_status_without_runtime_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

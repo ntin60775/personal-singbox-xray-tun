@@ -25,6 +25,7 @@
 - `open-subvost-gui.sh` — запуск GUI launcher
 - `open-subvost-gtk-ui.sh` — запуск отдельного `GTK4` native UI для тестирования
 - `install-on-new-pc.sh` — установка системных зависимостей для Debian/Ubuntu
+- `update-xray-core-subvost.sh` — ручное обновление системного бинарника `xray-core`
 - `install-subvost-gui-menu-entry.sh` — установка ярлыка GUI в меню приложений
 - `install-subvost-gtk-ui-menu-entry.sh` — установка отдельного ярлыка `GTK4` native UI
 - `install-or-update-bundle-dir.sh` — установка или обновление bundle в отдельный каталог
@@ -133,11 +134,21 @@ Parser дополнительно:
 bash ./install-on-new-pc.sh
 ```
 
-Installer:
+Установщик:
 
 - ставит базовые зависимости через `apt-get`;
 - ставит `xray` через официальный `Xray-install`;
 - удаляет лишние systemd-артефакты `Xray-install`, чтобы bundle оставался portable.
+
+## Обновление ядра Xray
+
+Код приложения и системный бинарник `xray-core` обновляются отдельно. Если нужно обновить только ядро, сначала отключи активное подключение, затем используй кнопку `Обновить ядро Xray` в окне `Настройки интерфейса` `GTK4` UI или запусти:
+
+```bash
+bash ./update-xray-core-subvost.sh
+```
+
+Сценарий использует официальный `Xray-install`, после обновления снова убирает лишние `systemd`-артефакты и оставляет проект в переносимом режиме. Если `xray` или `tun0` уже активны, обновление блокируется до ручной остановки подключения.
 
 ## Установка или обновление bundle в отдельный каталог
 

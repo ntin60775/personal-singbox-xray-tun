@@ -233,6 +233,18 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('"$PKEXEC_PACKAGE"', installer)
         self.assertNotIn("apt-get install -y ca-certificates curl iproute2 pkexec", installer)
 
+    def test_update_xray_core_script_keeps_portable_xray_contract(self) -> None:
+        wrapper = (REPO_ROOT / "update-xray-core-subvost.sh").read_text(encoding="utf-8")
+        script = (REPO_ROOT / "libexec" / "update-xray-core-subvost.sh").read_text(encoding="utf-8")
+
+        self.assertIn('exec "${SUBVOST_LIBEXEC_DIR}/update-xray-core-subvost.sh" "$@"', wrapper)
+        self.assertIn("https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_REF}/install-release.sh", script)
+        self.assertIn('curl -fsSL "$XRAY_INSTALL_URL" | bash -s -- install', script)
+        self.assertIn("cleanup_xray_install_artifacts()", script)
+        self.assertIn("dedupe_xray_binaries", script)
+        self.assertIn("systemctl disable --now xray.service", script)
+        self.assertNotIn("apt-get install", script)
+
     def test_stop_button_is_not_disabled_by_stopped_runtime_state(self) -> None:
         html = self.main_html()
         self.assertIn("const stopAllowed = Boolean(state.statusPayload?.runtime?.stop_allowed ?? true);", html)

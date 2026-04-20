@@ -224,6 +224,7 @@ class ServiceContext:
     run_script: Path
     stop_script: Path
     diag_script: Path
+    xray_update_script: Path
     xray_template_path: Path
     install_id: str = "test-install-id"
 
@@ -256,6 +257,7 @@ def build_default_service(gui_dir: Path, *, state: ServiceState | None = None) -
         run_script=project_root / "run-xray-tun-subvost.sh",
         stop_script=project_root / "stop-xray-tun-subvost.sh",
         diag_script=project_root / "capture-xray-tun-state.sh",
+        xray_update_script=project_root / "update-xray-core-subvost.sh",
         xray_template_path=project_root / "xray-tun-subvost.json",
         install_id=ensure_bundle_install_id(project_root),
     )
@@ -1690,6 +1692,25 @@ class SubvostAppService:
             message = "Диагностика снята."
         else:
             message = f"Диагностика завершилась ошибкой, код {result.returncode}."
+        self.remember_action(result.name, result.ok, message, result.output)
+        retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
+        return self.collect_status(retention_cleanup=retention_cleanup)
+
+    def update_xray_core(self) -> dict[str, Any]:
+        runtime_info = self.inspect_runtime_state()
+        runtime_is_live = any(
+            bool(runtime_info.get(key))
+            for key in ("stack_is_live", "owned_stack_is_live", "xray_alive", "tun_present")
+        )
+        if runtime_is_live:
+            if runtime_info.get("ownership") == "foreign":
+                raise ValueError("Обновление ядра Xray заблокировано: подключением управляет другой экземпляр.")
+            if runtime_info.get("ownership") == "unknown":
+                raise ValueError("Обновление ядра Xray заблокировано: источник активного подключения не подтверждён.")
+            raise ValueError("Обновление ядра Xray заблокировано: сначала отключи активное подключение.")
+
+        result = self.run_shell_action("Обновление ядра Xray", self.context.xray_update_script)
+        message = "Ядро Xray обновлено." if result.ok else f"Обновление ядра Xray завершилось ошибкой, код {result.returncode}."
         self.remember_action(result.name, result.ok, message, result.output)
         retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
         return self.collect_status(retention_cleanup=retention_cleanup)
