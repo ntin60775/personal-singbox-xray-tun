@@ -1,4 +1,0 @@
-interface:
-  display_name: "1C Change Report"
-  short_description: "Отчет разработчика 1С и краткая оценка часов"
-  default_prompt: "Use $corp-kb-doc to prepare a developer-style 1C change report and a separate compact hours estimate for the selected local git scope."
