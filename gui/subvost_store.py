@@ -435,13 +435,14 @@ def prepare_routing_runtime(
     uid: int | None = None,
     gid: int | None = None,
     allow_download: bool = False,
+    force_download: bool = False,
 ) -> dict[str, Any]:
     ensure_routing_state(store, paths)
     routing = store["routing"]
     active_profile = get_active_routing_profile(store)
     if not active_profile:
         return routing["geodata"]
-    if routing["geodata"].get("ready") or not allow_download:
+    if (routing["geodata"].get("ready") and not force_download) or not allow_download:
         return routing["geodata"]
 
     try:

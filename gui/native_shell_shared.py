@@ -35,6 +35,7 @@ NATIVE_SHELL_STORE_ACTION_LABELS = {
     "node-activate": "Активация узла",
     "node-ping": "Проверка узла",
     "routing-import": "Импорт маршрутизации",
+    "routing-prepare-geodata": "Подготовка GeoIP и GeoSite",
     "routing-toggle": "Переключение маршрутизации",
     "routing-clear-active": "Сброс маршрутизации",
     "routing-activate-profile": "Активация маршрутизации",

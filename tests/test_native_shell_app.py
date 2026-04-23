@@ -547,6 +547,36 @@ class NativeShellAppTests(unittest.TestCase):
         self.assertEqual(captured["action_summary"], "Готово к запуску через узел: Финляндия · VLESS.")
         self.assertEqual(captured["action_hint"], "")
 
+    def test_refresh_subscriptions_controls_enables_prepare_geodata_for_single_enabled_profile(self) -> None:
+        app = self.make_app()
+        app.subscription_action_buttons = {}
+        app.routing_action_buttons = {
+            "routing-import": FakeButton(),
+            "routing-prepare-geodata": FakeButton(),
+            "routing-toggle": FakeButton(),
+            "routing-clear-active": FakeButton(),
+        }
+        app.last_store_payload = {
+            "store": {
+                "subscriptions": [],
+                "profiles": [],
+                "routing": {
+                    "enabled": False,
+                    "profiles": [
+                        {"id": "routing-1", "enabled": True},
+                    ],
+                },
+            },
+            "active_routing_profile": None,
+        }
+
+        app.refresh_subscriptions_controls()
+
+        self.assertTrue(app.routing_action_buttons["routing-import"].sensitive)
+        self.assertTrue(app.routing_action_buttons["routing-prepare-geodata"].sensitive)
+        self.assertFalse(app.routing_action_buttons["routing-toggle"].sensitive)
+        self.assertFalse(app.routing_action_buttons["routing-clear-active"].sensitive)
+
     def test_dashboard_primary_action_spec_points_to_dashboard_node_cards_when_node_missing(self) -> None:
         app = self.make_app()
         app.last_status_payload = {

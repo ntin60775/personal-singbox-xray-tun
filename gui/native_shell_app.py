@@ -1304,6 +1304,12 @@ class NativeShellApp:
         geodata_line = self.Gtk.Label(label="Наборы GeoIP и GeoSite пока не подготовлены.", xalign=0)
         geodata_line.set_wrap(True)
         add_css_class(geodata_line, "native-shell-card-subtitle")
+        manual_hint = self.Gtk.Label(
+            label="Ручной импорт: вставляйте JSON или `happ://routing/...` только если профиль не пришёл из подписки.",
+            xalign=0,
+        )
+        manual_hint.set_wrap(True)
+        add_css_class(manual_hint, "native-shell-muted")
         self.subscription_labels["routing_badge"] = badge
         self.subscription_labels["routing_expander_title"] = expander_title
         self.subscription_labels["routing_status"] = status_line
@@ -1320,10 +1326,15 @@ class NativeShellApp:
         import_scroller.set_child(import_view)
 
         action_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=10)
-        import_button = self.Gtk.Button(label="Импортировать")
+        import_button = self.Gtk.Button(label="Импорт вручную")
         add_css_class(import_button, "native-shell-button-primary")
         import_button.connect("clicked", lambda *_args: self.on_import_routing_requested())
         self.routing_action_buttons["routing-import"] = import_button
+
+        geodata_button = self.Gtk.Button(label="Подготовить GeoIP и GeoSite")
+        add_css_class(geodata_button, "native-shell-button-secondary")
+        geodata_button.connect("clicked", lambda *_args: self.begin_store_action("routing-prepare-geodata"))
+        self.routing_action_buttons["routing-prepare-geodata"] = geodata_button
 
         toggle_button = self.Gtk.Button(label="Включить маршрутизацию")
         add_css_class(toggle_button, "native-shell-button-secondary")
@@ -1347,6 +1358,7 @@ class NativeShellApp:
         body.append(badge)
         body.append(status_line)
         body.append(geodata_line)
+        body.append(manual_hint)
         body.append(import_scroller)
         body.append(action_row)
         body.append(self.build_list_scroller(list_box))
@@ -1971,6 +1983,7 @@ class NativeShellApp:
         enabled = bool(routing.get("enabled"))
         ready = bool(routing.get("runtime_ready"))
         profiles = routing_profiles_from_store_snapshot(self.last_store_payload)
+        enabled_profiles = [profile for profile in profiles if profile.get("enabled", True)]
         geodata = routing.get("geodata") or {}
         subscription_names = {
             str(item.get("id") or ""): str(item.get("name") or "")
@@ -2012,8 +2025,15 @@ class NativeShellApp:
             )
         elif geodata.get("status") == "error":
             geodata_text = f"Наборы GeoIP и GeoSite не готовы: {geodata.get('error') or 'ошибка загрузки'}."
+        elif active_routing_profile:
+            geodata_text = "Наборы GeoIP и GeoSite пока не подготовлены. Нажмите «Подготовить GeoIP и GeoSite» или просто включите маршрутизацию."
+        elif len(enabled_profiles) == 1:
+            geodata_text = "Наборы GeoIP и GeoSite пока не подготовлены. Можно нажать «Подготовить GeoIP и GeoSite», профиль будет выбран автоматически."
         self.set_subscription_label("routing_geodata", geodata_text)
 
+        geodata_button = self.routing_action_buttons.get("routing-prepare-geodata")
+        if geodata_button is not None:
+            geodata_button.set_label("Обновить GeoIP и GeoSite" if geodata.get("ready") else "Подготовить GeoIP и GeoSite")
         toggle_button = self.routing_action_buttons.get("routing-toggle")
         if toggle_button is not None:
             toggle_button.set_label("Выключить маршрутизацию" if enabled else "Включить маршрутизацию")
@@ -2199,6 +2219,9 @@ class NativeShellApp:
         subscriptions = subscriptions_from_store_snapshot(self.last_store_payload)
         active_routing_profile = active_routing_profile_from_store_snapshot(self.last_store_payload)
         routing = routing_from_store_snapshot(self.last_store_payload)
+        enabled_routing_profiles = [
+            profile for profile in routing_profiles_from_store_snapshot(self.last_store_payload) if profile.get("enabled", True)
+        ]
 
         if self.subscription_url_entry is not None:
             self.subscription_url_entry.set_sensitive(not busy)
@@ -2210,6 +2233,8 @@ class NativeShellApp:
         for action_id, button in self.routing_action_buttons.items():
             if action_id == "routing-toggle":
                 button.set_sensitive(not busy and (bool(active_routing_profile) or bool(routing.get("enabled"))))
+            elif action_id == "routing-prepare-geodata":
+                button.set_sensitive(not busy and (bool(active_routing_profile) or len(enabled_routing_profiles) == 1))
             elif action_id == "routing-clear-active":
                 button.set_sensitive(not busy and bool(active_routing_profile))
             else:
@@ -2641,6 +2666,7 @@ class NativeShellApp:
             "node-activate": lambda: self.runtime_service.activate_selection(str(kwargs["profile_id"]), str(kwargs["node_id"])),
             "node-ping": lambda: self.runtime_service.ping_node_by_id(str(kwargs["profile_id"]), str(kwargs["node_id"])),
             "routing-import": lambda: self.runtime_service.import_routing_profile(str(kwargs["text"])),
+            "routing-prepare-geodata": self.runtime_service.prepare_routing_geodata,
             "routing-toggle": lambda: self.runtime_service.set_routing_enabled(bool(kwargs["enabled"])),
             "routing-clear-active": self.runtime_service.clear_active_routing_profile,
             "routing-activate-profile": lambda: self.runtime_service.activate_routing_profile(str(kwargs["profile_id"])),

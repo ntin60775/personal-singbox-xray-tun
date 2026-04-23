@@ -67,7 +67,7 @@
 |---------|--------------|
 | Код / сервисы | Реализованы parser/store/runtime/GUI-сценарии для import-first routing и provider-aware auto-fetch из подписок |
 | Конфигурация / схема данных / именуемые сущности | Store получил секцию `routing`, geodata-state и поля auto-managed subscription↔routing связи |
-| Интерфейсы / формы / страницы | Web UI и native shell показывают состояние профиля, источник, связанную подписку, `providerId` и режим `add/onadd` |
+| Интерфейсы / формы / страницы | Web UI и native shell показывают состояние профиля, источник, связанную подписку, `providerId`, режим `add/onadd`, явный ручной fallback и отдельную кнопку подготовки `GeoIP/GeoSite` |
 | Интеграции / обмены | Runtime использует `geosite` и `geoip` через `XRAY_LOCATION_ASSET`, а refresh подписок читает `routing` metadata и cleanup stale state |
 | Документация | Knowledge-контур задачи и подзадачи синхронизирован с реализованным umbrella-результатом |
 
@@ -115,7 +115,7 @@ Import-first контур и отдельная подзадача auto-fetch р
 
 Добавлены обязательные `geoip.dat` и `geosite.dat` в user config-home, их atomic download/cache, прокидывание `XRAY_LOCATION_ASSET` в `run-xray-tun-subvost.sh` и генерация `Xray` routing overlay поверх базового шаблона с сохранением внутренних правил bundle.
 
-Backend, web UI и native shell расширены блоком маршрутизации и индикацией источника auto-managed профиля: import профиля, просмотр списка профилей, выбор активного профиля, master toggle, `providerId`, связанная подписка, режим `add/onadd`, tolerant parsing mixed payload и cleanup stale routing state при исчезновении metadata.
+Backend, web UI и native shell расширены блоком маршрутизации и индикацией источника auto-managed профиля: import профиля, просмотр списка профилей, выбор активного профиля, master toggle, `providerId`, связанная подписка, режим `add/onadd`, явный manual fallback для вставки JSON/`happ://routing/...`, отдельная подготовка `GeoIP/GeoSite`, tolerant parsing mixed payload и cleanup stale routing state при исчезновении metadata.
 
 Пройдены проверки: `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -S -m compileall -q gui tests`, `python3 -S -m json.tool xray-tun-subvost.json`, `python3 -S -m unittest tests.test_subvost_parser tests.test_subvost_routing tests.test_subvost_store tests.test_subvost_app_service tests.test_gui_server -q`, `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`.
 

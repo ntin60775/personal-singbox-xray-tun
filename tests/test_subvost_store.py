@@ -22,6 +22,7 @@ from subvost_store import (  # noqa: E402
     ensure_store_structure,
     ensure_store_initialized,
     import_routing_profile,
+    prepare_routing_runtime,
     read_gui_settings,
     refresh_subscription,
     save_gui_settings,
@@ -715,6 +716,75 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertIsNone(store["routing"]["active_profile_id"])
             self.assertFalse(store["routing"]["enabled"])
             self.assertFalse(store["routing"]["runtime_ready"])
+
+    def test_prepare_routing_runtime_redownloads_assets_when_forced(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "Auto route",
+                    "name_key": "auto route",
+                    "enabled": True,
+                    "source_format": "json",
+                    "raw_payload": {"name": "Auto route"},
+                    "global_proxy": False,
+                    "domain_strategy": "AsIs",
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                    "direct_sites": [],
+                    "direct_ip": [],
+                    "proxy_sites": [],
+                    "proxy_ip": [],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "dns_hosts": {},
+                    "domestic_dns_domain": "",
+                    "domestic_dns_ip": "",
+                    "domestic_dns_type": "",
+                    "remote_dns_domain": "",
+                    "remote_dns_ip": "",
+                    "remote_dns_type": "",
+                    "fake_dns": False,
+                    "route_order": ["block", "direct", "proxy"],
+                    "last_updated": "",
+                    "supported_entry_count": 0,
+                    "stored_only_fields": [],
+                    "ignored_fields": [],
+                    "unknown_fields": [],
+                    "created_at": "2026-04-23T00:00:00+00:00",
+                    "updated_at": "2026-04-23T00:00:00+00:00",
+                }
+            )
+            store["routing"]["active_profile_id"] = "routing-1"
+            paths.geoip_asset_file.parent.mkdir(parents=True, exist_ok=True)
+            paths.geoip_asset_file.write_bytes(b"old-geoip")
+            paths.geosite_asset_file.write_bytes(b"old-geosite")
+
+            with patch(
+                "subvost_store.download_routing_geodata",
+                return_value={
+                    "ready": True,
+                    "status": "ready",
+                    "asset_dir": str(paths.xray_asset_dir),
+                    "geoip_path": str(paths.geoip_asset_file),
+                    "geosite_path": str(paths.geosite_asset_file),
+                    "error": "",
+                    "geoip_exists": True,
+                    "geosite_exists": True,
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                },
+            ) as download_mock:
+                geodata = prepare_routing_runtime(store, paths, allow_download=True, force_download=True)
+
+            download_mock.assert_called_once()
+            self.assertTrue(geodata["ready"])
 
     def test_refresh_subscription_reads_provider_id_from_url_fragment(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

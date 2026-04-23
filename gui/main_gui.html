@@ -1453,30 +1453,31 @@
               <div class="panel-head">
                 <div>
                   <h2>Маршрутизация</h2>
-                  <p id="routing-copy">Импортируйте JSON или вставьте `happ://routing/...`, затем выберите активный профиль и включите маршрутизацию.</p>
+                  <p id="routing-copy">Профиль маршрутизации может подтянуться автоматически после обновления подписки. Поле ниже нужно только для ручного импорта JSON или `happ://routing/...`.</p>
                 </div>
                 <span class="panel-badge" id="routing-panel-badge">Ожидание</span>
               </div>
 
               <div class="help-card">
                 <p id="routing-status-line">Профиль маршрутизации ещё не импортирован.</p>
-                <p id="routing-geodata-line">Geodata пока не подготовлена.</p>
+                <p id="routing-geodata-line">Наборы GeoIP и GeoSite пока не подготовлены.</p>
               </div>
 
               <div class="routing-grid">
                 <form class="routing-form" id="routing-form">
                   <div class="routing-status-grid">
-                    <span class="row-badge" data-tone="accent">Поддерживается JSON и `happ://routing/...`</span>
+                    <span class="row-badge" data-tone="accent">Ручной импорт: JSON и `happ://routing/...`</span>
                   </div>
                   <textarea
                     class="routing-input mono"
                     id="routing-import-text"
-                    placeholder='Вставьте JSON routing-профиля или `happ://routing/add/...`'
+                    placeholder='Только для ручного импорта: JSON профиля маршрутизации или `happ://routing/add/...`'
                     autocomplete="off"
                   ></textarea>
                   <div class="routing-actions">
-                    <button class="action-button primary" id="routing-import-button" type="submit">Импортировать</button>
-                    <button class="ghost-button" id="routing-toggle-button" type="button">Включить routing</button>
+                    <button class="action-button primary" id="routing-import-button" type="submit">Импорт вручную</button>
+                    <button class="ghost-button" id="routing-geodata-button" type="button">Подготовить GeoIP и GeoSite</button>
+                    <button class="ghost-button" id="routing-toggle-button" type="button">Включить маршрутизацию</button>
                     <button class="ghost-button" id="routing-clear-button" type="button">Снять активный</button>
                   </div>
                 </form>
@@ -1608,6 +1609,7 @@
       routingForm: document.getElementById("routing-form"),
       routingImportText: document.getElementById("routing-import-text"),
       routingImportButton: document.getElementById("routing-import-button"),
+      routingGeodataButton: document.getElementById("routing-geodata-button"),
       routingToggleButton: document.getElementById("routing-toggle-button"),
       routingClearButton: document.getElementById("routing-clear-button"),
       routingProfileList: document.getElementById("routing-profile-list"),
@@ -1943,6 +1945,8 @@
       const subscriptions = subscriptionsFromStore();
       const selectedId = selectedSubscription()?.id || null;
       const profiles = profilesFromStore();
+      const routingProfilesList = routingProfiles();
+      const activeRoutingProfileId = activeRoutingProfile()?.id || routingState().active_profile_id || null;
       const freshSubscriptions = subscriptions.filter((item) => item.last_status === "ok").length;
 
       setTextIfChanged(els.subscriptionCopy, subscriptions.length
@@ -1956,6 +1960,7 @@
 
       const markup = subscriptions.map((subscription) => {
         const profile = profiles.find((item) => item.id === subscription.profile_id);
+        const routingProfile = routingProfilesList.find((item) => item.id === subscription.routing_profile_id);
         const nodeCount = Array.isArray(profile?.nodes) ? profile.nodes.length : 0;
         const tone = subscription.last_status === "ok"
           ? "success"
@@ -1966,6 +1971,24 @@
           ? `обновлена ${formatTimestamp(subscription.last_success_at)}`
           : "ещё не обновлялась";
         const message = subscription.last_error || timestamp;
+        let routingMessage = "";
+        if (subscription.last_routing_status === "linked") {
+          const routingStateLabel = subscription.routing_profile_id && subscription.routing_profile_id === activeRoutingProfileId
+            ? "профиль выбран"
+            : "профиль импортирован";
+          routingMessage = [
+            routingStateLabel,
+            routingProfile?.name ? `профиль ${routingProfile.name}` : "",
+            routingProfile?.activation_mode && routingProfile.activation_mode !== "manual" ? `режим ${routingProfile.activation_mode}` : "",
+            subscription.provider_id ? `providerId ${subscription.provider_id}` : "",
+          ].filter(Boolean).join(" · ");
+        } else if (subscription.last_routing_status === "error") {
+          routingMessage = `маршрутизация: ${subscription.last_routing_error || "ошибка импорта"}`;
+        } else if (subscription.last_routing_status === "skipped") {
+          routingMessage = `маршрутизация: ${subscription.last_routing_error || "автоимпорт пропущен"}`;
+        } else if (subscription.last_routing_status === "none" && subscription.last_success_at) {
+          routingMessage = "метаданные маршрутизации не найдены";
+        }
 
         return `
           <div class="list-row subscription-row" data-subscription-id="${escapeAttr(subscription.id)}" data-selected="${selectedId === subscription.id ? "true" : "false"}" data-tone="${tone === "danger" ? "error" : "normal"}">
@@ -1973,6 +1996,7 @@
               <strong>${escapeHtml(subscription.name)}</strong>
               <div class="row-meta">${escapeHtml(subscription.url)}</div>
               <div class="row-meta">${escapeHtml(message)}</div>
+              ${routingMessage ? `<div class="row-meta">${escapeHtml(routingMessage)}</div>` : ""}
             </div>
             <div class="row-side">
               <div class="subscription-badges">
@@ -2064,6 +2088,8 @@
       const geodata = routing.geodata || {};
       const enabled = Boolean(routing.enabled);
       const ready = Boolean(routing.runtime_ready);
+      const autoProfiles = profiles.filter((profile) => profile.auto_managed);
+      const enabledProfiles = profiles.filter((profile) => profile.enabled !== false);
       const geodataStatus = geodata.ready
         ? "готова"
         : geodata.status === "error"
@@ -2083,12 +2109,12 @@
       setTextIfChanged(
         els.routingCopy,
         profiles.length
-          ? `${profiles.length} routing-профил${profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"} в store.`
-          : "Импортируйте первый routing-профиль."
+          ? `${profiles.length} профил${profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"} маршрутизации в хранилище. Авто-профили приходят из подписок после их обновления, поле ниже нужно только для ручного импорта.`
+          : "Если подписка отдает метаданные маршрутизации, нажмите «Обновить» на карточке подписки. Поле ниже нужно только для ручного импорта."
       );
 
       if (active) {
-        const modeLabel = active.global_proxy ? "global proxy" : "direct fallback";
+        const modeLabel = active.global_proxy ? "через прокси" : "с прямым обходом";
         setTextIfChanged(
           els.routingStatusLine,
           enabled && ready
@@ -2100,22 +2126,27 @@
       }
 
       const geodataMessage = geodata.ready
-        ? `Geodata готова: geoip.dat и geosite.dat доступны в ${geodata.asset_dir || "asset-dir"}.`
+        ? `Наборы GeoIP и GeoSite готовы: geoip.dat и geosite.dat доступны в ${geodata.asset_dir || "asset-dir"}.`
         : geodata.status === "error"
-          ? `Geodata не готова: ${geodata.error || "ошибка загрузки"}.`
-          : "Geodata пока не подготовлена.";
+          ? `Наборы GeoIP и GeoSite не готовы: ${geodata.error || "ошибка загрузки"}.`
+          : active
+            ? "Наборы GeoIP и GeoSite пока не подготовлены. Нажмите «Подготовить GeoIP и GeoSite» или просто включите маршрутизацию."
+            : enabledProfiles.length === 1
+              ? "Наборы GeoIP и GeoSite пока не подготовлены. Можно нажать «Подготовить GeoIP и GeoSite», профиль будет выбран автоматически."
+              : "Наборы GeoIP и GeoSite пока не подготовлены.";
       setTextIfChanged(els.routingGeodataLine, geodataMessage);
-      setTextIfChanged(els.routingToggleButton, enabled ? "Выключить routing" : "Включить routing");
+      setTextIfChanged(els.routingGeodataButton, geodata.ready ? "Обновить GeoIP и GeoSite" : "Подготовить GeoIP и GeoSite");
+      setTextIfChanged(els.routingToggleButton, enabled ? "Выключить маршрутизацию" : "Включить маршрутизацию");
       setTextIfChanged(
         els.navRoutingMeta,
         active
           ? `${active.name} · ${enabled ? (ready ? "включена" : "требует проверки") : "выключена"}`
-          : (profiles.length ? `${profiles.length} профилей в store` : "Профиля нет")
+          : (profiles.length ? `${profiles.length} профилей в хранилище${autoProfiles.length ? ` · авто ${autoProfiles.length}` : ""}` : "Профиля нет")
       );
       setDataAttrIfChanged(els.navRoutingButton, "alert", enabled && !ready ? "true" : "false");
 
       if (!profiles.length) {
-        setHtmlIfChanged(els.routingProfileList, emptyState("Routing-профилей пока нет."), "routing");
+        setHtmlIfChanged(els.routingProfileList, emptyState("Профилей маршрутизации пока нет."), "routing");
         return;
       }
 
@@ -2133,7 +2164,7 @@
         const sourceSubscription = subscriptionLabelById(profile.source_subscription_id) || profile.source_subscription_id || "";
         const meta = [
           `правил ${profile.supported_entry_count || 0}`,
-          profile.global_proxy ? "global proxy" : "direct fallback",
+          profile.global_proxy ? "через прокси" : "с прямым обходом",
           `формат ${profile.source_format || "json"}`,
         ].join(" · ");
         const sourceMeta = [
@@ -2265,6 +2296,7 @@
       els.subscriptionUrl.disabled = state.busy;
       els.routingImportButton.disabled = state.busy;
       els.routingImportText.disabled = state.busy;
+      els.routingGeodataButton.disabled = state.busy || (!currentRoutingProfile && routingProfiles().filter((profile) => profile.enabled !== false).length !== 1);
       els.routingToggleButton.disabled = state.busy || (!currentRoutingProfile && !routing.enabled);
       els.routingClearButton.disabled = state.busy || !currentRoutingProfile;
     }
@@ -2428,7 +2460,7 @@
       event.preventDefault();
       const text = els.routingImportText.value.trim();
       if (!text) {
-        reportLoadError(new Error("Вставьте routing-профиль для импорта."));
+        reportLoadError(new Error("Вставьте профиль маршрутизации для импорта."));
         return;
       }
       setBusy(true);
@@ -2457,6 +2489,17 @@
       setBusy(true);
       try {
         const data = await apiPost("/api/routing/clear-active", {});
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
+    async function prepareRoutingGeodata() {
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/routing/prepare-geodata", {});
         await syncFromResponse(data);
       } finally {
         setBusy(false);
@@ -2514,6 +2557,9 @@
     });
     els.routingForm.addEventListener("submit", (event) => {
       importRoutingProfile(event).catch(reportLoadError);
+    });
+    els.routingGeodataButton.addEventListener("click", () => {
+      prepareRoutingGeodata().catch(reportLoadError);
     });
     els.routingToggleButton.addEventListener("click", () => {
       toggleRoutingMaster().catch(reportLoadError);

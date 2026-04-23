@@ -928,6 +928,10 @@ def handle_routing_activate(payload: dict[str, Any]) -> dict[str, Any]:
     return build_runtime_service().activate_routing_profile(profile_id)
 
 
+def handle_routing_prepare_geodata() -> dict[str, Any]:
+    return build_runtime_service().prepare_routing_geodata()
+
+
 def handle_routing_clear_active() -> dict[str, Any]:
     return build_runtime_service().clear_active_routing_profile()
 
@@ -1120,6 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/import/save",
             "/api/routing/import",
             "/api/routing/activate",
+            "/api/routing/prepare-geodata",
             "/api/routing/clear-active",
             "/api/routing/profile/update",
             "/api/routing/toggle",
@@ -1172,6 +1177,8 @@ class Handler(BaseHTTPRequestHandler):
                 response = handle_routing_import(payload)
             elif self.path == "/api/routing/activate":
                 response = handle_routing_activate(payload)
+            elif self.path == "/api/routing/prepare-geodata":
+                response = handle_routing_prepare_geodata()
             elif self.path == "/api/routing/clear-active":
                 response = handle_routing_clear_active()
             elif self.path == "/api/routing/profile/update":

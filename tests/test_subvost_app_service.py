@@ -160,6 +160,204 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["subscription"]["url"], "https://example.com/subscription")
             self.assertEqual(payload["store"]["summary"]["subscriptions_total"], 1)
 
+    def test_prepare_routing_geodata_returns_store_response_for_active_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            store = ensure_store_initialized(service.context.app_paths, root)
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "Auto route",
+                    "name_key": "auto route",
+                    "enabled": True,
+                    "source_format": "happ_uri",
+                    "activation_mode": "onadd",
+                    "raw_payload": {"name": "Auto route"},
+                    "global_proxy": False,
+                    "domain_strategy": "AsIs",
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                    "direct_sites": [],
+                    "direct_ip": [],
+                    "proxy_sites": [],
+                    "proxy_ip": [],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "dns_hosts": {},
+                    "domestic_dns_domain": "",
+                    "domestic_dns_ip": "",
+                    "domestic_dns_type": "",
+                    "remote_dns_domain": "",
+                    "remote_dns_ip": "",
+                    "remote_dns_type": "",
+                    "fake_dns": False,
+                    "route_order": ["block", "direct", "proxy"],
+                    "last_updated": "",
+                    "supported_entry_count": 0,
+                    "stored_only_fields": [],
+                    "ignored_fields": [],
+                    "unknown_fields": [],
+                    "created_at": "2026-04-23T00:00:00+00:00",
+                    "updated_at": "2026-04-23T00:00:00+00:00",
+                }
+            )
+            store["routing"]["active_profile_id"] = "routing-1"
+
+            with (
+                patch.object(service, "ensure_store_ready", return_value=store),
+                patch(
+                    "subvost_app_service.store_prepare_routing_runtime",
+                    return_value={
+                        "ready": True,
+                        "status": "ready",
+                        "asset_dir": "/tmp/geodata",
+                        "error": "",
+                    },
+                ) as prepare_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.prepare_routing_geodata()
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["routing_profile"]["id"], "routing-1")
+            self.assertEqual(payload["geodata"]["status"], "ready")
+            self.assertIn("GeoIP и GeoSite подготовлены", payload["message"])
+            prepare_mock.assert_called_once_with(
+                store,
+                service.context.app_paths,
+                uid=service.context.real_uid,
+                gid=service.context.real_gid,
+                allow_download=True,
+                force_download=True,
+            )
+
+    def test_prepare_routing_geodata_auto_selects_single_enabled_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            store = ensure_store_initialized(service.context.app_paths, root)
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "Auto route",
+                    "name_key": "auto route",
+                    "enabled": True,
+                    "source_format": "happ_uri",
+                    "activation_mode": "onadd",
+                    "raw_payload": {"name": "Auto route"},
+                    "global_proxy": False,
+                    "domain_strategy": "AsIs",
+                    "geoip_url": "https://example.com/geoip.dat",
+                    "geosite_url": "https://example.com/geosite.dat",
+                    "direct_sites": [],
+                    "direct_ip": [],
+                    "proxy_sites": [],
+                    "proxy_ip": [],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "dns_hosts": {},
+                    "domestic_dns_domain": "",
+                    "domestic_dns_ip": "",
+                    "domestic_dns_type": "",
+                    "remote_dns_domain": "",
+                    "remote_dns_ip": "",
+                    "remote_dns_type": "",
+                    "fake_dns": False,
+                    "route_order": ["block", "direct", "proxy"],
+                    "last_updated": "",
+                    "supported_entry_count": 0,
+                    "stored_only_fields": [],
+                    "ignored_fields": [],
+                    "unknown_fields": [],
+                    "created_at": "2026-04-23T00:00:00+00:00",
+                    "updated_at": "2026-04-23T00:00:00+00:00",
+                }
+            )
+
+            def fake_activate(*_args, **_kwargs):
+                store["routing"]["active_profile_id"] = "routing-1"
+                return store["routing"]["profiles"][0]
+
+            with (
+                patch.object(service, "ensure_store_ready", return_value=store),
+                patch("subvost_app_service.store_activate_routing_profile", side_effect=fake_activate) as activate_mock,
+                patch(
+                    "subvost_app_service.store_prepare_routing_runtime",
+                    return_value={
+                        "ready": True,
+                        "status": "ready",
+                        "asset_dir": "/tmp/geodata",
+                        "error": "",
+                    },
+                ) as prepare_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.prepare_routing_geodata()
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["routing_profile"]["id"], "routing-1")
+            self.assertEqual(store["routing"]["active_profile_id"], "routing-1")
+            activate_mock.assert_called_once()
+            prepare_mock.assert_called_once()
+
+    def test_prepare_routing_geodata_rejects_when_multiple_profiles_need_manual_choice(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            store = ensure_store_initialized(service.context.app_paths, root)
+            for profile_id, name in (("routing-1", "First"), ("routing-2", "Second")):
+                store["routing"]["profiles"].append(
+                    {
+                        "id": profile_id,
+                        "name": name,
+                        "name_key": name.lower(),
+                        "enabled": True,
+                        "source_format": "happ_uri",
+                        "activation_mode": "onadd",
+                        "raw_payload": {"name": name},
+                        "global_proxy": False,
+                        "domain_strategy": "AsIs",
+                        "geoip_url": "https://example.com/geoip.dat",
+                        "geosite_url": "https://example.com/geosite.dat",
+                        "direct_sites": [],
+                        "direct_ip": [],
+                        "proxy_sites": [],
+                        "proxy_ip": [],
+                        "block_sites": [],
+                        "block_ip": [],
+                        "dns_hosts": {},
+                        "domestic_dns_domain": "",
+                        "domestic_dns_ip": "",
+                        "domestic_dns_type": "",
+                        "remote_dns_domain": "",
+                        "remote_dns_ip": "",
+                        "remote_dns_type": "",
+                        "fake_dns": False,
+                        "route_order": ["block", "direct", "proxy"],
+                        "last_updated": "",
+                        "supported_entry_count": 0,
+                        "stored_only_fields": [],
+                        "ignored_fields": [],
+                        "unknown_fields": [],
+                        "created_at": "2026-04-23T00:00:00+00:00",
+                        "updated_at": "2026-04-23T00:00:00+00:00",
+                    }
+                )
+
+            with patch.object(service, "ensure_store_ready", return_value=store):
+                with self.assertRaisesRegex(ValueError, "Сначала выбери текущий routing-профиль"):
+                    service.prepare_routing_geodata()
+
     def test_capture_diagnostics_remembers_path_from_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

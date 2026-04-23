@@ -40,7 +40,7 @@
 
 - добавить отдельный модуль routing-парсинга, normalizer, geodata manager и builder overlay для `Xray`;
 - расширить `subvost_store` новой секцией `routing`, логикой импорта и переключения профилей;
-- расширить `subvost_runtime`, `gui_server`, `main_gui.html` и shell runtime для geodata и routing status;
+- расширить `subvost_runtime`, `gui_server`, `main_gui.html` и shell runtime для geodata, routing status, явного manual fallback и отдельного действия подготовки `GeoIP/GeoSite`;
 - сделать tolerant parsing mixed subscription payload и реализовать follow-up `TASK-2026-0048.1` для auto-fetch по `routing` metadata и `providerId`.
 
 ### Конфигурация / схема данных / именуемые сущности
@@ -100,7 +100,7 @@
 
 ## Итог
 
-Umbrella-реализация завершена до статуса `на проверке`: import-first routing-контур дополнен реализованной подзадачей `TASK-2026-0048.1`, которая автоматически подтягивает routing metadata из подписки, связывает auto-managed профиль с `providerId` и очищает stale state при исчезновении metadata.
+Umbrella-реализация завершена до статуса `на проверке`: import-first routing-контур дополнен реализованной подзадачей `TASK-2026-0048.1`, которая автоматически подтягивает routing metadata из подписки, связывает auto-managed профиль с `providerId`, очищает stale state при исчезновении metadata и отделяет auto-import UX от ручного fallback с явной подготовкой `GeoIP/GeoSite`.
 
 Тестовый контур расширен unit/API-проверками parser/store/backend, дополнительными регрессиями на mixed-body comments и повторный refresh без metadata, а полный `unittest discover` прошёл без ошибок.
 

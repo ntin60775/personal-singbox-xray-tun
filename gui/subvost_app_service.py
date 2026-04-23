@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import pwd
@@ -30,6 +31,7 @@ from subvost_store import (
     get_active_node,
     get_active_routing_profile,
     import_routing_profile as store_import_routing_profile,
+    prepare_routing_runtime as store_prepare_routing_runtime,
     read_gui_settings,
     refresh_all_subscriptions as store_refresh_all_subscriptions,
     refresh_subscription as store_refresh_subscription,
@@ -1598,6 +1600,54 @@ class SubvostAppService:
             message=f"Активным сделан профиль маршрутизации '{profile['name']}'.",
             details=json.dumps({"routing_profile_id": profile_id}, ensure_ascii=False),
             extra={"routing_profile": profile},
+        )
+
+    def prepare_routing_geodata(self) -> dict[str, Any]:
+        store = self.ensure_store_ready()
+        geodata_before = copy.deepcopy(store.get("routing", {}).get("geodata") or {})
+        profile = get_active_routing_profile(store)
+        if not profile:
+            enabled_profiles = [
+                item
+                for item in store.get("routing", {}).get("profiles", [])
+                if item.get("enabled", True)
+            ]
+            if len(enabled_profiles) == 1:
+                profile = store_activate_routing_profile(
+                    store,
+                    self.context.app_paths,
+                    str(enabled_profiles[0]["id"]),
+                    uid=self.context.real_uid,
+                    gid=self.context.real_gid,
+                )
+            else:
+                raise ValueError("Сначала выбери текущий routing-профиль.")
+
+        geodata = store_prepare_routing_runtime(
+            store,
+            self.context.app_paths,
+            uid=self.context.real_uid,
+            gid=self.context.real_gid,
+            allow_download=True,
+            force_download=True,
+        )
+        if not geodata.get("ready"):
+            raise ValueError(geodata.get("error") or "Не удалось подготовить GeoIP/GeoSite.")
+
+        action_message = "GeoIP и GeoSite обновлены" if geodata_before.get("ready") else "GeoIP и GeoSite подготовлены"
+        return self.build_store_response(
+            store,
+            name="Подготовка GeoIP/GeoSite",
+            ok=True,
+            message=f"{action_message} для профиля '{profile['name']}'.",
+            details=json.dumps(
+                {
+                    "routing_profile_id": profile["id"],
+                    "geodata_status": geodata.get("status"),
+                },
+                ensure_ascii=False,
+            ),
+            extra={"routing_profile": profile, "geodata": geodata},
         )
 
     def clear_active_routing_profile(self) -> dict[str, Any]:

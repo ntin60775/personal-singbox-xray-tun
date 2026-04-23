@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -59,6 +60,11 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("self.send_html(load_main_gui_html())", do_get_source)
         self.assertNotIn("self.send_html(INDEX_HTML)", do_get_source)
 
+    def test_handle_routing_prepare_geodata_delegates_to_runtime_service(self) -> None:
+        payload = {"ok": True, "message": "prepared"}
+        with patch.object(gui_server, "build_runtime_service", return_value=SimpleNamespace(prepare_routing_geodata=lambda: payload)):
+            self.assertEqual(gui_server.handle_routing_prepare_geodata(), payload)
+
     def test_main_gui_asset_contains_operational_controls(self) -> None:
         self.assertEqual(gui_server.MAIN_GUI_ASSET, "main_gui.html")
         html = self.main_html()
@@ -71,6 +77,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('id="node-list"', html)
         self.assertIn('id="routing-form"', html)
         self.assertIn('id="routing-profile-list"', html)
+        self.assertIn('id="routing-geodata-button"', html)
         self.assertIn('id="routing-toggle-button"', html)
         self.assertIn('id="log-list"', html)
         self.assertIn('id="refresh-all-button"', html)
@@ -154,6 +161,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('"/api/app/shutdown-gui"', do_post_source)
         self.assertIn('"/api/nodes/ping"', do_post_source)
         self.assertIn('"/api/routing/import"', do_post_source)
+        self.assertIn('"/api/routing/prepare-geodata"', do_post_source)
         self.assertIn('"/api/routing/toggle"', do_post_source)
         self.assertIn("schedule_server_shutdown(self.server)", do_post_source)
 

@@ -61,7 +61,7 @@
 |---------|--------------|
 | Код / сервисы | Refresh-процесс подписок извлекает `routing` metadata, `providerId` и синхронизирует auto-managed routing-профиль |
 | Конфигурация / схема данных / именуемые сущности | Store получил поля `provider_id`, `provider_id_source`, `routing_profile_id`, `last_routing_status`, `last_routing_error` и атрибуты auto-managed routing-профиля |
-| Интерфейсы / формы / страницы | Web UI и native shell показывают источник routing-профиля, связанную подписку, `providerId` и режим `add/onadd` |
+| Интерфейсы / формы / страницы | Web UI и native shell показывают источник routing-профиля, связанную подписку, `providerId`, режим `add/onadd`, а также явно отделяют auto-import от ручного fallback и подготовки `GeoIP/GeoSite` |
 | Интеграции / обмены | Подписка обрабатывает `routing` header, mixed-body `happ://routing/...`, URL/fragment `providerId` и cleanup при исчезновении metadata |
 | Документация | План, карточка подзадачи и реестр синхронизируются с реализованным auto-fetch контуром |
 
@@ -102,7 +102,7 @@
 
 ## Итог
 
-Реализован provider-aware auto-fetch routing-профиля из подписки: refresh теперь извлекает metadata из response header, mixed-body payload и URL/fragment, связывает auto-managed профиль с конкретной подпиской и показывает источник в web UI и native shell.
+Реализован provider-aware auto-fetch routing-профиля из подписки: refresh теперь извлекает metadata из response header, mixed-body payload и URL/fragment, связывает auto-managed профиль с конкретной подпиской и показывает источник в web UI и native shell, при этом ручной ввод routing-профиля оставлен только как явный fallback.
 
 В ходе review-fix цикла дополнительно закрыты две регрессии: mixed-body parsing перестал ломаться на дополнительных comment/meta строках, а исчезновение routing metadata больше не оставляет stale auto-managed профиль и старую привязку в store.
 
