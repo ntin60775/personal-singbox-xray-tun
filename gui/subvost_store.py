@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_DNS, uuid4, uuid5
 
-from subvost_parser import ParseError, parse_proxy_uri, parse_subscription_payload
+from subvost_parser import ParseError, extract_subscription_metadata, parse_proxy_uri, parse_subscription_payload
 from subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
 from subvost_routing import (
     RoutingProfileError,
@@ -27,7 +27,7 @@ from subvost_routing import (
 from subvost_runtime import node_can_render_runtime, read_json_config, render_runtime_config
 
 
-STORE_VERSION = 2
+STORE_VERSION = 3
 MANUAL_PROFILE_ID = "manual"
 MANUAL_PROFILE_NAME = "Локальные ссылки"
 DEFAULT_SUBSCRIPTION_USER_AGENT = os.environ.get("SUBVOST_SUBSCRIPTION_USER_AGENT", "Xray-core")
@@ -112,12 +112,18 @@ def _normalize_routing_profile(profile: dict[str, Any]) -> dict[str, Any]:
     raw_payload = profile.get("raw_payload")
     if not isinstance(raw_payload, dict):
         raw_payload = {}
+    source_subscription_id = str(profile.get("source_subscription_id") or "").strip() or None
     return {
         "id": str(profile.get("id") or f"routing-{uuid4().hex}"),
         "name": name,
         "name_key": str(profile.get("name_key") or name.casefold()),
         "enabled": bool(profile.get("enabled", True)),
+        "auto_managed": bool(profile.get("auto_managed", False)),
+        "source_subscription_id": source_subscription_id,
+        "provider_id": str(profile.get("provider_id") or ""),
+        "source_kind": str(profile.get("source_kind") or ("subscription" if source_subscription_id else "manual_import")),
         "source_format": str(profile.get("source_format") or "json"),
+        "activation_mode": str(profile.get("activation_mode") or "manual"),
         "raw_payload": raw_payload,
         "global_proxy": bool(profile.get("global_proxy", False)),
         "domain_strategy": str(profile.get("domain_strategy") or "AsIs"),
@@ -215,6 +221,11 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
         subscription.setdefault("last_status", "never")
         subscription.setdefault("last_error", "")
         subscription.setdefault("profile_id", None)
+        subscription.setdefault("provider_id", "")
+        subscription.setdefault("provider_id_source", "")
+        subscription.setdefault("routing_profile_id", None)
+        subscription.setdefault("last_routing_status", "never")
+        subscription.setdefault("last_routing_error", "")
     return store
 
 def save_store(paths: AppPaths, store: dict[str, Any], uid: int | None = None, gid: int | None = None) -> None:
@@ -306,11 +317,39 @@ def _find_routing_profile(store: dict[str, Any], profile_id: str | None) -> dict
     return None
 
 
-def _find_routing_profile_by_name(store: dict[str, Any], name_key: str) -> dict[str, Any] | None:
+def _find_routing_profile_by_name(
+    store: dict[str, Any],
+    name_key: str,
+    *,
+    auto_managed: bool | None = None,
+) -> dict[str, Any] | None:
     for profile in store.get("routing", {}).get("profiles", []):
+        if auto_managed is not None and bool(profile.get("auto_managed", False)) != auto_managed:
+            continue
         if profile.get("name_key") == name_key:
             return profile
     return None
+
+
+def _find_subscription_routing_profile(
+    store: dict[str, Any],
+    subscription_id: str,
+    *,
+    provider_id: str | None = None,
+) -> dict[str, Any] | None:
+    exact_match: dict[str, Any] | None = None
+    fallback_match: dict[str, Any] | None = None
+    for profile in store.get("routing", {}).get("profiles", []):
+        if not profile.get("auto_managed", False):
+            continue
+        if str(profile.get("source_subscription_id") or "") != subscription_id:
+            continue
+        if provider_id and str(profile.get("provider_id") or "") == provider_id:
+            exact_match = profile
+            break
+        if fallback_match is None:
+            fallback_match = profile
+    return exact_match or fallback_match
 
 
 def get_active_routing_profile(store: dict[str, Any]) -> dict[str, Any] | None:
@@ -592,7 +631,7 @@ def import_routing_profile(
     parsed = parse_routing_profile_input(raw_text)
     now = iso_now()
     routing = store["routing"]
-    existing = _find_routing_profile_by_name(store, parsed["name_key"])
+    existing = _find_routing_profile_by_name(store, parsed["name_key"], auto_managed=False)
 
     if existing:
         profile = _normalize_routing_profile(
@@ -633,6 +672,172 @@ def import_routing_profile(
         "created": created,
         "profile": profile,
         "geodata": geodata,
+    }
+
+
+def _sync_subscription_routing_metadata(
+    subscription: dict[str, Any],
+    *,
+    provider_id: str | None = None,
+    provider_id_source: str | None = None,
+    routing_profile_id: str | None = None,
+    routing_status: str | None = None,
+    routing_error: str | None = None,
+) -> None:
+    if provider_id is not None:
+        subscription["provider_id"] = provider_id
+    if provider_id_source is not None:
+        subscription["provider_id_source"] = provider_id_source
+    if routing_profile_id is not None:
+        subscription["routing_profile_id"] = routing_profile_id
+    if routing_status is not None:
+        subscription["last_routing_status"] = routing_status
+    if routing_error is not None:
+        subscription["last_routing_error"] = routing_error
+
+
+def _remove_subscription_routing_profiles(
+    store: dict[str, Any],
+    subscription_id: str,
+    *,
+    paths: AppPaths | None = None,
+) -> list[str]:
+    routing = store.get("routing") or {}
+    removed_ids = [
+        str(profile.get("id") or "")
+        for profile in routing.get("profiles", [])
+        if str(profile.get("source_subscription_id") or "") == subscription_id and profile.get("auto_managed", False)
+    ]
+    if not removed_ids:
+        return []
+
+    routing["profiles"] = [
+        item
+        for item in routing.get("profiles", [])
+        if str(item.get("source_subscription_id") or "") != subscription_id or not item.get("auto_managed", False)
+    ]
+    if routing.get("active_profile_id") in removed_ids:
+        routing["active_profile_id"] = None
+        routing["enabled"] = False
+        if paths is not None:
+            ensure_routing_state(store, paths)
+        else:
+            routing["runtime_ready"] = False
+            routing["runtime_error"] = ""
+            routing["geodata"] = default_routing_geodata_state()
+    return removed_ids
+
+
+def _upsert_subscription_routing_profile(
+    store: dict[str, Any],
+    paths: AppPaths,
+    subscription: dict[str, Any],
+    raw_text: str,
+    *,
+    provider_id: str,
+    source_kind: str,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
+    parsed = parse_routing_profile_input(raw_text)
+    now = iso_now()
+    routing = store["routing"]
+    existing = _find_subscription_routing_profile(store, subscription["id"], provider_id=provider_id)
+    removed_ids: list[str] = []
+
+    if existing:
+        profile = _normalize_routing_profile(
+            {
+                **existing,
+                **parsed,
+                "id": existing["id"],
+                "enabled": existing.get("enabled", True),
+                "auto_managed": True,
+                "source_subscription_id": subscription["id"],
+                "provider_id": provider_id,
+                "source_kind": source_kind,
+                "created_at": existing.get("created_at") or now,
+                "updated_at": now,
+            }
+        )
+        created = False
+    else:
+        profile = _normalize_routing_profile(
+            {
+                **parsed,
+                "id": f"routing-{uuid4().hex}",
+                "enabled": True,
+                "auto_managed": True,
+                "source_subscription_id": subscription["id"],
+                "provider_id": provider_id,
+                "source_kind": source_kind,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+        created = True
+
+    new_profiles: list[dict[str, Any]] = []
+    for item in routing["profiles"]:
+        item_id = str(item.get("id") or "")
+        same_subscription = str(item.get("source_subscription_id") or "") == subscription["id"]
+        if same_subscription and item_id != profile["id"] and item.get("auto_managed", False):
+            removed_ids.append(item_id)
+            continue
+        if item_id == profile["id"]:
+            new_profiles.append(profile)
+        else:
+            new_profiles.append(item)
+    if created:
+        new_profiles.append(profile)
+    routing["profiles"] = new_profiles
+
+    if removed_ids and routing.get("active_profile_id") in removed_ids:
+        routing["active_profile_id"] = None
+        routing["enabled"] = False
+
+    should_activate = (
+        parsed.get("activation_mode") == "onadd"
+        or not routing.get("active_profile_id")
+        or routing.get("active_profile_id") == profile["id"]
+    )
+    if should_activate:
+        activated_profile = activate_routing_profile(store, paths, profile["id"], uid=uid, gid=gid)
+        geodata = copy.deepcopy(store["routing"].get("geodata") or {})
+        _sync_subscription_routing_metadata(
+            subscription,
+            provider_id=provider_id,
+            routing_profile_id=activated_profile["id"],
+            routing_status="linked",
+            routing_error="",
+        )
+        return {
+            "created": created,
+            "profile": activated_profile,
+            "geodata": geodata,
+            "activated": True,
+        }
+
+    ensure_routing_state(store, paths)
+    geodata = build_geodata_status(
+        paths,
+        geoip_url=str(profile.get("geoip_url") or ""),
+        geosite_url=str(profile.get("geosite_url") or ""),
+        status="ready" if paths.geoip_asset_file.exists() and paths.geosite_asset_file.exists() else "missing",
+        error="",
+    )
+    _sync_subscription_routing_metadata(
+        subscription,
+        provider_id=provider_id,
+        routing_profile_id=profile["id"],
+        routing_status="linked",
+        routing_error="",
+    )
+    return {
+        "created": created,
+        "profile": profile,
+        "geodata": geodata,
+        "activated": False,
     }
 
 
@@ -848,6 +1053,11 @@ def add_subscription(store: dict[str, Any], name: str, url: str) -> dict[str, An
         "last_status": "never",
         "last_error": "",
         "profile_id": profile_id,
+        "provider_id": "",
+        "provider_id_source": "",
+        "routing_profile_id": None,
+        "last_routing_status": "never",
+        "last_routing_error": "",
     }
     store["profiles"].append(profile)
     store["subscriptions"].append(subscription)
@@ -939,7 +1149,14 @@ def _apply_subscription_refresh(
     }
 
 
-def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[str, Any]:
+def refresh_subscription(
+    store: dict[str, Any],
+    subscription_id: str,
+    *,
+    paths: AppPaths | None = None,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
     subscription = _find_subscription(store, subscription_id)
     if not subscription:
         raise ValueError("Подписка не найдена.")
@@ -970,6 +1187,12 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
                     "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
                     "duplicate_lines": 0,
                     "format": "not_modified",
+                    "provider_id": str(subscription.get("provider_id") or ""),
+                    "routing": {
+                        "status": str(subscription.get("last_routing_status") or "never"),
+                        "provider_id": str(subscription.get("provider_id") or ""),
+                        "profile_id": subscription.get("routing_profile_id"),
+                    },
                 }
 
             payload = response.read()
@@ -999,12 +1222,87 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
                     )
 
             result = _apply_subscription_refresh(store, subscription, previews)
+            metadata = extract_subscription_metadata(payload, headers=response.headers, source_url=subscription["url"])
+            provider_id = metadata.get("provider_id") or ""
+            _sync_subscription_routing_metadata(
+                subscription,
+                provider_id=provider_id,
+                provider_id_source=metadata.get("provider_id_source") or "",
+            )
+
+            routing_result: dict[str, Any] = {
+                "status": "none",
+                "source": metadata.get("routing_source") or "",
+                "provider_id": provider_id,
+            }
+            routing_text = metadata.get("routing_text") or ""
+            if routing_text and paths is not None:
+                previous_routing = copy.deepcopy(store.get("routing") or {})
+                previous_subscription_state = {
+                    "routing_profile_id": subscription.get("routing_profile_id"),
+                    "last_routing_status": subscription.get("last_routing_status"),
+                    "last_routing_error": subscription.get("last_routing_error"),
+                }
+                try:
+                    routing_sync = _upsert_subscription_routing_profile(
+                        store,
+                        paths,
+                        subscription,
+                        routing_text,
+                        provider_id=provider_id,
+                        source_kind=metadata.get("routing_source") or "subscription_metadata",
+                        uid=uid,
+                        gid=gid,
+                    )
+                    routing_result = {
+                        "status": "updated" if not routing_sync["created"] else "created",
+                        "source": metadata.get("routing_source") or "",
+                        "provider_id": provider_id,
+                        "profile_id": routing_sync["profile"]["id"],
+                        "profile_name": routing_sync["profile"]["name"],
+                        "activated": routing_sync["activated"],
+                        "geodata_status": routing_sync["geodata"].get("status"),
+                    }
+                except (RoutingProfileError, ValueError) as exc:
+                    store["routing"] = previous_routing
+                    subscription["routing_profile_id"] = previous_subscription_state["routing_profile_id"]
+                    subscription["last_routing_status"] = previous_subscription_state["last_routing_status"]
+                    subscription["last_routing_error"] = previous_subscription_state["last_routing_error"]
+                    _sync_subscription_routing_metadata(subscription, routing_status="error", routing_error=str(exc))
+                    routing_result = {
+                        "status": "error",
+                        "source": metadata.get("routing_source") or "",
+                        "provider_id": provider_id,
+                        "message": str(exc),
+                    }
+            elif routing_text:
+                _sync_subscription_routing_metadata(
+                    subscription,
+                    routing_status="skipped",
+                    routing_error="Автоимпорт routing-профиля недоступен без app-paths.",
+                )
+                routing_result = {
+                    "status": "skipped",
+                    "source": metadata.get("routing_source") or "",
+                    "provider_id": provider_id,
+                    "message": "Автоимпорт routing-профиля недоступен без app-paths.",
+                }
+            else:
+                _remove_subscription_routing_profiles(store, subscription["id"], paths=paths)
+                subscription["routing_profile_id"] = None
+                _sync_subscription_routing_metadata(subscription, routing_status="none", routing_error="")
+
             subscription["etag"] = response.headers.get("ETag", "")
             subscription["last_modified"] = response.headers.get("Last-Modified", "")
             subscription["last_success_at"] = iso_now()
             subscription["last_status"] = result["status"]
             subscription["last_error"] = ""
-            return {**result, "format": response_format}
+            return {
+                **result,
+                "format": response_format,
+                "provider_id": provider_id,
+                "routing": routing_result,
+            }
     except urllib.error.HTTPError as exc:
         if exc.code == 304:
             subscription["last_status"] = "ok"
@@ -1017,6 +1315,12 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
                 "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
                 "duplicate_lines": 0,
                 "format": "not_modified",
+                "provider_id": str(subscription.get("provider_id") or ""),
+                "routing": {
+                    "status": str(subscription.get("last_routing_status") or "never"),
+                    "provider_id": str(subscription.get("provider_id") or ""),
+                    "profile_id": subscription.get("routing_profile_id"),
+                },
             }
         subscription["last_status"] = "error"
         subscription["last_error"] = f"HTTP {exc.code}"
@@ -1031,7 +1335,13 @@ def refresh_subscription(store: dict[str, Any], subscription_id: str) -> dict[st
         raise ValueError(str(exc)) from exc
 
 
-def refresh_all_subscriptions(store: dict[str, Any]) -> dict[str, Any]:
+def refresh_all_subscriptions(
+    store: dict[str, Any],
+    *,
+    paths: AppPaths | None = None,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> dict[str, Any]:
     items = []
     ok_count = 0
     error_count = 0
@@ -1039,7 +1349,7 @@ def refresh_all_subscriptions(store: dict[str, Any]) -> dict[str, Any]:
         if not subscription.get("enabled", True):
             continue
         try:
-            result = refresh_subscription(store, subscription["id"])
+            result = refresh_subscription(store, subscription["id"], paths=paths, uid=uid, gid=gid)
             items.append({"id": subscription["id"], "name": subscription["name"], **result})
             ok_count += 1
         except ValueError as exc:
@@ -1079,13 +1389,38 @@ def update_subscription(
     return subscription
 
 
-def delete_subscription(store: dict[str, Any], subscription_id: str) -> None:
+def delete_subscription(
+    store: dict[str, Any],
+    subscription_id: str,
+    *,
+    paths: AppPaths | None = None,
+) -> None:
     subscription = _find_subscription(store, subscription_id)
     if not subscription:
         raise ValueError("Подписка не найдена.")
     profile_id = subscription["profile_id"]
+    removed_routing_ids = [
+        str(profile.get("id") or "")
+        for profile in store.get("routing", {}).get("profiles", [])
+        if str(profile.get("source_subscription_id") or "") == subscription_id
+    ]
     store["subscriptions"] = [item for item in store["subscriptions"] if item.get("id") != subscription_id]
     store["profiles"] = [item for item in store["profiles"] if item.get("id") != profile_id]
+    if removed_routing_ids:
+        store["routing"]["profiles"] = [
+            item
+            for item in store["routing"]["profiles"]
+            if str(item.get("source_subscription_id") or "") != subscription_id
+        ]
+        if store["routing"].get("active_profile_id") in removed_routing_ids:
+            store["routing"]["active_profile_id"] = None
+            store["routing"]["enabled"] = False
+            if paths is not None:
+                ensure_routing_state(store, paths)
+            else:
+                store["routing"]["runtime_ready"] = False
+                store["routing"]["runtime_error"] = ""
+                store["routing"]["geodata"] = default_routing_geodata_state()
     ensure_active_selection(store)
 
 

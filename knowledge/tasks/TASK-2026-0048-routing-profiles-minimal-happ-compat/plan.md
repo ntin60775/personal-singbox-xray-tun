@@ -11,8 +11,8 @@
 |------|----------|
 | ID задачи | `TASK-2026-0048` |
 | Parent ID | `—` |
-| Версия плана | `1` |
-| Дата обновления | `2026-04-08` |
+| Версия плана | `2` |
+| Дата обновления | `2026-04-23` |
 
 ## Цель
 
@@ -26,11 +26,10 @@
 - geodata download/cache и интеграция с `Xray`;
 - backend API и web UI для просмотра и переключения routing-профилей;
 - tolerant parsing mixed subscription payload, если там есть `happ://routing/...`;
-- оформление отдельной подзадачи на auto-fetch.
+- оформление и реализация отдельной подзадачи на auto-fetch из subscription metadata.
 
 ### Не входит
 
-- автоматическое извлечение routing-профиля из `refresh` подписки;
 - редактирование профилей вручную;
 - удаление routing-профилей;
 - применение DNS-части профиля в текущем runtime.
@@ -42,11 +41,12 @@
 - добавить отдельный модуль routing-парсинга, normalizer, geodata manager и builder overlay для `Xray`;
 - расширить `subvost_store` новой секцией `routing`, логикой импорта и переключения профилей;
 - расширить `subvost_runtime`, `gui_server`, `main_gui.html` и shell runtime для geodata и routing status;
-- сделать tolerant parsing mixed subscription payload без auto-fetch.
+- сделать tolerant parsing mixed subscription payload и реализовать follow-up `TASK-2026-0048.1` для auto-fetch по `routing` metadata и `providerId`.
 
 ### Конфигурация / схема данных / именуемые сущности
 
 - повысить версию store и добавить `routing.enabled`, `routing.active_profile_id`, `routing.profiles`, `routing.runtime_ready`, `routing.geodata`;
+- добавить provider-aware поля связи подписка ↔ auto-managed routing-профиль;
 - добавить пути к `geoip.dat` и `geosite.dat` в user config-home;
 - подключить `XRAY_LOCATION_ASSET` к запуску и валидации `Xray`.
 
@@ -68,10 +68,13 @@
 ### Что можно проверить кодом или тестами
 
 - `python3 -m unittest tests.test_subvost_parser tests.test_subvost_runtime tests.test_subvost_store tests.test_gui_server`
+- `python3 -S -m unittest tests.test_subvost_parser tests.test_subvost_routing tests.test_subvost_store tests.test_subvost_app_service tests.test_gui_server -q`
+- `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`
 - `bash -n *.sh`
 - `bash -n libexec/*.sh`
 - `bash -n lib/*.sh`
-- `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_paths.py`
+- `python3 -S -m compileall -q gui tests`
+- `python3 -S -m json.tool xray-tun-subvost.json`
 
 ### Что остаётся на ручную проверку
 
@@ -86,18 +89,19 @@
 - [x] Расширить store/runtime и shell runtime
 - [x] Добавить backend API и web UI
 - [x] Обновить тесты и прогнать проверки
+- [x] Реализовать и отревьюить `TASK-2026-0048.1` с auto-fetch и cleanup stale metadata state
 
 ## Критерии завершения
 
 - основной import-first сценарий работает end-to-end;
 - routing не ломает текущий выбор активного узла и старт bundle без него;
-- auto-fetch вынесен в отдельную подзадачу, а не смешан с основной реализацией;
+- auto-fetch реализован отдельной подзадачей `TASK-2026-0048.1` и не ломает import-first слой;
 - все knowledge-артефакты и статические проверки синхронизированы.
 
 ## Итог
 
-Import-first реализация завершена: добавлены routing parser/normalizer, geodata manager, store-schema с routing-профилями, runtime overlay для `Xray`, shell-интеграция `XRAY_LOCATION_ASSET`, backend API и UI-панель маршрутизации.
+Umbrella-реализация завершена до статуса `на проверке`: import-first routing-контур дополнен реализованной подзадачей `TASK-2026-0048.1`, которая автоматически подтягивает routing metadata из подписки, связывает auto-managed профиль с `providerId` и очищает stale state при исчезновении metadata.
 
-Тестовый контур расширен unit-проверками parser/runtime/store/backend и прошёл без ошибок. Auto-fetch из подписки по `routing` metadata оставлен как отдельная подзадача `TASK-2026-0048.1`.
+Тестовый контур расширен unit/API-проверками parser/store/backend, дополнительными регрессиями на mixed-body comments и повторный refresh без metadata, а полный `unittest discover` прошёл без ошибок.
 
 Отдельно остаётся ручная production-проверка с реальным `pkexec`, `tun0` и фактическим трафиком.

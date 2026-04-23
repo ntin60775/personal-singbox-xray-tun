@@ -3,8 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
 
@@ -30,10 +31,155 @@ PLACEHOLDER_TEXT_MARKERS = (
     "not support",
 )
 HAPP_ROUTING_PREFIX = "happ://routing/"
+HAPP_ROUTING_URI_PREFIXES = ("happ://routing/add/", "happ://routing/onadd/")
+PROVIDER_ID_COMMENT_RE = re.compile(r"^#\s*providerid\b[:=\s]*(.+)$", re.IGNORECASE)
 
 
 class ParseError(ValueError):
     pass
+
+
+def _payload_text_variants(payload: bytes) -> list[tuple[list[str], str]]:
+    text = payload.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ParseError("Подписка вернула пустой ответ.")
+
+    variants = [([line.strip() for line in text.splitlines() if line.strip()], "plain_text")]
+    try:
+        decoded_text = _decode_base64_text(text).strip()
+    except ParseError:
+        return variants
+
+    variants.append(([line.strip() for line in decoded_text.splitlines() if line.strip()], "base64"))
+    return variants
+
+
+def _parse_provider_id_comment(line: str) -> str:
+    match = PROVIDER_ID_COMMENT_RE.match(line.strip())
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _is_routing_metadata_line(line: str) -> bool:
+    return line.strip().startswith(HAPP_ROUTING_PREFIX)
+
+
+def _split_subscription_lines(lines: list[str]) -> dict[str, list[str]]:
+    proxy_lines: list[str] = []
+    routing_lines: list[str] = []
+    provider_ids: list[str] = []
+    comment_lines: list[str] = []
+    unknown_lines: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if urlsplit(stripped).scheme.lower() in SUPPORTED_SCHEMES:
+            proxy_lines.append(stripped)
+            continue
+        if _is_routing_metadata_line(stripped):
+            routing_lines.append(stripped)
+            continue
+        provider_id = _parse_provider_id_comment(stripped)
+        if provider_id:
+            provider_ids.append(provider_id)
+            continue
+        if stripped.startswith("#"):
+            comment_lines.append(stripped)
+            continue
+        unknown_lines.append(stripped)
+    return {
+        "proxy_lines": proxy_lines,
+        "routing_lines": routing_lines,
+        "provider_ids": provider_ids,
+        "comment_lines": comment_lines,
+        "unknown_lines": unknown_lines,
+    }
+
+
+def _header_value(headers: Mapping[str, Any] | None, name: str) -> str:
+    if not headers:
+        return ""
+    lowered = name.casefold()
+    try:
+        items = headers.items()
+    except AttributeError:
+        items = []
+    for key, value in items:
+        if str(key or "").casefold() == lowered:
+            return str(value or "").strip()
+    getter = getattr(headers, "get", None)
+    if callable(getter):
+        value = getter(name)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _provider_id_from_url(source_url: str | None) -> tuple[str, str]:
+    raw_url = str(source_url or "").strip()
+    if not raw_url:
+        return "", ""
+
+    parsed = urlsplit(raw_url)
+    query = _single_value_query(parsed.query)
+    provider_id = str(query.get("providerid") or query.get("providerId") or "").strip()
+    if provider_id:
+        return provider_id, "url_query"
+
+    fragment = parsed.fragment.strip()
+    if fragment:
+        fragment_query = fragment[1:] if fragment.startswith("?") else fragment
+        fragment_values = _single_value_query(fragment_query)
+        provider_id = str(fragment_values.get("providerid") or fragment_values.get("providerId") or "").strip()
+        if provider_id:
+            return provider_id, "url_fragment"
+
+    return "", ""
+
+
+def extract_subscription_metadata(
+    payload: bytes,
+    *,
+    headers: Mapping[str, Any] | None = None,
+    source_url: str | None = None,
+) -> dict[str, str]:
+    provider_id = _header_value(headers, "providerid")
+    provider_id_source = "response_header" if provider_id else ""
+    routing_text = _header_value(headers, "routing")
+    routing_source = "response_header" if routing_text else ""
+    payload_format = ""
+
+    for lines, candidate_format in _payload_text_variants(payload):
+        parts = _split_subscription_lines(lines)
+        recognized_count = (
+            len(parts["proxy_lines"])
+            + len(parts["routing_lines"])
+            + len(parts["provider_ids"])
+            + len(parts["comment_lines"])
+        )
+        if not parts["proxy_lines"] or recognized_count != len(lines):
+            continue
+        payload_format = candidate_format
+        if not provider_id and parts["provider_ids"]:
+            provider_id = parts["provider_ids"][0]
+            provider_id_source = f"body_{candidate_format}"
+        if not routing_text and parts["routing_lines"]:
+            routing_text = parts["routing_lines"][0]
+            routing_source = f"body_{candidate_format}"
+        break
+
+    if not provider_id:
+        provider_id, provider_id_source = _provider_id_from_url(source_url)
+
+    return {
+        "provider_id": provider_id,
+        "provider_id_source": provider_id_source,
+        "routing_text": routing_text,
+        "routing_source": routing_source,
+        "payload_format": payload_format,
+    }
 
 
 def _decode_base64(value: str) -> bytes:
@@ -513,22 +659,16 @@ def preview_links(raw_text: str) -> list[dict[str, Any]]:
 
 
 def parse_subscription_payload(payload: bytes) -> tuple[list[str], str]:
-    text = payload.decode("utf-8", errors="replace").strip()
-    if not text:
-        raise ParseError("Подписка вернула пустой ответ.")
-
-    plain_lines = [line.strip() for line in text.splitlines() if line.strip()]
-    plain_proxy_lines = [line for line in plain_lines if urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES]
-    plain_ignorable_lines = [line for line in plain_lines if line.startswith(HAPP_ROUTING_PREFIX)]
-    if plain_proxy_lines and len(plain_proxy_lines) + len(plain_ignorable_lines) == len(plain_lines):
-        return plain_proxy_lines, "plain_text"
-
-    decoded_text = _decode_base64_text(text).strip()
-    decoded_lines = [line.strip() for line in decoded_text.splitlines() if line.strip()]
-    decoded_proxy_lines = [line for line in decoded_lines if urlsplit(line).scheme.lower() in SUPPORTED_SCHEMES]
-    decoded_ignorable_lines = [line for line in decoded_lines if line.startswith(HAPP_ROUTING_PREFIX)]
-    if decoded_proxy_lines and len(decoded_proxy_lines) + len(decoded_ignorable_lines) == len(decoded_lines):
-        return decoded_proxy_lines, "base64"
+    for lines, payload_format in _payload_text_variants(payload):
+        parts = _split_subscription_lines(lines)
+        recognized_count = (
+            len(parts["proxy_lines"])
+            + len(parts["routing_lines"])
+            + len(parts["provider_ids"])
+            + len(parts["comment_lines"])
+        )
+        if parts["proxy_lines"] and recognized_count == len(lines):
+            return parts["proxy_lines"], payload_format
 
     raise ParseError("Формат подписки не распознан: ожидался plain-text или base64-список ссылок.")
 

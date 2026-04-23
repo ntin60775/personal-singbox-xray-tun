@@ -1768,6 +1768,15 @@
       return Array.isArray(store.subscriptions) ? store.subscriptions : [];
     }
 
+    function subscriptionLabelById(subscriptionId) {
+      const id = String(subscriptionId || "");
+      if (!id) {
+        return "";
+      }
+      const subscription = subscriptionsFromStore().find((item) => item.id === id);
+      return subscription?.name || "";
+    }
+
     function profilesFromStore() {
       const store = state.storePayload?.store || {};
       return Array.isArray(store.profiles) ? store.profiles : [];
@@ -2121,11 +2130,19 @@
             ? "отключён"
             : "готов";
         const stateTone = isActive ? "accent" : disabled ? "danger" : "success";
+        const sourceSubscription = subscriptionLabelById(profile.source_subscription_id) || profile.source_subscription_id || "";
         const meta = [
           `правил ${profile.supported_entry_count || 0}`,
           profile.global_proxy ? "global proxy" : "direct fallback",
-          `источник ${profile.source_format || "json"}`,
+          `формат ${profile.source_format || "json"}`,
         ].join(" · ");
+        const sourceMeta = [
+          profile.auto_managed ? "авто из подписки" : "ручной импорт",
+          sourceSubscription ? `подписка ${sourceSubscription}` : "",
+          profile.provider_id ? `providerId ${profile.provider_id}` : "",
+          profile.activation_mode && profile.activation_mode !== "manual" ? `режим ${profile.activation_mode}` : "",
+          profile.source_kind && profile.source_kind !== "manual_import" ? `канал ${profile.source_kind}` : "",
+        ].filter(Boolean).join(" · ");
         const extra = [
           (profile.stored_only_fields || []).length ? `dns-полей сохранено ${profile.stored_only_fields.length}` : "",
           (profile.unknown_fields || []).length ? `неизвестных полей ${profile.unknown_fields.length}` : "",
@@ -2136,6 +2153,7 @@
             <div class="row-main">
               <strong>${escapeHtml(profile.name || "Без имени")}</strong>
               <div class="row-meta">${escapeHtml(meta)}</div>
+              <div class="row-meta">${escapeHtml(sourceMeta || "Источник не указан.")}</div>
               <div class="row-meta">${escapeHtml(extra || "Дополнительных полей нет.")}</div>
             </div>
             <div class="row-side">

@@ -11,8 +11,8 @@
 |------|----------|
 | ID задачи | `TASK-2026-0048.1` |
 | Parent ID | `TASK-2026-0048` |
-| Версия плана | `1` |
-| Дата обновления | `2026-04-08` |
+| Версия плана | `2` |
+| Дата обновления | `2026-04-23` |
 
 ## Цель
 
@@ -39,16 +39,17 @@
 
 - расширить refresh подписок так, чтобы он извлекал routing metadata отдельно от списка узлов;
 - добавить provider-aware хранение связи подписка ↔ routing-профиль;
-- определить правила merge/replace при обновлении routing-профиля из того же provider/source.
+- определить правила merge/replace при обновлении routing-профиля из того же provider/source;
+- удалить stale auto-managed routing-профиль и связанный state, если metadata на следующем refresh исчезает.
 
 ### Конфигурация / схема данных / именуемые сущности
 
-- при необходимости добавить `provider_id`, `source_subscription_id` или аналогичные поля в store;
+- добавить в store `provider_id`, `provider_id_source`, `routing_profile_id`, `last_routing_status`, `last_routing_error`, `source_subscription_id`, `auto_managed`, `source_kind`, `activation_mode`;
 - зафиксировать явный статус auto-managed routing-профиля.
 
 ### Документация
 
-- синхронизировать карточку и реестр после начала реализации этой подзадачи.
+- синхронизировать карточку, план и реестр после review-fix интеграции подзадачи.
 
 ## Риски и зависимости
 
@@ -60,9 +61,11 @@
 
 ### Что можно проверить кодом или тестами
 
-- unit-тесты parsing header/body;
-- unit/API-тесты refresh подписок с routing metadata и без неё;
-- регрессионные тесты на обычные подписки.
+- `python3 -S -m unittest tests.test_subvost_parser tests.test_subvost_routing tests.test_subvost_store tests.test_subvost_app_service -q`;
+- `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`;
+- `python3 -S -m compileall -q gui tests`;
+- `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`;
+- `python3 -S -m json.tool xray-tun-subvost.json`.
 
 ### Что остаётся на ручную проверку
 
@@ -71,12 +74,19 @@
 ## Шаги
 
 - [x] Зафиксировать scope подзадачи и вывести её из основной реализации
-- [ ] Добавить parsing routing metadata при refresh подписок
-- [ ] Связать routing-профиль с subscription/provider
-- [ ] Проверить поведение при повторном refresh и конфликтных данных
+- [x] Добавить parsing routing metadata при refresh подписок
+- [x] Связать routing-профиль с subscription/provider
+- [x] Проверить поведение при повторном refresh и конфликтных данных
+- [x] Закрыть review-fix регрессии по mixed-body comments и stale auto-managed routing state
 
 ## Критерии завершения
 
 - auto-fetch работает только как отдельное расширение поверх основной import-first реализации;
 - обычные подписки и ручной импорт не регрессируют;
 - store и UI прозрачно отражают источник auto-managed routing-профиля.
+
+## Итог
+
+Подзадача реализована и отревьюена локально: refresh подписок извлекает `routing` metadata из header/body, поднимает `providerId`, создаёт или обновляет auto-managed routing-профиль, учитывает `add/onadd` и удаляет stale routing state, если metadata исчезает.
+
+Автотесты и статические проверки пройдены, но финальный статус остаётся `на проверке`, потому что живой provider-specific refresh ещё не подтверждён в пользовательском окружении.

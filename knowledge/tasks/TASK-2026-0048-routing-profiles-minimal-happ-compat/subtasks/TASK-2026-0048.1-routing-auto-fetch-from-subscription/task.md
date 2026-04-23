@@ -10,12 +10,12 @@
 | Ключ в путях | `TASK-2026-0048.1` |
 | Технический ключ для новых именуемых сущностей | `routing-auto-fetch` |
 | Краткое имя | `routing-auto-fetch-from-subscription` |
-| Статус | `готова к работе` |
+| Статус | `на проверке` |
 | Приоритет | `средний` |
 | Ответственный | `Codex` |
 | Ветка | `main` |
 | Дата создания | `2026-04-08` |
-| Дата обновления | `2026-04-08` |
+| Дата обновления | `2026-04-23` |
 
 ## Цель
 
@@ -59,11 +59,11 @@
 
 | Область | Что меняется |
 |---------|--------------|
-| Код / сервисы | Будет расширен refresh-процесс подписок и привязка routing-профиля к provider/source |
-| Конфигурация / схема данных / именуемые сущности | Возможны поля `provider_id` и связь routing-профиля с подпиской |
-| Интерфейсы / формы / страницы | UI может начать показывать источник routing-профиля как часть подписки |
-| Интеграции / обмены | Появится provider-specific контракт для `routing` metadata |
-| Документация | План и карточка подзадачи фиксируют следующий этап |
+| Код / сервисы | Refresh-процесс подписок извлекает `routing` metadata, `providerId` и синхронизирует auto-managed routing-профиль |
+| Конфигурация / схема данных / именуемые сущности | Store получил поля `provider_id`, `provider_id_source`, `routing_profile_id`, `last_routing_status`, `last_routing_error` и атрибуты auto-managed routing-профиля |
+| Интерфейсы / формы / страницы | Web UI и native shell показывают источник routing-профиля, связанную подписку, `providerId` и режим `add/onadd` |
+| Интеграции / обмены | Подписка обрабатывает `routing` header, mixed-body `happ://routing/...`, URL/fragment `providerId` и cleanup при исчезновении metadata |
+| Документация | План, карточка подзадачи и реестр синхронизируются с реализованным auto-fetch контуром |
 
 ## Связанные материалы
 
@@ -76,14 +76,17 @@
 
 ## Текущий этап
 
-Подзадача только оформлена и вынесена из основной реализации, чтобы не смешивать import-first контур с provider-specific auto-fetch.
+Кодовая реализация и review-fix цикл завершены локально: auto-fetch интегрирован в refresh подписок, добавлены регрессионные тесты на mixed-body metadata, `providerId`, cleanup stale auto-managed профиля и повторный refresh.
+
+Осталась ручная provider-specific проверка с живой подпиской, чтобы подтвердить поведение в реальном окружении пользователя без synthetic fixtures.
 
 ## Стратегия проверки
 
 ### Покрывается кодом или тестами
 
-- unit/API-проверки refresh подписок с `routing` header и mixed-body payload;
-- проверки привязки routing-профиля к subscription/provider.
+- `tests.test_subvost_parser`, `tests.test_subvost_routing`, `tests.test_subvost_store`, `tests.test_subvost_app_service`;
+- полный `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`;
+- статические проверки `python3 -S -m compileall -q gui tests`, `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -S -m json.tool xray-tun-subvost.json`.
 
 ### Остаётся на ручную проверку
 
@@ -94,8 +97,13 @@
 
 - routing metadata автоматически извлекается из подписки;
 - update не ломает обычные подписки без routing-профиля;
-- связь routing-профиля с подпиской и provider-контекстом прозрачно видна в store/UI.
+- связь routing-профиля с подпиской и provider-контекстом прозрачно видна в store/UI;
+- повторный refresh не оставляет stale auto-managed профиль, если routing metadata исчезает.
 
 ## Итог
 
-Подзадача оформлена как следующий этап; реализация в рамках текущей сессии не выполняется.
+Реализован provider-aware auto-fetch routing-профиля из подписки: refresh теперь извлекает metadata из response header, mixed-body payload и URL/fragment, связывает auto-managed профиль с конкретной подпиской и показывает источник в web UI и native shell.
+
+В ходе review-fix цикла дополнительно закрыты две регрессии: mixed-body parsing перестал ломаться на дополнительных comment/meta строках, а исчезновение routing metadata больше не оставляет stale auto-managed профиль и старую привязку в store.
+
+Локальный verify loop зелёный, но статус остаётся `на проверке`, потому что живой provider-specific refresh в пользовательском окружении пока не подтверждён.

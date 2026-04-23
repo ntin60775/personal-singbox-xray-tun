@@ -15,7 +15,7 @@
 | Ответственный | `Codex` |
 | Ветка | `main` |
 | Дата создания | `2026-04-08` |
-| Дата обновления | `2026-04-08` |
+| Дата обновления | `2026-04-23` |
 
 ## Цель
 
@@ -45,11 +45,11 @@
 - загрузка и кеширование `geoip.dat` и `geosite.dat` для активного профиля;
 - генерация `routing`-overlay поверх `xray-tun-subvost.json`;
 - backend API и web UI для просмотра, импорта и переключения routing-профилей;
-- tolerant parsing подписок, если в payload встречается строка `happ://routing/...`, без auto-fetch этого профиля.
+- tolerant parsing подписок, если в payload встречается строка `happ://routing/...`;
+- отдельная подзадача `TASK-2026-0048.1` с auto-fetch routing-профиля из subscription metadata, `providerId` и refresh-синхронизацией.
 
 ### Не входит
 
-- автоматическое получение routing-профиля из подписки и связка по `providerId`;
 - редактирование routing-правил вручную в GUI;
 - удаление routing-профилей, объединение нескольких профилей или их merge;
 - применение DNS-части routing-профиля в runtime этой задачи.
@@ -65,11 +65,11 @@
 
 | Область | Что меняется |
 |---------|--------------|
-| Код / сервисы | Добавляются parser/store/runtime/GUI-сценарии для routing-профилей и geodata |
-| Конфигурация / схема данных / именуемые сущности | Store получает новую секцию `routing`, появляются geodata-артефакты вне Git |
-| Интерфейсы / формы / страницы | Основной web UI получает блок маршрутизации с импортом и переключением профилей |
-| Интеграции / обмены | Runtime начинает использовать `geosite` и `geoip` через `XRAY_LOCATION_ASSET` |
-| Документация | Knowledge-контур задачи и подзадачи фиксируют scope и дальнейший этап auto-fetch |
+| Код / сервисы | Реализованы parser/store/runtime/GUI-сценарии для import-first routing и provider-aware auto-fetch из подписок |
+| Конфигурация / схема данных / именуемые сущности | Store получил секцию `routing`, geodata-state и поля auto-managed subscription↔routing связи |
+| Интерфейсы / формы / страницы | Web UI и native shell показывают состояние профиля, источник, связанную подписку, `providerId` и режим `add/onadd` |
+| Интеграции / обмены | Runtime использует `geosite` и `geoip` через `XRAY_LOCATION_ASSET`, а refresh подписок читает `routing` metadata и cleanup stale state |
+| Документация | Knowledge-контур задачи и подзадачи синхронизирован с реализованным umbrella-результатом |
 
 ## Связанные материалы
 
@@ -82,7 +82,7 @@
 
 ## Текущий этап
 
-Кодовая реализация завершена и прошла доступные локальные проверки. Остался ручной smoke production/runtime-сценария с реальным `pkexec`, `tun0` и фактической маршрутизацией трафика.
+Import-first контур и отдельная подзадача auto-fetch реализованы, review-fix цикл завершён, локальные автопроверки зелёные. Остался ручной smoke production/runtime-сценария с реальным `pkexec`, `tun0`, фактической маршрутизацией трафика и живой provider-specific подпиской.
 
 ## Стратегия проверки
 
@@ -90,7 +90,8 @@
 
 - unit-проверки импорта routing-профилей, `happ://routing/...` и tolerant parsing подписок;
 - unit-проверки генерации `Xray`-routing overlay и geodata readiness;
-- unit/API-проверки store и GUI backend для import/activate/toggle сценариев;
+- unit/API-проверки store и GUI backend для import/activate/toggle и auto-fetch сценариев;
+- полный `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`;
 - статические проверки shell и Python.
 
 ### Остаётся на ручную проверку
@@ -105,16 +106,17 @@
 - в store поддерживаются несколько routing-профилей, один активный профиль и отдельный master toggle;
 - generated `Xray` config умеет применять routing overlay с `geosite` и `geoip`;
 - GUI показывает состояние routing-профилей, geodata и позволяет переключать профиль и master toggle;
-- подзадача auto-fetch оформлена отдельно, а все изменённые Markdown-файлы проходят localization guard.
+- auto-fetch из подписки реализован отдельной подзадачей `TASK-2026-0048.1` и не регрессирует import-first контур;
+- все изменённые Markdown-файлы проходят localization guard.
 
 ## Итог
 
-Реализован import-first контур routing-профилей: bundle теперь принимает routing-профиль как JSON или `happ://routing/...`, хранит несколько профилей в store, поддерживает один активный профиль и отдельный master toggle маршрутизации.
+Реализован umbrella-контур Happ-совместимой маршрутизации: bundle принимает routing-профиль как JSON или `happ://routing/...`, хранит несколько профилей в store, поддерживает один активный профиль и отдельный master toggle маршрутизации, а также автоматически подтягивает routing metadata из подписки через подзадачу `TASK-2026-0048.1`.
 
 Добавлены обязательные `geoip.dat` и `geosite.dat` в user config-home, их atomic download/cache, прокидывание `XRAY_LOCATION_ASSET` в `run-xray-tun-subvost.sh` и генерация `Xray` routing overlay поверх базового шаблона с сохранением внутренних правил bundle.
 
-Backend и web UI расширены новым блоком `Маршрутизация`: импорт профиля, просмотр списка профилей, выбор активного профиля, включение и выключение профиля, отдельное включение и выключение маршрутизации в целом, индикация статуса geodata и tolerant parsing подписок с `happ://routing/...` без auto-fetch.
+Backend, web UI и native shell расширены блоком маршрутизации и индикацией источника auto-managed профиля: import профиля, просмотр списка профилей, выбор активного профиля, master toggle, `providerId`, связанная подписка, режим `add/onadd`, tolerant parsing mixed payload и cleanup stale routing state при исчезновении metadata.
 
-Пройдены проверки: `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_paths.py gui/subvost_routing.py gui/gui_contract.py`, `python3 -m unittest tests.test_subvost_parser tests.test_subvost_routing tests.test_subvost_runtime tests.test_subvost_store tests.test_gui_server`.
+Пройдены проверки: `bash -n *.sh`, `bash -n libexec/*.sh`, `bash -n lib/*.sh`, `python3 -S -m compileall -q gui tests`, `python3 -S -m json.tool xray-tun-subvost.json`, `python3 -S -m unittest tests.test_subvost_parser tests.test_subvost_routing tests.test_subvost_store tests.test_subvost_app_service tests.test_gui_server -q`, `python3 -S -m unittest discover -s tests -p 'test_*.py' -q`.
 
 Остаточный риск: manual smoke с реальным стартом, `pkexec`, `tun0`, `Xray`-runtime и фактической маршрутизацией трафика в этой сессии не выполнялся.

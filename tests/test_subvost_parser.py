@@ -10,7 +10,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "gui"))
 
-from subvost_parser import ParseError, parse_proxy_uri, parse_subscription_payload  # noqa: E402
+from subvost_parser import (  # noqa: E402
+    ParseError,
+    extract_subscription_metadata,
+    parse_proxy_uri,
+    parse_subscription_payload,
+)
 
 
 class SubvostParserTests(unittest.TestCase):
@@ -95,6 +100,70 @@ class SubvostParserTests(unittest.TestCase):
         self.assertEqual(payload_format, "plain_text")
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("vless://"))
+
+    def test_parse_subscription_payload_base64_ignores_happ_routing_and_provider_id_comment(self) -> None:
+        routing_uri = "happ://routing/add/eyJOYW1lIjoiUm91dGluZyJ9"
+        raw = (
+            "#profile-title Example\n"
+            "#providerid body-provider\n"
+            f"{routing_uri}\n"
+            "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node\n"
+        )
+        encoded = base64.urlsafe_b64encode(raw.encode("utf-8"))
+
+        lines, payload_format = parse_subscription_payload(encoded)
+
+        self.assertEqual(payload_format, "base64")
+        self.assertEqual(
+            lines,
+            ["vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node"],
+        )
+
+    def test_extract_subscription_metadata_prefers_response_headers(self) -> None:
+        payload = (
+            "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node\n"
+        ).encode("utf-8")
+        metadata = extract_subscription_metadata(
+            payload,
+            headers={
+                "routing": "happ://routing/onadd/eyJOYW1lIjoiSGVhZGVyIn0",
+                "providerid": "provider-header",
+            },
+            source_url="https://example.com/sub#?providerid=url-fragment",
+        )
+
+        self.assertEqual(metadata["routing_text"], "happ://routing/onadd/eyJOYW1lIjoiSGVhZGVyIn0")
+        self.assertEqual(metadata["routing_source"], "response_header")
+        self.assertEqual(metadata["provider_id"], "provider-header")
+        self.assertEqual(metadata["provider_id_source"], "response_header")
+
+    def test_extract_subscription_metadata_reads_routing_and_provider_id_from_body(self) -> None:
+        routing_uri = "happ://routing/onadd/eyJOYW1lIjoiQm9keSJ9"
+        payload = (
+            "#profile-title Example\n"
+            "#providerid provider-body\n"
+            f"{routing_uri}\n"
+            "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node\n"
+        ).encode("utf-8")
+
+        metadata = extract_subscription_metadata(payload)
+
+        self.assertEqual(metadata["payload_format"], "plain_text")
+        self.assertEqual(metadata["routing_text"], routing_uri)
+        self.assertEqual(metadata["routing_source"], "body_plain_text")
+        self.assertEqual(metadata["provider_id"], "provider-body")
+        self.assertEqual(metadata["provider_id_source"], "body_plain_text")
+
+    def test_extract_subscription_metadata_reads_provider_id_from_url_fragment(self) -> None:
+        payload = (
+            "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Node\n"
+        ).encode("utf-8")
+
+        metadata = extract_subscription_metadata(payload, source_url="https://example.com/sub#?providerid=url-fragment")
+
+        self.assertEqual(metadata["provider_id"], "url-fragment")
+        self.assertEqual(metadata["provider_id_source"], "url_fragment")
+        self.assertEqual(metadata["routing_text"], "")
 
     def test_provider_placeholder_link_is_rejected(self) -> None:
         raw_uri = (

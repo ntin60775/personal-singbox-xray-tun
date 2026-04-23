@@ -17,6 +17,10 @@ DEFAULT_GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/la
 DEFAULT_GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 SUPPORTED_DOMAIN_STRATEGIES = {"AsIs", "IPIfNonMatch", "IPOnDemand", "UseIP"}
 ROUTING_URI_PREFIXES = ("happ://routing/add/", "happ://routing/onadd/")
+ROUTING_URI_ACTIVATION_MODE = {
+    "happ://routing/add/": "add",
+    "happ://routing/onadd/": "onadd",
+}
 STORED_ONLY_FIELDS = {
     "dns_hosts",
     "domestic_dns_domain",
@@ -84,11 +88,11 @@ def _parse_json_payload(text: str) -> dict[str, Any]:
     return payload
 
 
-def _extract_happ_routing_payload(text: str) -> tuple[dict[str, Any], str]:
+def _extract_happ_routing_payload(text: str) -> tuple[dict[str, Any], str, str]:
     stripped = text.strip()
     for prefix in ROUTING_URI_PREFIXES:
         if stripped.startswith(prefix):
-            return _decode_base64_json(stripped[len(prefix) :]), "happ_uri"
+            return _decode_base64_json(stripped[len(prefix) :]), "happ_uri", ROUTING_URI_ACTIVATION_MODE[prefix]
 
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]
     happ_lines = [line for line in lines if any(line.startswith(prefix) for prefix in ROUTING_URI_PREFIXES)]
@@ -159,8 +163,9 @@ def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
         raise RoutingProfileError("Текст routing-профиля пуст.")
 
     source_format = "json"
+    activation_mode = "manual"
     if any(text.startswith(prefix) for prefix in ROUTING_URI_PREFIXES) or "happ://routing/" in text:
-        payload, source_format = _extract_happ_routing_payload(text)
+        payload, source_format, activation_mode = _extract_happ_routing_payload(text)
     else:
         try:
             payload = _parse_json_payload(text)
@@ -201,6 +206,7 @@ def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
         "name": name,
         "name_key": name.casefold(),
         "source_format": source_format,
+        "activation_mode": activation_mode,
         "raw_payload": payload,
         "global_proxy": _coerce_bool(key_map.get("globalproxy")),
         "domain_strategy": _normalize_domain_strategy(key_map.get("domainstrategy")),

@@ -53,9 +53,30 @@ class SubvostRoutingTests(unittest.TestCase):
 
         self.assertEqual(profile["name"], "SubVostVPN")
         self.assertEqual(profile["source_format"], "happ_uri")
+        self.assertEqual(profile["activation_mode"], "add")
         self.assertEqual(profile["domain_strategy"], "IPIfNonMatch")
         self.assertTrue(profile["global_proxy"])
+        self.assertEqual(profile["direct_sites"], ["geosite:private"])
+        self.assertEqual(profile["direct_ip"], ["geoip:private"])
         self.assertEqual(profile["supported_entry_count"], 4)
+
+    def test_parse_routing_profile_from_happ_onadd_tracks_activation_mode(self) -> None:
+        payload = {
+            "name": "OnAdd",
+            "directsites": ["geosite:cn"],
+            "directip": ["geoip:cn"],
+            "proxysites": ["geosite:geolocation-!cn"],
+            "proxyip": ["geoip:amazon"],
+        }
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+
+        profile = parse_routing_profile_input(f"happ://routing/onadd/{encoded}")
+
+        self.assertEqual(profile["activation_mode"], "onadd")
+        self.assertEqual(profile["direct_sites"], ["geosite:cn"])
+        self.assertEqual(profile["direct_ip"], ["geoip:cn"])
+        self.assertEqual(profile["proxy_sites"], ["geosite:geolocation-!cn"])
+        self.assertEqual(profile["proxy_ip"], ["geoip:amazon"])
 
     def test_apply_routing_profile_to_config_preserves_internal_rules_and_updates_catchall(self) -> None:
         template = {

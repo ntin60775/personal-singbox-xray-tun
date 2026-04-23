@@ -1306,7 +1306,13 @@ class SubvostAppService:
             "focus_profile_id": subscription["profile_id"],
         }
         try:
-            refresh_result = store_refresh_subscription(store, subscription["id"])
+            refresh_result = store_refresh_subscription(
+                store,
+                subscription["id"],
+                paths=self.context.app_paths,
+                uid=self.context.real_uid,
+                gid=self.context.real_gid,
+            )
             details_payload["refresh"] = refresh_result
             message = (
                 f"Подписка '{subscription['name']}' добавлена. "
@@ -1314,7 +1320,7 @@ class SubvostAppService:
             )
         except ValueError as exc:
             try:
-                store_delete_subscription(store, subscription["id"])
+                store_delete_subscription(store, subscription["id"], paths=self.context.app_paths)
             except ValueError:
                 pass
             self.persist_store(store)
@@ -1342,7 +1348,13 @@ class SubvostAppService:
     def refresh_subscription(self, subscription_id: str) -> dict[str, Any]:
         store = self.ensure_store_ready()
         try:
-            result = store_refresh_subscription(store, subscription_id)
+            result = store_refresh_subscription(
+                store,
+                subscription_id,
+                paths=self.context.app_paths,
+                uid=self.context.real_uid,
+                gid=self.context.real_gid,
+            )
         except ValueError as exc:
             self.persist_store(store)
             raise ValueError(f"Подписка не обновлена: {exc}. Сохранена предыдущая версия.") from exc
@@ -1357,7 +1369,12 @@ class SubvostAppService:
 
     def refresh_all_subscriptions(self) -> dict[str, Any]:
         store = self.ensure_store_ready()
-        result = store_refresh_all_subscriptions(store)
+        result = store_refresh_all_subscriptions(
+            store,
+            paths=self.context.app_paths,
+            uid=self.context.real_uid,
+            gid=self.context.real_gid,
+        )
         ok = result["error"] == 0
         message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась."
         return self.build_store_response(
@@ -1389,7 +1406,7 @@ class SubvostAppService:
 
     def delete_subscription(self, subscription_id: str) -> dict[str, Any]:
         store = self.ensure_store_ready()
-        store_delete_subscription(store, subscription_id)
+        store_delete_subscription(store, subscription_id, paths=self.context.app_paths)
         return self.build_store_response(
             store,
             name="Удаление подписки",

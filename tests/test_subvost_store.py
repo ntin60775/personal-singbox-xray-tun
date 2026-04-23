@@ -18,6 +18,7 @@ from subvost_store import (  # noqa: E402
     activate_routing_profile,
     add_subscription,
     default_subscription_hwid,
+    delete_subscription,
     ensure_store_structure,
     ensure_store_initialized,
     import_routing_profile,
@@ -31,6 +32,18 @@ from subvost_store import (  # noqa: E402
     update_routing_profile_enabled,
     update_profile,
 )
+
+
+def happ_routing_uri(payload: dict[str, object], *, mode: str = "add") -> str:
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+    return f"happ://routing/{mode}/{encoded}"
+
+
+def single_vless_line(name: str = "Node") -> bytes:
+    return (
+        f"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#{name}\n"
+    ).encode("utf-8")
+
 
 
 class FakeResponse:
@@ -522,6 +535,242 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["subscriptions"][0]["etag"], "etag-1")
             self.assertEqual(store["subscriptions"][0]["last_status"], "error")
             self.assertIn("невалидных строк 1", store["subscriptions"][0]["last_error"])
+
+    def test_refresh_subscription_auto_imports_routing_profile_from_response_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            routing_uri = happ_routing_uri(
+                {
+                    "name": "Header route",
+                    "directsites": ["geosite:cn"],
+                    "directip": ["geoip:cn"],
+                    "proxysites": ["geosite:youtube"],
+                },
+                mode="onadd",
+            )
+            headers = {"ETag": "etag-1", "routing": routing_uri, "providerid": "provider-header"}
+
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[
+                    FakeResponse(single_vless_line(), headers),
+                    FakeResponse(b"geoip-bytes"),
+                    FakeResponse(b"geosite-bytes"),
+                ],
+            ):
+                result = refresh_subscription(store, subscription["id"], paths=paths)
+
+            self.assertEqual(result["routing"]["status"], "created")
+            self.assertEqual(result["routing"]["source"], "response_header")
+            self.assertEqual(result["routing"]["provider_id"], "provider-header")
+            self.assertTrue(result["routing"]["activated"])
+            self.assertEqual(result["routing"]["geodata_status"], "ready")
+
+            saved_subscription = store["subscriptions"][0]
+            self.assertEqual(saved_subscription["provider_id"], "provider-header")
+            self.assertEqual(saved_subscription["provider_id_source"], "response_header")
+            self.assertEqual(saved_subscription["last_routing_status"], "linked")
+            self.assertEqual(saved_subscription["last_routing_error"], "")
+
+            profile = next(item for item in store["routing"]["profiles"] if item["id"] == saved_subscription["routing_profile_id"])
+            self.assertTrue(profile["auto_managed"])
+            self.assertEqual(profile["source_subscription_id"], subscription["id"])
+            self.assertEqual(profile["provider_id"], "provider-header")
+            self.assertEqual(profile["source_kind"], "response_header")
+            self.assertEqual(profile["activation_mode"], "onadd")
+            self.assertEqual(profile["direct_sites"], ["geosite:cn"])
+            self.assertEqual(profile["direct_ip"], ["geoip:cn"])
+            self.assertEqual(store["routing"]["active_profile_id"], profile["id"])
+            self.assertTrue(store["routing"]["geodata"]["ready"])
+
+    def test_refresh_subscription_auto_imports_routing_profile_from_mixed_base64_body(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            routing_uri = happ_routing_uri(
+                {
+                    "name": "Body route",
+                    "directsites": ["geosite:private"],
+                    "directip": ["geoip:private"],
+                    "blocksites": ["geosite:category-ads"],
+                },
+                mode="onadd",
+            )
+            mixed_body = (
+                "#profile-title Example\n"
+                "#providerid provider-body\n"
+                f"{routing_uri}\n"
+                f"{single_vless_line().decode('utf-8')}"
+            )
+            payload = base64.urlsafe_b64encode(mixed_body.encode("utf-8"))
+
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[
+                    FakeResponse(payload, {"ETag": "etag-1"}),
+                    FakeResponse(b"geoip-bytes"),
+                    FakeResponse(b"geosite-bytes"),
+                ],
+            ):
+                result = refresh_subscription(store, subscription["id"], paths=paths)
+
+            self.assertEqual(result["format"], "base64")
+            self.assertEqual(result["provider_id"], "provider-body")
+            self.assertEqual(result["routing"]["status"], "created")
+            self.assertEqual(result["routing"]["source"], "body_base64")
+            self.assertEqual(store["subscriptions"][0]["provider_id_source"], "body_base64")
+
+            profile = next(item for item in store["routing"]["profiles"] if item["id"] == store["subscriptions"][0]["routing_profile_id"])
+            self.assertEqual(profile["name"], "Body route")
+            self.assertEqual(profile["activation_mode"], "onadd")
+            self.assertEqual(profile["direct_sites"], ["geosite:private"])
+            self.assertEqual(profile["direct_ip"], ["geoip:private"])
+            self.assertEqual(profile["block_sites"], ["geosite:category-ads"])
+
+    def test_refresh_subscription_does_not_clobber_manual_routing_profile_with_same_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+
+            with patch(
+                "subvost_routing.urllib.request.urlopen",
+                side_effect=[FakeResponse(b"geoip-bytes"), FakeResponse(b"geosite-bytes")],
+            ):
+                imported = import_routing_profile(
+                    store,
+                    paths,
+                    json.dumps({"name": "Shared route", "directsites": ["geosite:private"], "directip": ["geoip:private"]}),
+                )
+            manual_profile_id = imported["profile"]["id"]
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            routing_uri = happ_routing_uri(
+                {"name": "Shared route", "directsites": ["geosite:cn"], "directip": ["geoip:cn"]},
+                mode="add",
+            )
+            headers = {"ETag": "etag-1", "routing": routing_uri, "providerid": "provider-auto"}
+
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), headers)):
+                result = refresh_subscription(store, subscription["id"], paths=paths)
+
+            same_name_profiles = [item for item in store["routing"]["profiles"] if item["name"] == "Shared route"]
+            self.assertEqual(len(same_name_profiles), 2)
+            manual_profile = next(item for item in same_name_profiles if not item.get("auto_managed"))
+            auto_profile = next(item for item in same_name_profiles if item.get("auto_managed"))
+
+            self.assertEqual(manual_profile["id"], manual_profile_id)
+            self.assertEqual(manual_profile["direct_sites"], ["geosite:private"])
+            self.assertEqual(manual_profile["direct_ip"], ["geoip:private"])
+            self.assertEqual(auto_profile["source_subscription_id"], subscription["id"])
+            self.assertEqual(auto_profile["provider_id"], "provider-auto")
+            self.assertEqual(auto_profile["direct_sites"], ["geosite:cn"])
+            self.assertEqual(auto_profile["direct_ip"], ["geoip:cn"])
+            self.assertEqual(store["routing"]["active_profile_id"], manual_profile_id)
+            self.assertFalse(result["routing"]["activated"])
+
+    def test_delete_subscription_removes_linked_auto_managed_routing_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            routing_uri = happ_routing_uri({"name": "Delete me", "directsites": ["geosite:cn"]}, mode="onadd")
+            headers = {"ETag": "etag-1", "routing": routing_uri, "providerid": "provider-delete"}
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[
+                    FakeResponse(single_vless_line(), headers),
+                    FakeResponse(b"geoip-bytes"),
+                    FakeResponse(b"geosite-bytes"),
+                ],
+            ):
+                refresh_subscription(store, subscription["id"], paths=paths)
+
+            delete_subscription(store, subscription["id"], paths=paths)
+
+            self.assertEqual(store["subscriptions"], [])
+            self.assertEqual([profile["id"] for profile in store["profiles"]], [MANUAL_PROFILE_ID])
+            self.assertEqual(store["routing"]["profiles"], [])
+            self.assertIsNone(store["routing"]["active_profile_id"])
+            self.assertFalse(store["routing"]["enabled"])
+            self.assertFalse(store["routing"]["runtime_ready"])
+
+    def test_refresh_subscription_reads_provider_id_from_url_fragment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub#?providerid=url-fragment")
+
+            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), {"ETag": "etag-1"})):
+                result = refresh_subscription(store, subscription["id"])
+
+            self.assertEqual(result["provider_id"], "url-fragment")
+            self.assertEqual(result["routing"]["status"], "none")
+            self.assertEqual(store["subscriptions"][0]["provider_id"], "url-fragment")
+            self.assertEqual(store["subscriptions"][0]["provider_id_source"], "url_fragment")
+
+    def test_refresh_subscription_clears_auto_managed_routing_profile_when_metadata_disappears(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+            (project_root / "xray-tun-subvost.json").write_text(json.dumps({"outbounds": [{"tag": "proxy"}]}), encoding="utf-8")
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Test", "https://example.com/sub")
+
+            routing_uri = happ_routing_uri(
+                {"name": "Ephemeral route", "directsites": ["geosite:cn"], "directip": ["geoip:cn"]},
+                mode="onadd",
+            )
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[
+                    FakeResponse(single_vless_line(), {"ETag": "etag-1", "routing": routing_uri, "providerid": "provider-temp"}),
+                    FakeResponse(b"geoip-bytes"),
+                    FakeResponse(b"geosite-bytes"),
+                    FakeResponse(single_vless_line("Updated"), {"ETag": "etag-2"}),
+                ],
+            ):
+                first_result = refresh_subscription(store, subscription["id"], paths=paths)
+                second_result = refresh_subscription(store, subscription["id"], paths=paths)
+
+            self.assertEqual(first_result["routing"]["status"], "created")
+            self.assertEqual(second_result["routing"]["status"], "none")
+            self.assertEqual(store["subscriptions"][0]["provider_id"], "")
+            self.assertEqual(store["subscriptions"][0]["provider_id_source"], "")
+            self.assertIsNone(store["subscriptions"][0]["routing_profile_id"])
+            self.assertEqual(store["subscriptions"][0]["last_routing_status"], "none")
+            self.assertEqual(store["subscriptions"][0]["last_routing_error"], "")
+            self.assertEqual(store["routing"]["profiles"], [])
+            self.assertIsNone(store["routing"]["active_profile_id"])
+            self.assertFalse(store["routing"]["enabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

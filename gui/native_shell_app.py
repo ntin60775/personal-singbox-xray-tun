@@ -1972,6 +1972,11 @@ class NativeShellApp:
         ready = bool(routing.get("runtime_ready"))
         profiles = routing_profiles_from_store_snapshot(self.last_store_payload)
         geodata = routing.get("geodata") or {}
+        subscription_names = {
+            str(item.get("id") or ""): str(item.get("name") or "")
+            for item in subscriptions_from_store_snapshot(self.last_store_payload)
+            if item.get("id")
+        }
 
         badge_value = "Нет профиля"
         badge_tone = "warning"
@@ -2034,12 +2039,25 @@ class NativeShellApp:
             title_box = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=4)
             title_box.set_hexpand(True)
             title_box.append(self.make_row_text(str(profile.get("name") or "Без имени"), "native-shell-row-title"))
+            source_subscription_name = subscription_names.get(str(profile.get("source_subscription_id") or ""), "")
             meta = [
                 f"правил {profile.get('supported_entry_count', 0)}",
                 "через прокси" if profile.get("global_proxy") else "с прямым обходом",
-                f"источник {profile.get('source_format') or 'json'}",
+                f"формат {profile.get('source_format') or 'json'}",
+            ]
+            source_meta = [
+                "авто из подписки" if profile.get("auto_managed") else "ручной импорт",
+                f"подписка {source_subscription_name}" if source_subscription_name else "",
+                f"providerId {profile.get('provider_id')}" if profile.get("provider_id") else "",
+                f"режим {profile.get('activation_mode')}" if profile.get("activation_mode") not in {None, '', 'manual'} else "",
             ]
             title_box.append(self.make_row_text(" · ".join(meta), "native-shell-row-meta"))
+            title_box.append(
+                self.make_row_text(
+                    " · ".join(part for part in source_meta if part) or "Источник не указан.",
+                    "native-shell-row-meta",
+                )
+            )
 
             badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
             is_active = active_id and str(profile.get("id")) == active_id
