@@ -78,7 +78,7 @@
 - `PySide2 / Qt5`: визуально сильнее, но тяжелее для Windows 8.1 packaging и добавляет крупную зависимость;
 - `PowerShell + Windows Forms`: годится для installer/preflight, но не для основного приложения.
 
-До утверждения пользователем реализация `TASK-2026-0058.2` не должна выбирать стек необратимо.
+Стек утверждён пользователем: `.NET Framework 4.8 + Windows Forms`.
 
 ## Проверки
 
@@ -106,7 +106,7 @@
 - [x] Подготовить архитектурную спецификацию для обсуждения.
 - [x] Согласовать UI-стек для Windows.
 - [x] Выполнить `TASK-2026-0058.1`: build chain и runtime asset policy.
-- [ ] Выполнить `TASK-2026-0058.2`: нативный Windows UI vertical slice.
+- [x] Выполнить `TASK-2026-0058.2`: нативный Windows UI vertical slice.
 - [ ] Выполнить `TASK-2026-0058.3`: Windows runtime hardening.
 - [ ] Выполнить `TASK-2026-0058.4`: smoke, README и handoff-комплект.
 

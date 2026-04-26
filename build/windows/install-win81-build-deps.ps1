@@ -12,6 +12,7 @@ $Root = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 $AssetManifest = Join-Path $ScriptDir "runtime-assets.win81.json"
 $RequirementsFile = Join-Path $ScriptDir "python-build-requirements.txt"
 $VenvDir = Join-Path $Root ".venv-win81-x64"
+$WinFormsProject = Join-Path $Root "windows\SubvostXrayTun.WinForms\SubvostXrayTun.WinForms.csproj"
 
 function Write-Step {
   param([string]$Message)
@@ -79,6 +80,43 @@ function Assert-DotNet48 {
   }
 }
 
+function Find-MSBuild {
+  $candidates = @(
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\MSBuild\14.0\Bin\MSBuild.exe",
+    "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe",
+    "${env:WINDIR}\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate -PathType Leaf)) {
+      return $candidate
+    }
+  }
+  $command = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Path
+  }
+  return ""
+}
+
+function Assert-WinFormsToolchain {
+  Assert-File $WinFormsProject "Не найден WinForms project: $WinFormsProject"
+  $projectText = Get-Content -Raw -Encoding UTF8 $WinFormsProject
+  if ($projectText -notmatch "<TargetFrameworkVersion>v4\.8</TargetFrameworkVersion>") {
+    Fail "WinForms project должен таргетить .NET Framework 4.8."
+  }
+  if ($projectText -notmatch "<OutputType>WinExe</OutputType>") {
+    Fail "WinForms project должен собираться как WinExe."
+  }
+  $msbuild = Find-MSBuild
+  if (-not $msbuild) {
+    Fail "MSBuild не найден. Установи Visual Studio Build Tools или .NET Framework build tools."
+  }
+  Write-Step "MSBuild: $msbuild"
+}
+
 function New-Directory {
   param([string]$Path)
   if (-not (Test-Path $Path -PathType Container)) {
@@ -123,6 +161,7 @@ Write-Step "Цель: $($manifest.target)"
 Write-Step "PowerShell: $($PSVersionTable.PSVersion)"
 Assert-Python $manifest
 Assert-DotNet48
+Assert-WinFormsToolchain
 $venvPython = Ensure-Venv
 Install-PythonBuildDeps $venvPython
 Write-Step "Готово. Venv: $VenvDir"

@@ -24,11 +24,17 @@ $DownloadDir = Join-Path $BuildRoot "downloads"
 $ExtractDir = Join-Path $BuildRoot "extract"
 $DistRoot = Join-Path $Root "dist\SubvostXrayTun"
 $DistRuntime = Join-Path $DistRoot "runtime"
+$DistTools = Join-Path $DistRoot "tools"
 $RuntimeDir = Join-Path $Root "runtime"
 $ManifestOut = Join-Path $DistRoot "subvost-win81-build-manifest.json"
+$XrayTemplate = Join-Path $Root "xray-tun-subvost.json"
 $DepsScript = Join-Path $ScriptDir "install-win81-build-deps.ps1"
 $VenvPython = Join-Path $Root ".venv-win81-x64\Scripts\python.exe"
-$SpecFile = Join-Path $Root "SubvostXrayTun.win81.spec"
+$HelperSpecFile = Join-Path $Root "SubvostCore.win81.spec"
+$WinFormsProject = Join-Path $Root "windows\SubvostXrayTun.WinForms\SubvostXrayTun.WinForms.csproj"
+$WinFormsOutput = Join-Path $Root "windows\SubvostXrayTun.WinForms\bin\Release\SubvostXrayTun.exe"
+$UiExe = Join-Path $DistRoot "SubvostXrayTun.exe"
+$HelperExe = Join-Path $DistTools "subvost-core.exe"
 
 function Write-Step {
   param([string]$Message)
@@ -143,6 +149,27 @@ function Copy-WintunDll {
   return $dll.FullName
 }
 
+function Find-MSBuild {
+  $candidates = @(
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\MSBuild\Current\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin\MSBuild.exe",
+    "${env:ProgramFiles(x86)}\MSBuild\14.0\Bin\MSBuild.exe",
+    "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe",
+    "${env:WINDIR}\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate -PathType Leaf)) {
+      return $candidate
+    }
+  }
+  $command = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Path
+  }
+  return ""
+}
+
 function Write-BuildManifest {
   param($Manifest, [string]$XrayZipPath, [string]$WintunZipPath)
   $payload = [ordered]@{
@@ -167,6 +194,10 @@ function Write-BuildManifest {
     output = [ordered]@{
       distRoot = $DistRoot
       runtimeDir = $DistRuntime
+      toolsDir = $DistTools
+      uiExe = $UiExe
+      helperExe = $HelperExe
+      xrayTemplate = (Join-Path $DistRoot "xray-tun-subvost.json")
       runtimeOnly = [bool]$StageRuntimeOnly
     }
   }
@@ -184,6 +215,7 @@ $manifest = Read-JsonFile $AssetManifest
 New-Directory $DownloadDir
 New-Directory $ExtractDir
 New-Directory $DistRuntime
+New-Directory $DistTools
 New-Directory $RuntimeDir
 
 $xrayZipPath = Resolve-AssetZip -Asset $manifest.xray -OverridePath $XrayZip
@@ -200,11 +232,13 @@ Copy-FirstMatch -RootDir $xrayExtract -Filter "geoip.dat" -Destination (Join-Pat
 Copy-FirstMatch -RootDir $xrayExtract -Filter "geosite.dat" -Destination (Join-Path $DistRuntime "geosite.dat") | Out-Null
 Copy-WintunDll -RootDir $wintunExtract -ArchHint $manifest.wintun.dllArchHint -Destination (Join-Path $DistRuntime "wintun.dll") | Out-Null
 
+Assert-File $XrayTemplate "Не найден шаблон Xray: $XrayTemplate"
+Copy-Item -Force -Path $XrayTemplate -Destination (Join-Path $DistRoot "xray-tun-subvost.json")
 Copy-Item -Force -Path (Join-Path $DistRuntime "*") -Destination $RuntimeDir
 Write-BuildManifest -Manifest $manifest -XrayZipPath $xrayZipPath -WintunZipPath $wintunZipPath
 
 if ($StageRuntimeOnly) {
-  Write-Step "Runtime-ресурсы подготовлены. Финальная сборка exe будет подключена в slice нативного UI."
+  Write-Step "Runtime-ресурсы подготовлены. UI и служебный модуль пропущены по флагу -StageRuntimeOnly."
   exit 0
 }
 
@@ -214,12 +248,28 @@ if ($LASTEXITCODE -ne 0) {
   Fail "Проверка или установка зависимостей завершилась ошибкой."
 }
 
-Assert-File $SpecFile "Не найден PyInstaller spec: $SpecFile. Сначала должен быть реализован native Windows UI slice."
+Assert-File $HelperSpecFile "Не найден PyInstaller spec служебного модуля: $HelperSpecFile"
 Assert-File $VenvPython "Не найден python в venv: $VenvPython"
+Assert-File $WinFormsProject "Не найден WinForms project: $WinFormsProject"
 
-& $VenvPython -m PyInstaller --clean --workpath (Join-Path $BuildRoot "pyinstaller") --distpath (Join-Path $Root "dist") $SpecFile
+$HelperBuildDir = Join-Path $BuildRoot "helper-dist"
+& $VenvPython -m PyInstaller --clean --workpath (Join-Path $BuildRoot "pyinstaller") --distpath $HelperBuildDir $HelperSpecFile
 if ($LASTEXITCODE -ne 0) {
   Fail "PyInstaller завершился ошибкой."
 }
+Assert-File (Join-Path $HelperBuildDir "subvost-core.exe") "PyInstaller не создал subvost-core.exe"
+Copy-Item -Force -Path (Join-Path $HelperBuildDir "subvost-core.exe") -Destination $HelperExe
+
+$msbuild = Find-MSBuild
+if (-not $msbuild) {
+  Fail "MSBuild не найден. Запусти preflight и установи Visual Studio Build Tools."
+}
+& $msbuild $WinFormsProject /p:Configuration=Release /p:Platform=AnyCPU /m
+if ($LASTEXITCODE -ne 0) {
+  Fail "MSBuild завершился ошибкой."
+}
+Assert-File $WinFormsOutput "WinForms exe не найден: $WinFormsOutput"
+Copy-Item -Force -Path $WinFormsOutput -Destination $UiExe
+Write-BuildManifest -Manifest $manifest -XrayZipPath $xrayZipPath -WintunZipPath $wintunZipPath
 
 Write-Step "Готово: $DistRoot"

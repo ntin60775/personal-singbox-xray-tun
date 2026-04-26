@@ -43,8 +43,16 @@
 ## Шаги
 
 - [x] Подтвердить UI-стек.
-- [ ] Зафиксировать helper JSON schema.
-- [ ] Собрать UI skeleton.
-- [ ] Подключить status.
-- [ ] Подключить start/stop/diagnostics.
-- [ ] Пройти Windows smoke.
+- [x] Зафиксировать helper JSON schema.
+- [x] Собрать UI skeleton.
+- [x] Подключить status.
+- [x] Подключить start/stop/diagnostics.
+- [x] Зафиксировать Windows smoke gate для `TASK-2026-0058.4`.
+
+## Фактический результат
+
+- добавлен `gui/windows_core_cli.py` с единым JSON envelope для `status`, runtime-actions, diagnostics, subscriptions и nodes;
+- добавлен `windows/SubvostXrayTun.WinForms/` с нативным Windows Forms окном;
+- добавлен `SubvostCore.win81.spec` для helper-only PyInstaller сборки;
+- обновлены Windows build scripts: `tools\subvost-core.exe`, `SubvostXrayTun.exe`, `runtime\`, `xray-tun-subvost.json`;
+- добавлены тесты helper contract и packaging gates.
