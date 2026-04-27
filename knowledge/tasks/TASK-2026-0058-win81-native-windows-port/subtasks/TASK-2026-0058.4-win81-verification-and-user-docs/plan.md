@@ -31,8 +31,15 @@
 
 ## Шаги
 
-- [ ] Собрать фактические команды из реализации.
-- [ ] Написать beginner README.
-- [ ] Добавить troubleshooting/recovery.
+- [x] Собрать фактические команды из реализации.
+- [x] Написать beginner README.
+- [x] Добавить troubleshooting/recovery.
 - [ ] Провести Windows 8.1 smoke.
-- [ ] Синхронизировать task docs и registry.
+- [x] Синхронизировать task docs и registry.
+
+## Фактический результат
+
+- добавлен `docs/windows/README-win81-user.md`;
+- добавлен `docs/windows/win81-smoke-protocol.md`;
+- `build/windows/build-win81-release.ps1` копирует README и runtime/smoke docs в пакет;
+- live smoke оставлен как явный пользовательский gate, потому что текущая среда не является Windows 8.1.

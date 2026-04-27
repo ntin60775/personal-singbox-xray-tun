@@ -28,6 +28,10 @@ $DistTools = Join-Path $DistRoot "tools"
 $RuntimeDir = Join-Path $Root "runtime"
 $ManifestOut = Join-Path $DistRoot "subvost-win81-build-manifest.json"
 $XrayTemplate = Join-Path $Root "xray-tun-subvost.json"
+$UserReadme = Join-Path $Root "docs\windows\README-win81-user.md"
+$RuntimeReadme = Join-Path $Root "docs\windows\README-win81-runtime.md"
+$SmokeProtocol = Join-Path $Root "docs\windows\win81-smoke-protocol.md"
+$DistDocs = Join-Path $DistRoot "docs"
 $DepsScript = Join-Path $ScriptDir "install-win81-build-deps.ps1"
 $VenvPython = Join-Path $Root ".venv-win81-x64\Scripts\python.exe"
 $HelperSpecFile = Join-Path $Root "SubvostCore.win81.spec"
@@ -198,6 +202,8 @@ function Write-BuildManifest {
       uiExe = $UiExe
       helperExe = $HelperExe
       xrayTemplate = (Join-Path $DistRoot "xray-tun-subvost.json")
+      readme = (Join-Path $DistRoot "README.md")
+      docsDir = $DistDocs
       runtimeOnly = [bool]$StageRuntimeOnly
     }
   }
@@ -216,6 +222,7 @@ New-Directory $DownloadDir
 New-Directory $ExtractDir
 New-Directory $DistRuntime
 New-Directory $DistTools
+New-Directory $DistDocs
 New-Directory $RuntimeDir
 
 $xrayZipPath = Resolve-AssetZip -Asset $manifest.xray -OverridePath $XrayZip
@@ -233,7 +240,13 @@ Copy-FirstMatch -RootDir $xrayExtract -Filter "geosite.dat" -Destination (Join-P
 Copy-WintunDll -RootDir $wintunExtract -ArchHint $manifest.wintun.dllArchHint -Destination (Join-Path $DistRuntime "wintun.dll") | Out-Null
 
 Assert-File $XrayTemplate "Не найден шаблон Xray: $XrayTemplate"
+Assert-File $UserReadme "Не найден пользовательский README: $UserReadme"
+Assert-File $RuntimeReadme "Не найден README runtime: $RuntimeReadme"
+Assert-File $SmokeProtocol "Не найден smoke-протокол: $SmokeProtocol"
 Copy-Item -Force -Path $XrayTemplate -Destination (Join-Path $DistRoot "xray-tun-subvost.json")
+Copy-Item -Force -Path $UserReadme -Destination (Join-Path $DistRoot "README.md")
+Copy-Item -Force -Path $RuntimeReadme -Destination (Join-Path $DistDocs "README-win81-runtime.md")
+Copy-Item -Force -Path $SmokeProtocol -Destination (Join-Path $DistDocs "win81-smoke-protocol.md")
 Copy-Item -Force -Path (Join-Path $DistRuntime "*") -Destination $RuntimeDir
 Write-BuildManifest -Manifest $manifest -XrayZipPath $xrayZipPath -WintunZipPath $wintunZipPath
 

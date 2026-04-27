@@ -10,7 +10,7 @@
 | Ключ в путях | `TASK-2026-0058` |
 | Технический ключ для новых именуемых сущностей | `win81-native-windows-port` |
 | Краткое имя | `win81-native-windows-port` |
-| Статус | `в работе` |
+| Статус | `ждёт пользователя` |
 | Приоритет | `высокий` |
 | Ответственный | `Codex` |
 | Ветка | `task/task-2026-0058-win81-native-windows-port` |
@@ -69,7 +69,7 @@
 | `TASK-2026-0058.1` | `завершена` | `subtasks/TASK-2026-0058.1-win81-release-package-and-build-chain/` | Сборочная цепочка, preflight, зависимости, pin/checksum runtime-бинарников и release-package layout |
 | `TASK-2026-0058.2` | `завершена` | `subtasks/TASK-2026-0058.2-native-windows-ui-shell/` | Нативный Windows UI без браузера: выбор стека, shell-контракт и первый рабочий vertical slice |
 | `TASK-2026-0058.3` | `завершена` | `subtasks/TASK-2026-0058.3-windows-runtime-routing-hardening/` | Hardening Windows runtime: маршруты, state/log paths, кодировки, stale adapter и recovery |
-| `TASK-2026-0058.4` | `черновик` | `subtasks/TASK-2026-0058.4-win81-verification-and-user-docs/` | Живой Windows 8.1 smoke, beginner README, troubleshooting и handoff-комплект |
+| `TASK-2026-0058.4` | `ждёт пользователя` | `subtasks/TASK-2026-0058.4-win81-verification-and-user-docs/` | Живой Windows 8.1 smoke, beginner README, troubleshooting и handoff-комплект |
 
 ## Затронутые области
 
@@ -94,7 +94,7 @@
 
 ## Текущий этап
 
-Подзадачи `TASK-2026-0058.1`-`TASK-2026-0058.3` реализованы и прошли локальные проверки. Следующий фокус: `TASK-2026-0058.4`, где нужно собрать пользовательскую инструкцию, оформить smoke-протокол и честно зафиксировать live Windows 8.1 gate.
+Код, сборочная цепочка, нативный Windows UI, runtime hardening и пользовательские документы подготовлены и прошли локальные проверки. Остался внешний gate: live smoke на реальной Windows 8.1 по `docs/windows/win81-smoke-protocol.md`.
 
 ## Стратегия проверки
 
@@ -129,4 +129,4 @@
 
 ## Итог
 
-Заполняется при закрытии задачи после реализации, проверки и решения по release-package.
+Локальная реализация завершена. Задача ждёт live Windows 8.1 smoke; без него нельзя честно назвать комплект полностью проверенным на целевой системе.

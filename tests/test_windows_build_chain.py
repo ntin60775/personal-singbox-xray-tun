@@ -46,6 +46,8 @@ class WindowsBuildChainTests(unittest.TestCase):
         self.assertIn("subvost-core.exe", script)
         self.assertIn("SubvostXrayTun.exe", script)
         self.assertIn("xray-tun-subvost.json", script)
+        self.assertIn("README-win81-user.md", script)
+        self.assertIn("win81-smoke-protocol.md", script)
         self.assertIn("MSBuild", script)
         self.assertIn("runtimeOnly = [bool]$StageRuntimeOnly", script)
         self.assertNotIn("SubvostXrayTun.win81.spec", script)
@@ -67,6 +69,14 @@ class WindowsBuildChainTests(unittest.TestCase):
         self.assertIn("TASK-2026-0058", docs)
         self.assertIn("-StageRuntimeOnly", docs)
         self.assertIn("-Offline", docs)
+
+    def test_beginner_windows_readme_warns_about_live_smoke_gate(self) -> None:
+        docs = (REPO_ROOT / "docs" / "windows" / "README-win81-user.md").read_text(encoding="utf-8")
+
+        self.assertIn("SubvostXrayTun.exe", docs)
+        self.assertIn("%LOCALAPPDATA%\\subvost-xray-tun", docs)
+        self.assertIn("Если пропал интернет", docs)
+        self.assertIn("win81-smoke-protocol.md", docs)
 
 
 if __name__ == "__main__":

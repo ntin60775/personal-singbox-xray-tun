@@ -10,7 +10,7 @@
 | Ключ в путях | `TASK-2026-0058.4` |
 | Технический ключ для новых именуемых сущностей | `win81-verification-user-docs` |
 | Краткое имя | `win81-verification-and-user-docs` |
-| Статус | `черновик` |
+| Статус | `ждёт пользователя` |
 | Приоритет | `высокий` |
 | Ответственный | `Codex` |
 | Ветка | `task/task-2026-0058-win81-native-windows-port` |
@@ -39,7 +39,9 @@
 
 ## Текущий этап
 
-Черновик. Финальное содержание зависит от выбранного UI-стека и результатов `TASK-2026-0058.1`-`TASK-2026-0058.3`.
+Пользовательская документация, recovery-инструкция и smoke-протокол подготовлены. Build script копирует beginner README в `dist\SubvostXrayTun\README.md`.
+
+Live smoke на реальной Windows 8.1 в текущей Linux-среде не выполнялся, поэтому подзадача ждёт проверки на Windows 8.1 по `docs/windows/win81-smoke-protocol.md`.
 
 ## Критерии готовности
 
@@ -48,3 +50,17 @@
 - smoke log содержит фактические версии и команды;
 - документация не обещает непроверенные gates;
 - localization guard проходит.
+
+## Проверки
+
+- `env PYTHONPATH=gui python3 -B -m unittest tests.test_windows_build_chain tests.test_windows_runtime_adapter tests.test_windows_core_helper_contract`
+- `env PYTHONPATH=gui python3 -B -m unittest discover -s tests`
+- `git diff --check`
+- `python3 ~/.agents/skills/owned-text-localization-guard/scripts/markdown_localization_guard.py docs/windows/README-win81-build.md docs/windows/README-win81-runtime.md docs/windows/README-win81-user.md docs/windows/win81-smoke-protocol.md build/windows/build-win81-release.ps1 tests/test_windows_build_chain.py`
+
+## Артефакты
+
+- `docs/windows/README-win81-user.md`
+- `docs/windows/README-win81-runtime.md`
+- `docs/windows/win81-smoke-protocol.md`
+- путь копии в пакете: `dist\SubvostXrayTun\README.md`

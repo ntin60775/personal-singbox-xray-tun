@@ -108,7 +108,8 @@
 - [x] Выполнить `TASK-2026-0058.1`: build chain и runtime asset policy.
 - [x] Выполнить `TASK-2026-0058.2`: нативный Windows UI vertical slice.
 - [x] Выполнить `TASK-2026-0058.3`: Windows runtime hardening.
-- [ ] Выполнить `TASK-2026-0058.4`: smoke, README и handoff-комплект.
+- [x] Выполнить локальную часть `TASK-2026-0058.4`: README и handoff-комплект.
+- [ ] Выполнить live smoke на Windows 8.1 по `docs/windows/win81-smoke-protocol.md`.
 
 ## Критерии завершения
 

@@ -65,6 +65,9 @@ dist\SubvostXrayTun\runtime\
 dist\SubvostXrayTun\tools\subvost-core.exe
 dist\SubvostXrayTun\SubvostXrayTun.exe
 dist\SubvostXrayTun\xray-tun-subvost.json
+dist\SubvostXrayTun\README.md
+dist\SubvostXrayTun\docs\README-win81-runtime.md
+dist\SubvostXrayTun\docs\win81-smoke-protocol.md
 dist\SubvostXrayTun\subvost-win81-build-manifest.json
 runtime\
 ```
