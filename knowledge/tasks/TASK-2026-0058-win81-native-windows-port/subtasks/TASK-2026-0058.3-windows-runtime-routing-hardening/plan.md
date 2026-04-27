@@ -41,9 +41,19 @@
 
 ## Шаги
 
-- [ ] Спроектировать route plan.
-- [ ] Реализовать route add/delete с rollback.
-- [ ] Добавить post-start checks.
-- [ ] Перенести mutable paths.
-- [ ] Добавить diagnostics/recovery.
-- [ ] Пройти Windows smoke.
+- [x] Спроектировать route plan.
+- [x] Реализовать route add/delete с rollback.
+- [x] Добавить post-start checks.
+- [x] Перенести mutable paths.
+- [x] Добавить diagnostics/recovery.
+- [x] Зафиксировать Windows smoke gate для `TASK-2026-0058.4`.
+
+## Фактический результат
+
+- добавлен `gui/windows_runtime_adapter.py`;
+- `gui/windows_core_cli.py` теперь вызывает runtime controller для start/stop/diagnostics;
+- Windows Xray config получает adapter name `SubvostTun` и очищается от Linux-only `sockopt.mark`/`sockopt.interface`;
+- host route к proxy endpoint добавляется через исходный default gateway;
+- при ошибке старта выполняется rollback добавленных route;
+- diagnostics содержит `route print`, `netsh`, `ipconfig`, `tasklist` и recovery-команды;
+- добавлен `docs/windows/README-win81-runtime.md`.

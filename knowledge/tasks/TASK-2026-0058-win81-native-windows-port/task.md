@@ -68,7 +68,7 @@
 |----|--------|---------|------------------|
 | `TASK-2026-0058.1` | `завершена` | `subtasks/TASK-2026-0058.1-win81-release-package-and-build-chain/` | Сборочная цепочка, preflight, зависимости, pin/checksum runtime-бинарников и release-package layout |
 | `TASK-2026-0058.2` | `завершена` | `subtasks/TASK-2026-0058.2-native-windows-ui-shell/` | Нативный Windows UI без браузера: выбор стека, shell-контракт и первый рабочий vertical slice |
-| `TASK-2026-0058.3` | `готова к работе` | `subtasks/TASK-2026-0058.3-windows-runtime-routing-hardening/` | Hardening Windows runtime: маршруты, state/log paths, кодировки, stale adapter и recovery |
+| `TASK-2026-0058.3` | `завершена` | `subtasks/TASK-2026-0058.3-windows-runtime-routing-hardening/` | Hardening Windows runtime: маршруты, state/log paths, кодировки, stale adapter и recovery |
 | `TASK-2026-0058.4` | `черновик` | `subtasks/TASK-2026-0058.4-win81-verification-and-user-docs/` | Живой Windows 8.1 smoke, beginner README, troubleshooting и handoff-комплект |
 
 ## Затронутые области
@@ -94,7 +94,7 @@
 
 ## Текущий этап
 
-Подзадачи `TASK-2026-0058.1` и `TASK-2026-0058.2` реализованы и прошли локальные проверки. Следующий фокус: `TASK-2026-0058.3`, где нужно подключить реальный Windows runtime-адаптер для `Xray`/`Wintun`, маршрутов и recovery.
+Подзадачи `TASK-2026-0058.1`-`TASK-2026-0058.3` реализованы и прошли локальные проверки. Следующий фокус: `TASK-2026-0058.4`, где нужно собрать пользовательскую инструкцию, оформить smoke-протокол и честно зафиксировать live Windows 8.1 gate.
 
 ## Стратегия проверки
 

@@ -107,7 +107,7 @@
 - [x] Согласовать UI-стек для Windows.
 - [x] Выполнить `TASK-2026-0058.1`: build chain и runtime asset policy.
 - [x] Выполнить `TASK-2026-0058.2`: нативный Windows UI vertical slice.
-- [ ] Выполнить `TASK-2026-0058.3`: Windows runtime hardening.
+- [x] Выполнить `TASK-2026-0058.3`: Windows runtime hardening.
 - [ ] Выполнить `TASK-2026-0058.4`: smoke, README и handoff-комплект.
 
 ## Критерии завершения

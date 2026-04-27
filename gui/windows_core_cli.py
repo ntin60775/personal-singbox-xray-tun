@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,9 +21,7 @@ from subvost_store import (
     store_payload,
     sync_generated_runtime,
 )
-
-
-HELPER_NAME = "subvost-core"
+from windows_runtime_adapter import WINDOWS_TUN_ADAPTER, WindowsRuntimeController
 
 
 @dataclass(frozen=True)
@@ -36,6 +33,7 @@ class WindowsCoreContext:
     log_dir: Path
     runtime_state_file: Path
     diagnostic_dir: Path
+    runtime_dir: Path
 
 
 class CommandError(Exception):
@@ -88,6 +86,7 @@ def build_context() -> WindowsCoreContext:
     log_dir = Path(os.environ.get("SUBVOST_WINDOWS_LOG_DIR", "") or app_paths.store_dir / "logs")
     runtime_state_file = app_paths.store_dir / "windows-runtime-state.json"
     diagnostic_dir = log_dir / "diagnostics"
+    runtime_dir = project_root / "runtime"
     return WindowsCoreContext(
         project_root=project_root,
         real_home=real_home,
@@ -96,6 +95,7 @@ def build_context() -> WindowsCoreContext:
         log_dir=log_dir,
         runtime_state_file=runtime_state_file,
         diagnostic_dir=diagnostic_dir,
+        runtime_dir=runtime_dir,
     )
 
 
@@ -174,11 +174,19 @@ class WindowsCoreService:
         save_store(self.context.app_paths, store)
         sync_generated_runtime(store, self.context.app_paths, self.context.project_root)
 
-    def read_runtime_state(self) -> dict[str, Any]:
-        return read_json_file(self.context.runtime_state_file)
-
     def runtime_is_running(self, state: dict[str, Any]) -> bool:
         return str(state.get("state") or "").lower() == "running"
+
+    def runtime_controller(self) -> WindowsRuntimeController:
+        return WindowsRuntimeController(
+            project_root=self.context.project_root,
+            config_path=self.context.app_paths.generated_xray_config_file,
+            active_config_path=self.context.app_paths.active_runtime_xray_config_file,
+            runtime_dir=self.context.runtime_dir,
+            state_file=self.context.runtime_state_file,
+            log_dir=self.context.log_dir,
+            diagnostic_dir=self.context.diagnostic_dir,
+        )
 
     def build_status(self) -> dict[str, Any]:
         store = self.ensure_store()
@@ -189,7 +197,7 @@ class WindowsCoreService:
         if isinstance(active_node, dict):
             active_node_name = str(active_node.get("name") or "Без имени")
 
-        runtime_state = self.read_runtime_state()
+        runtime_state = self.runtime_controller().inspect()
         running = self.runtime_is_running(runtime_state)
         generated_config_exists = self.context.app_paths.generated_xray_config_file.exists()
         start_ready = bool(active_profile and active_node and generated_config_exists)
@@ -209,7 +217,7 @@ class WindowsCoreService:
                 "description": description,
                 "stack_line": "Xray core",
                 "stack_subline": "Служебный модуль Windows без браузерного backend",
-                "tun_line": str(runtime_state.get("adapter") or "SubvostTun"),
+                "tun_line": str(runtime_state.get("adapter") or WINDOWS_TUN_ADAPTER),
                 "dns_line": str(runtime_state.get("dns") or "DNS будет проверен runtime-адаптером"),
                 "logs_line": str(self.context.log_dir),
                 "badges": [
@@ -233,14 +241,14 @@ class WindowsCoreService:
                 "xray_pid": runtime_state.get("xray_pid"),
                 "xray_alive": running,
                 "tun_present": running,
-                "tun_interface": str(runtime_state.get("adapter") or "SubvostTun"),
+                "tun_interface": str(runtime_state.get("adapter") or WINDOWS_TUN_ADAPTER),
                 "ownership": "current" if running else "unknown",
             },
             "connection": {
                 "active_name": active_node_name,
                 "remote_endpoint": active_endpoint(active_node),
                 "protocol_label": active_protocol(active_node),
-                "tun_interface": str(runtime_state.get("adapter") or "SubvostTun"),
+                "tun_interface": str(runtime_state.get("adapter") or WINDOWS_TUN_ADAPTER),
                 "dns_servers": str(runtime_state.get("dns") or "—"),
             },
             "store_summary": payload["summary"],
@@ -280,9 +288,15 @@ class WindowsCoreService:
         status = self.build_status()
         if not status["runtime"]["start_ready"]:
             raise CommandError(str(status["runtime"]["next_start_reason"]), data={"status": status})
-        raise CommandError(
-            "Windows runtime-адаптер будет подключён в TASK-2026-0058.3. UI уже вызывает служебный модуль без браузера.",
-            data={"status": status},
+        state = self.runtime_controller().start()
+        status = self.build_status()
+        return envelope(
+            ok=True,
+            command="runtime start",
+            message="Подключение запущено через Windows runtime-адаптер.",
+            data={"runtime_state": state},
+            status=status,
+            store=store_payload(self.ensure_store(), self.context.app_paths),
         )
 
     def runtime_stop(self) -> dict[str, Any]:
@@ -295,30 +309,24 @@ class WindowsCoreService:
                 status=status,
                 store=store_payload(self.ensure_store(), self.context.app_paths),
             )
-        raise CommandError(
-            "Windows runtime-адаптер будет подключён в TASK-2026-0058.3. Автоматическая остановка пока недоступна.",
-            data={"status": status},
+        state = self.runtime_controller().stop()
+        status = self.build_status()
+        return envelope(
+            ok=True,
+            command="runtime stop",
+            message="Подключение остановлено, маршруты rollback выполнены.",
+            data={"runtime_state": state},
+            status=status,
+            store=store_payload(self.ensure_store(), self.context.app_paths),
         )
 
     def capture_diagnostics(self) -> dict[str, Any]:
-        self.context.diagnostic_dir.mkdir(parents=True, exist_ok=True)
-        status = self.build_status()
-        diagnostic_path = self.context.diagnostic_dir / f"subvost-win81-diagnostic-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
-        diagnostic = {
-            "schema": 1,
-            "created_at": iso_now(),
-            "host": {
-                "platform": platform.platform(),
-                "machine": platform.machine(),
-            },
-            "status": status,
-        }
-        diagnostic_path.write_text(json.dumps(diagnostic, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        diagnostic = self.runtime_controller().capture_diagnostics()
         return envelope(
             ok=True,
             command="diagnostics capture",
-            message=f"Диагностика сохранена: {diagnostic_path}",
-            data={"diagnostic_path": str(diagnostic_path)},
+            message=f"Диагностика сохранена: {diagnostic['path']}",
+            data={"diagnostic_path": diagnostic["path"], "diagnostic": diagnostic["diagnostic"]},
             status=self.build_status(),
             store=store_payload(self.ensure_store(), self.context.app_paths),
         )

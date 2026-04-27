@@ -19,6 +19,7 @@ a = Analysis(
         "subvost_parser",
         "subvost_runtime",
         "subvost_routing",
+        "windows_runtime_adapter",
     ],
     hookspath=[],
     hooksconfig={},
