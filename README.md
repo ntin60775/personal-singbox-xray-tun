@@ -1,18 +1,26 @@
-# Subvost Xray TUN для Linux
+# Subvost Xray TUN для Linux и Windows 8.1
 
-Открытый репозиторий переносимого Linux bundle для запуска `xray-core` в `TUN`-режиме без второго прокси-runtime поверх `xray`. Проект ориентирован на локальный desktop-сценарий: импортировать подписку или ссылку, выбрать активный узел, поднять `TUN`, при необходимости снять диагностику и затем корректно остановить runtime.
+Открытый репозиторий переносимого bundle для запуска `xray-core` в `TUN`-режиме без второго прокси-runtime поверх `xray`.
+
+Основной рабочий сценарий проекта остаётся Linux desktop: импортировать подписку или ссылку, выбрать активный узел, поднять `TUN`, при необходимости снять диагностику и затем корректно остановить runtime.
+
+Для Windows 8.1 x64 добавлен отдельный нативный комплект: обычное Windows-окно на `.NET Framework 4.8 + Windows Forms`, служебный `subvost-core.exe`, pinned-версии `Xray` и `Wintun`, PowerShell-скрипты установки зависимостей и сборки.
 
 ## Статус проекта
 
 - основная целевая платформа: Linux;
-- текущий режим поставки: переносимый bundle без отдельной сборки;
+- отдельный порт для Windows 8.1 x64: нативный `Windows Forms` UI, не браузер;
+- текущий режим поставки Linux: переносимый bundle без отдельной сборки;
+- текущий режим поставки Windows: сборка переносимого комплекта через `build\windows\build-win81-release.ps1`;
 - в Git хранится только санитизированный шаблон runtime-конфига и обезличенная документация;
-- автоматические тесты есть только для части Python-логики, сетевой smoke остаётся обязательным вручную.
+- автоматические тесты есть только для части Python-логики, сетевой smoke остаётся обязательным вручную;
+- живой smoke на реальной Windows 8.1 пока не выполнен, поэтому Windows-комплект считается готовым к проверке, а не полностью подтверждённой поставкой.
 
 ## Что умеет bundle
 
 - запускать `xray-core` в `TUN`-режиме без внешнего proxy-движка;
 - держать один рабочий GUI для импорта подписок, выбора узла, запуска, остановки и диагностики;
+- собирать Windows 8.1 x64 комплект с нативным `Windows Forms` UI, `xray.exe`, `wintun.dll` и пользовательским `README`;
 - импортировать URL подписки провайдера с `Xray`-совместимыми заголовками;
 - генерировать runtime-конфиг из выбранного узла, не коммитя live-секреты;
 - переноситься в другой каталог или на другую машину без привязки к локальному checkout.
@@ -34,6 +42,10 @@
 - `xray-tun-subvost.json` — tracked-шаблон `xray` runtime
 - `assets/` — иконка и связанные статические ресурсы
 - `gui/` — backend и web-интерфейс GUI
+- `windows/SubvostXrayTun.WinForms/` — нативная Windows 8.1 оболочка на `.NET Framework 4.8 + Windows Forms`
+- `build/windows/` — PowerShell-скрипты проверки зависимостей и сборки Windows 8.1 комплекта
+- `docs/windows/` — пользовательская документация, инструкция сборки, runtime-заметки и smoke-протокол для Windows 8.1
+- `SubvostCore.win81.spec` — PyInstaller-спецификация служебного Windows helper-а
 - `lib/`, `libexec/` — shell-реализация runtime, диагностики и installer-ов
 - `tests/` — unit-тесты для Python-части
 - `knowledge/` — внутренняя task-centric knowledge-система проекта
@@ -52,7 +64,39 @@
 
 Скрипты рассчитаны на обратимые runtime-изменения: временный `TUN`, policy-routing и временную подмену `/etc/resolv.conf`. Репозиторий не должен использоваться как место хранения реальных подписок, секретов и операторских дампов.
 
-## Быстрый старт
+## Windows 8.1: документация и сборка
+
+Если тебе нужен Windows-комплект, начинай с этих документов:
+
+- [docs/windows/README-win81-user.md](docs/windows/README-win81-user.md) — инструкция для пользователя: что должно быть в готовой папке, как запустить, как добавить подписку, как подключиться и что делать при проблемах с сетью;
+- [docs/windows/README-win81-build.md](docs/windows/README-win81-build.md) — инструкция для сборки из исходников на Windows 8.1 x64;
+- [docs/windows/README-win81-runtime.md](docs/windows/README-win81-runtime.md) — что делает Windows runtime, где лежат state/logs и как восстановить сеть вручную;
+- [docs/windows/win81-smoke-protocol.md](docs/windows/win81-smoke-protocol.md) — чек-лист живой проверки на реальной Windows 8.1.
+
+Сборка из исходников выполняется на Windows 8.1 x64 из PowerShell, открытого в папке проекта:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build\windows\install-win81-build-deps.ps1
+powershell -ExecutionPolicy Bypass -File .\build\windows\build-win81-release.ps1
+```
+
+Первый скрипт проверяет `Python 3.11 x64`, `.NET Framework 4.8`, `MSBuild` и ставит Python-зависимости сборки в `.venv-win81-x64`.
+
+Второй скрипт скачивает pinned-архивы `Xray-win7-64.zip` и `wintun-0.14.1.zip`, проверяет `SHA256`, собирает `subvost-core.exe`, собирает нативное окно `SubvostXrayTun.exe` и складывает результат сюда:
+
+```text
+dist\SubvostXrayTun\
+```
+
+Главный файл запуска в готовом комплекте:
+
+```text
+dist\SubvostXrayTun\SubvostXrayTun.exe
+```
+
+Интерфейс Windows-комплекта — нативное Windows-приложение, не браузер и не webview.
+
+## Быстрый старт Linux
 
 Перед первым стартом runtime нужен активный узел в GUI: импортируй ссылку или подписку, затем явно выбери нужную ноду.
 
