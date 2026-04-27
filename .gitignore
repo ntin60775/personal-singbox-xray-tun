@@ -7,6 +7,14 @@ __pycache__/
 /.subvost/
 /output/playwright/
 /package-lock.json
+/.build/
+/.venv-win81-x64/
+/dist/
+/runtime/xray.exe
+/runtime/wintun.dll
+/runtime/geoip.dat
+/runtime/geosite.dat
+/runtime/*.zip
 
 *~
 *.swp

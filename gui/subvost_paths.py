@@ -18,6 +18,13 @@ GEOIP_ASSET_FILENAME = "geoip.dat"
 GEOSITE_ASSET_FILENAME = "geosite.dat"
 
 
+def current_euid() -> int:
+    get_euid = getattr(os, "geteuid", None)
+    if get_euid is None:
+        return 1
+    return int(get_euid())
+
+
 @dataclass(frozen=True)
 class AppPaths:
     real_home: Path
@@ -41,7 +48,7 @@ def resolve_config_home(real_home: Path, explicit_config_home: str | None = None
         return path
 
     env_xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
-    if env_xdg_config_home and os.geteuid() != 0:
+    if env_xdg_config_home and current_euid() != 0:
         path = Path(env_xdg_config_home)
         if path.is_absolute():
             return path
@@ -73,7 +80,7 @@ def ensure_owned_dir(path: Path, uid: int | None = None, gid: int | None = None,
         path.chmod(mode)
     except OSError:
         pass
-    if uid is not None and gid is not None and os.geteuid() == 0:
+    if uid is not None and gid is not None and current_euid() == 0:
         try:
             os.chown(path, uid, gid)
         except OSError:
@@ -95,7 +102,7 @@ def atomic_write_text(path: Path, text: str, mode: int = 0o600, uid: int | None 
     except OSError:
         pass
 
-    if uid is not None and gid is not None and os.geteuid() == 0:
+    if uid is not None and gid is not None and current_euid() == 0:
         try:
             os.chown(temp_path, uid, gid)
         except OSError:
@@ -115,7 +122,7 @@ def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600, uid: int | No
     except OSError:
         pass
 
-    if uid is not None and gid is not None and os.geteuid() == 0:
+    if uid is not None and gid is not None and current_euid() == 0:
         try:
             os.chown(temp_path, uid, gid)
         except OSError:
