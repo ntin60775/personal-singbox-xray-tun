@@ -406,15 +406,26 @@ def extract_direct_rules_from_xray_config(
 ) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     rules = list(config.get("routing", {}).get("rules", []) or [])
+    earlier_non_direct_values: list[tuple[str, str]] = []
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("outboundTag") or "").strip() != "direct":
+        outbound_tag = str(rule.get("outboundTag") or "").strip()
+        if outbound_tag != "direct":
+            if outbound_tag and not _is_tun_catchall_rule(rule):
+                for kind, field_name in [("domain", "domain"), ("ip", "ip"), ("process", "process")]:
+                    for value in _rule_values(rule, field_name):
+                        earlier_non_direct_values.append((kind, value))
             continue
         if _is_tun_catchall_rule(rule):
             continue
         for kind, field_name in [("domain", "domain"), ("ip", "ip"), ("process", "process")]:
             for value in _rule_values(rule, field_name):
+                if any(
+                    previous_kind == kind and _values_overlap(previous_value, value, kind)
+                    for previous_kind, previous_value in earlier_non_direct_values
+                ):
+                    continue
                 entries.append(
                     _make_direct_report_entry(
                         source=source,

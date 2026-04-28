@@ -661,6 +661,11 @@
       gap: 14px;
     }
 
+    #view-connection .workspace,
+    #view-subscriptions .workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .view-stack,
     .view-pane {
       min-height: 0;
@@ -1421,7 +1426,11 @@
           <div class="sidebar-menu">
             <button class="nav-button" data-view-nav="connection" data-active="true" data-alert="false" type="button">
               <span class="nav-label">Подключение</span>
-              <span class="nav-meta" id="nav-connection-meta">Подписки и узлы</span>
+              <span class="nav-meta" id="nav-connection-meta">Состояние и узлы</span>
+            </button>
+            <button class="nav-button" data-view-nav="subscriptions" data-active="false" data-alert="false" type="button">
+              <span class="nav-label">Подписки</span>
+              <span class="nav-meta" id="nav-subscriptions-meta">Список и обновление</span>
             </button>
             <button class="nav-button" data-view-nav="routes" data-active="false" data-alert="false" type="button">
               <span class="nav-label">Маршруты</span>
@@ -1457,7 +1466,7 @@
                 <span id="status-text">Проверяю состояние</span>
               </div>
               <h1 class="view-title" id="view-title">Подключение</h1>
-              <p class="view-copy" id="view-copy">Главный экран показывает только состояние, подписки и доступные узлы без служебного шума.</p>
+              <p class="view-copy" id="view-copy">Главный экран показывает только состояние и доступные узлы без служебного шума.</p>
             </div>
           </div>
 
@@ -1515,31 +1524,6 @@
         <section class="view-stack" id="view-stack">
           <section class="view-pane" id="view-connection" data-view="connection" data-active="true">
             <section class="workspace">
-              <aside class="panel subscriptions-panel" id="panel-subscriptions">
-                <div class="panel-head">
-                  <div>
-                    <h2>Подписки</h2>
-                    <p id="subscription-copy">Добавление по URL, обновление и удаление без лишних форм.</p>
-                  </div>
-                  <button class="ghost-button" id="refresh-all-button" type="button">Обновить все</button>
-                </div>
-
-                <form class="subscription-form" id="subscription-form">
-                  <input
-                    class="url-input mono"
-                    id="subscription-url"
-                    type="url"
-                    placeholder="https://example.com/subscription"
-                    autocomplete="off"
-                  >
-                  <button class="action-button primary" id="add-subscription-button" type="submit">Добавить</button>
-                </form>
-
-                <div class="list-scroll">
-                  <div class="list-grid" id="subscription-list"></div>
-                </div>
-              </aside>
-
               <section class="panel nodes-panel" id="panel-nodes">
                 <div class="panel-head">
                   <div>
@@ -1568,6 +1552,35 @@
                   <div class="list-grid" id="node-list"></div>
                 </div>
               </section>
+            </section>
+          </section>
+
+          <section class="view-pane" id="view-subscriptions" data-view="subscriptions" data-active="false" hidden>
+            <section class="workspace">
+              <aside class="panel subscriptions-panel" id="panel-subscriptions">
+                <div class="panel-head">
+                  <div>
+                    <h2>Подписки</h2>
+                    <p id="subscription-copy">Добавление по URL, обновление и удаление без лишних форм.</p>
+                  </div>
+                  <button class="ghost-button" id="refresh-all-button" type="button">Обновить все</button>
+                </div>
+
+                <form class="subscription-form" id="subscription-form">
+                  <input
+                    class="url-input mono"
+                    id="subscription-url"
+                    type="url"
+                    placeholder="https://example.com/subscription"
+                    autocomplete="off"
+                  >
+                  <button class="action-button primary" id="add-subscription-button" type="submit">Добавить</button>
+                </form>
+
+                <div class="list-scroll">
+                  <div class="list-grid" id="subscription-list"></div>
+                </div>
+              </aside>
             </section>
           </section>
 
@@ -1744,10 +1757,12 @@
       viewTitle: document.getElementById("view-title"),
       viewCopy: document.getElementById("view-copy"),
       navConnectionButton: document.querySelector('[data-view-nav="connection"]'),
+      navSubscriptionsButton: document.querySelector('[data-view-nav="subscriptions"]'),
       navRoutesButton: document.querySelector('[data-view-nav="routes"]'),
       navLogsButton: document.querySelector('[data-view-nav="logs"]'),
       navSettingsButton: document.querySelector('[data-view-nav="settings"]'),
       navConnectionMeta: document.getElementById("nav-connection-meta"),
+      navSubscriptionsMeta: document.getElementById("nav-subscriptions-meta"),
       navRoutesMeta: document.getElementById("nav-routes-meta"),
       navLogsMeta: document.getElementById("nav-logs-meta"),
       navSettingsMeta: document.getElementById("nav-settings-meta"),
@@ -1810,7 +1825,12 @@
       connection: {
         eyebrow: "Основной экран",
         title: "Подключение",
-        copy: "Главный экран показывает состояние, подписки и узлы без routing и лога на одном полотне.",
+        copy: "Главный экран показывает состояние и доступные узлы без routing и лога на одном полотне.",
+      },
+      subscriptions: {
+        eyebrow: "Управление узлами",
+        title: "Подписки",
+        copy: "Добавление, обновление и удаление подписок вынесены в отдельную верхнюю вкладку.",
       },
       routes: {
         eyebrow: "Служебный раздел",
@@ -2136,7 +2156,13 @@
         els.navConnectionMeta,
         activeNodeName !== "—"
           ? `${statusSummary.label || "Нет данных"} · ${activeNodeName}`
-          : (statusSummary.label || "Подписки и узлы")
+          : (statusSummary.label || "Состояние и узлы")
+      );
+      setTextIfChanged(
+        els.navSubscriptionsMeta,
+        subscriptions.length
+          ? `${freshSubscriptions}/${subscriptions.length} актуальны`
+          : "Нет подписок"
       );
       const report = directReport();
       const conflicts = Number(report?.summary?.conflict_count || 0);
@@ -2607,6 +2633,7 @@
       setTextIfChanged(els.activeNode, "Узел: —");
       setTextIfChanged(els.activeRouting, "Маршрутизация: —");
       setTextIfChanged(els.navConnectionMeta, "Нет связи с backend");
+      setTextIfChanged(els.navSubscriptionsMeta, "Нет связи");
       setTextIfChanged(els.navRoutesMeta, "Нет связи");
       setTextIfChanged(els.navLogsMeta, "Ошибка backend");
       setTextIfChanged(els.navSettingsMeta, "Нет связи");

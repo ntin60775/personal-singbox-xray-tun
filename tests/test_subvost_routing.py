@@ -144,6 +144,31 @@ class SubvostRoutingTests(unittest.TestCase):
         self.assertEqual([(entry["kind"], entry["value"]) for entry in entries], [("domain", "geosite:private"), ("ip", "10.0.0.0/8")])
         self.assertTrue(all(entry["source"] == "template" for entry in entries))
 
+    def test_extract_direct_rules_from_xray_config_skips_direct_values_shadowed_by_earlier_non_direct_rules(self) -> None:
+        config = {
+            "routing": {
+                "rules": [
+                    {"type": "field", "domain": ["geosite:ads"], "ip": ["10.2.12.0/24"], "outboundTag": "block"},
+                    {"type": "field", "domain": ["geosite:video"], "outboundTag": "proxy"},
+                    {"type": "field", "domain": ["geosite:ads", "geosite:private"], "ip": ["10.2.12.56", "192.168.0.0/16"], "outboundTag": "direct"},
+                    {"type": "field", "domain": ["geosite:video"], "outboundTag": "direct"},
+                ]
+            }
+        }
+
+        entries = extract_direct_rules_from_xray_config(
+            config,
+            source="runtime",
+            source_label="Фактический конфиг",
+            priority=30,
+            reason="Попало в runtime.",
+        )
+
+        self.assertEqual(
+            [(entry["kind"], entry["value"]) for entry in entries],
+            [("domain", "geosite:private"), ("ip", "192.168.0.0/16")],
+        )
+
     def test_extract_direct_rules_from_routing_profile_reads_direct_fields_only(self) -> None:
         profile = {
             "name": "SubVostVPN",
