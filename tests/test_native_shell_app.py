@@ -115,6 +115,8 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_node_grid_scroller = None
         app.dashboard_node_empty_label = None
         app.routing_import_buffer = None
+        app.direct_report_list_box = None
+        app.direct_report_labels = {}
         app.shell_log_entries = []
         app.log_filter = "all"
         app.log_filter_buttons = {}
@@ -154,6 +156,13 @@ class NativeShellAppTests(unittest.TestCase):
     def test_native_shell_uses_named_app_icon(self) -> None:
         self.assertEqual(native_shell_app.APP_ICON_NAME, "subvost-xray-tun-icon")
 
+    def test_native_shell_application_id_is_scoped_to_project_root(self) -> None:
+        first = native_shell_app.build_native_shell_application_id("/tmp/current")
+        second = native_shell_app.build_native_shell_application_id("/tmp/portable")
+
+        self.assertNotEqual(first, second)
+        self.assertRegex(first, r"^io\.subvost\.XrayTunNativeShell\.Bundle[0-9a-f]{16}$")
+
     def test_apply_theme_preference_forces_dark_contract(self) -> None:
         fake_settings = FakeGtkSettings(dark_preference=True)
 
@@ -175,6 +184,20 @@ class NativeShellAppTests(unittest.TestCase):
         page = next(page for page in native_shell_app.NATIVE_SHELL_PAGES if page.page_id == "subscriptions")
 
         self.assertEqual(page.title, "Подписки")
+
+    def test_native_shell_top_tabs_include_routes_and_settings(self) -> None:
+        pages = [(page.page_id, page.title) for page in native_shell_app.NATIVE_SHELL_PAGES]
+
+        self.assertEqual(
+            pages,
+            [
+                ("dashboard", "Подключение"),
+                ("subscriptions", "Подписки"),
+                ("routes", "Маршруты"),
+                ("log", "Диагностика"),
+                ("settings", "Настройки"),
+            ],
+        )
 
     def test_handle_tray_helper_failure_shows_hidden_window(self) -> None:
         app = self.make_app()

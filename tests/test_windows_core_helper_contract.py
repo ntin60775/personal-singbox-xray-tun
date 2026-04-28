@@ -111,6 +111,8 @@ class WindowsCoreHelperContractTests(unittest.TestCase):
         self.assertIn("Подключение", payload["message"])
         self.assertIn("status", payload)
         self.assertIn("store", payload)
+        self.assertIn("direct_report", payload["status"])
+        self.assertIn("summary", payload["status"]["direct_report"])
         self.assertIsNone(payload["error"])
 
     def test_runtime_start_error_is_json_with_russian_message(self) -> None:

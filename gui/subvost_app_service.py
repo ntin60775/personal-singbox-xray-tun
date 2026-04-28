@@ -18,6 +18,7 @@ from typing import Any
 
 from gui_contract import GUI_VERSION
 from subvost_paths import AppPaths, build_app_paths
+from subvost_routing import build_direct_routes_report
 from subvost_runtime import node_can_render_runtime, read_json_config
 from subvost_store import (
     activate_routing_profile as store_activate_routing_profile,
@@ -1127,6 +1128,11 @@ class SubvostAppService:
         stack_is_live = runtime_info["stack_is_live"]
         active_xray_config_path = self.resolve_active_xray_config_path(store, state, stack_is_live=owned_stack_is_live)
         xray = read_json_config(active_xray_config_path)
+        direct_report = build_direct_routes_report(
+            template_config=read_json_config(self.context.xray_template_path),
+            active_profile=active_routing_profile,
+            runtime_config=xray,
+        )
         stack_status = self.describe_stack_status(
             xray_alive=xray_alive,
             tun_present=tun_present,
@@ -1235,7 +1241,9 @@ class SubvostAppService:
             "routing": {
                 **routing_state,
                 "active_profile": active_routing_profile,
+                "direct_report": direct_report,
             },
+            "direct_report": direct_report,
             "ping": {
                 "cache": self.ping_cache_snapshot(),
             },
