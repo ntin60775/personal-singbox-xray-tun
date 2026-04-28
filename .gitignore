@@ -3,6 +3,7 @@
 __pycache__/
 /.codex
 .codex
+/.agents/
 /.playwright-cli/
 /.subvost/
 /output/playwright/
