@@ -91,8 +91,7 @@
       width: 100%;
       max-width: 1280px;
       display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
-      gap: 14px;
+      grid-template-columns: minmax(0, 1fr);
       padding: 16px;
       border: 1px solid rgba(164, 184, 207, 0.14);
       border-radius: 30px;
@@ -115,6 +114,7 @@
     }
 
     .sidebar,
+    .top-tabs,
     .topbar,
     .panel {
       min-height: 0;
@@ -152,8 +152,26 @@
     .content-shell {
       min-height: 0;
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-rows: auto auto auto minmax(0, 1fr);
       gap: 14px;
+    }
+
+    .top-tabs {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: 12px;
+      padding: 12px 14px;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .top-tabs::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(120deg, rgba(103, 166, 255, 0.1), transparent 34%);
     }
 
     .sidebar-brand,
@@ -177,17 +195,19 @@
     }
 
     .sidebar-menu {
-      display: grid;
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
+      min-width: 0;
     }
 
     .nav-button {
       display: grid;
       gap: 4px;
       justify-items: start;
-      min-height: 64px;
-      padding: 14px 15px;
-      border-radius: 16px;
+      min-height: 44px;
+      padding: 9px 13px;
+      border-radius: 14px;
       border: 1px solid rgba(164, 184, 207, 0.12);
       background: linear-gradient(180deg, rgba(18, 25, 35, 0.9), rgba(12, 18, 26, 0.96));
       color: var(--text);
@@ -220,7 +240,7 @@
     .nav-label {
       font-size: 0.9rem;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: 0;
     }
 
     .nav-meta {
@@ -231,18 +251,20 @@
 
     .sidebar-context {
       min-height: 0;
-      display: grid;
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
-      align-content: start;
+      justify-content: flex-end;
+      min-width: 0;
     }
 
-    .sidebar .context-pill {
-      width: 100%;
+    .top-tabs .context-pill {
+      width: auto;
       max-width: none;
-      min-height: 46px;
+      min-height: 36px;
       justify-content: flex-start;
-      padding: 10px 12px;
-      border-radius: 16px;
+      padding: 8px 11px;
+      border-radius: 14px;
       white-space: normal;
       overflow: visible;
       text-overflow: unset;
@@ -255,7 +277,7 @@
 
     .sidebar-footer .ghost-button {
       width: 100%;
-      min-height: 42px;
+      min-height: 38px;
     }
 
     .topbar {
@@ -683,6 +705,99 @@
       grid-template-rows: minmax(0, 1fr);
     }
 
+    .routes-layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+      gap: 14px;
+    }
+
+    .direct-report-panel {
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .direct-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .direct-stat {
+      display: grid;
+      gap: 4px;
+      min-height: 58px;
+      padding: 10px 12px;
+      border: 1px solid rgba(164, 184, 207, 0.1);
+      border-radius: var(--radius-md);
+      background: rgba(8, 12, 18, 0.34);
+    }
+
+    .direct-stat span {
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .direct-stat strong {
+      font-size: 1.02rem;
+    }
+
+    .direct-report-list {
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      gap: 9px;
+      align-content: start;
+      padding-right: 4px;
+    }
+
+    .direct-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 12px 13px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(164, 184, 207, 0.1);
+      background: linear-gradient(180deg, rgba(18, 26, 38, 0.72), rgba(12, 18, 26, 0.82));
+    }
+
+    .direct-row[data-conflict="true"] {
+      border-color: rgba(240, 178, 74, 0.32);
+      background: rgba(240, 178, 74, 0.07);
+    }
+
+    .direct-main {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .direct-value {
+      font-family: var(--mono);
+      word-break: break-word;
+      font-size: 0.83rem;
+    }
+
+    .direct-meta {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+
+    .direct-side {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+      align-content: start;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 640px);
+      gap: 14px;
+      justify-content: start;
+    }
+
     .panel-head {
       display: flex;
       justify-content: space-between;
@@ -808,10 +923,15 @@
     }
 
     .routing-actions {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       align-items: stretch;
+    }
+
+    .routing-actions .action-button,
+    .routing-actions .ghost-button {
+      flex: 1 1 180px;
     }
 
     .list-scroll,
@@ -1187,21 +1307,19 @@
       }
     }
 
+    @media (max-width: 1180px) {
+      .top-tabs {
+        grid-template-columns: 1fr;
+      }
+    }
+
     @media (max-width: 1120px) {
-      .app-shell {
+      .topbar {
         grid-template-columns: 1fr;
       }
 
-      .sidebar {
-        grid-template-rows: auto auto auto auto;
-      }
-
-      .sidebar-menu,
-      .sidebar-context {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .topbar {
+      .routes-layout,
+      .settings-grid {
         grid-template-columns: 1fr;
       }
 
@@ -1216,7 +1334,6 @@
 
     @media (max-width: 920px) {
       .sidebar-menu,
-      .sidebar-context,
       .workspace {
         grid-template-columns: 1fr;
       }
@@ -1244,17 +1361,20 @@
       }
 
       .sidebar-menu,
-      .sidebar-context,
       .workspace {
         grid-template-columns: 1fr;
+      }
+
+      .nav-button {
+        flex: 1 1 140px;
       }
 
       .subscription-form {
         grid-template-columns: 1fr;
       }
 
-      .routing-actions {
-        grid-template-columns: 1fr;
+      .direct-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .list-row {
@@ -1292,39 +1412,42 @@
 <body>
   <main class="page">
     <section class="app-shell" id="main-gui-shell">
-      <aside class="sidebar" id="sidebar-nav">
-        <div class="sidebar-brand">
-          <p class="eyebrow">Subvost Xray TUN</p>
-          <p class="sidebar-copy">Главный экран держит только подключение и узлы. Служебные разделы открываются отдельно через меню.</p>
-        </div>
+      <section class="content-shell">
+        <nav class="top-tabs" id="sidebar-nav" aria-label="Разделы интерфейса">
+          <div class="sidebar-brand">
+            <p class="eyebrow">Subvost Xray TUN</p>
+          </div>
 
-        <nav class="sidebar-menu" aria-label="Разделы интерфейса">
-          <button class="nav-button" data-view-nav="connection" data-active="true" data-alert="false" type="button">
-            <span class="nav-label">Подключение</span>
-            <span class="nav-meta" id="nav-connection-meta">Подписки и узлы</span>
-          </button>
-          <button class="nav-button" data-view-nav="routing" data-active="false" data-alert="false" type="button">
-            <span class="nav-label">Маршрутизация</span>
-            <span class="nav-meta" id="nav-routing-meta">Служебный раздел</span>
-          </button>
-          <button class="nav-button" data-view-nav="logs" data-active="false" data-alert="false" type="button">
-            <span class="nav-label">Лог</span>
-            <span class="nav-meta" id="nav-logs-meta">Ошибок пока нет</span>
-          </button>
+          <div class="sidebar-menu">
+            <button class="nav-button" data-view-nav="connection" data-active="true" data-alert="false" type="button">
+              <span class="nav-label">Подключение</span>
+              <span class="nav-meta" id="nav-connection-meta">Подписки и узлы</span>
+            </button>
+            <button class="nav-button" data-view-nav="routes" data-active="false" data-alert="false" type="button">
+              <span class="nav-label">Маршруты</span>
+              <span class="nav-meta" id="nav-routes-meta">Прямые маршруты</span>
+            </button>
+            <button class="nav-button" data-view-nav="logs" data-active="false" data-alert="false" type="button">
+              <span class="nav-label">Диагностика</span>
+              <span class="nav-meta" id="nav-logs-meta">Ошибок пока нет</span>
+            </button>
+            <button class="nav-button" data-view-nav="settings" data-active="false" data-alert="false" type="button">
+              <span class="nav-label">Настройки</span>
+              <span class="nav-meta" id="nav-settings-meta">Интерфейс</span>
+            </button>
+          </div>
+
+          <div class="sidebar-context">
+            <span class="context-pill" id="active-subscription">Подписка: —</span>
+            <span class="context-pill" id="active-node">Узел: —</span>
+            <span class="context-pill" id="active-routing">Маршрутизация: —</span>
+          </div>
+
+          <div class="sidebar-footer">
+            <button class="ghost-button" id="diag-button" type="button">Диагностика</button>
+          </div>
         </nav>
 
-        <div class="sidebar-context">
-          <span class="context-pill" id="active-subscription">Подписка: —</span>
-          <span class="context-pill" id="active-node">Узел: —</span>
-          <span class="context-pill" id="active-routing">Маршрутизация: —</span>
-        </div>
-
-        <div class="sidebar-footer">
-          <button class="ghost-button" id="diag-button" type="button">Диагностика</button>
-        </div>
-      </aside>
-
-      <section class="content-shell">
         <header class="topbar">
           <div class="topbar-primary">
             <p class="eyebrow" id="view-eyebrow">Основной экран</p>
@@ -1448,46 +1571,94 @@
             </section>
           </section>
 
-          <section class="view-pane" id="view-routing" data-view="routing" data-active="false" hidden>
-            <section class="panel routing-panel" id="panel-routing">
-              <div class="panel-head">
-                <div>
-                  <h2>Маршрутизация</h2>
-                  <p id="routing-copy">Профиль маршрутизации может подтянуться автоматически после обновления подписки. Поле ниже нужно только для ручного импорта JSON или `happ://routing/...`.</p>
+          <section class="view-pane" id="view-routes" data-view="routes" data-active="false" hidden>
+            <section class="routes-layout">
+              <section class="panel direct-report-panel" id="panel-direct-report">
+                <div class="panel-head">
+                  <div>
+                    <h2 id="direct-report-title">Прямые маршруты</h2>
+                    <p id="direct-report-copy">Адреса и группы, которые идут напрямую, минуя VPN.</p>
+                  </div>
+                  <span class="panel-badge" id="direct-report-badge">Ожидание</span>
                 </div>
-                <span class="panel-badge" id="routing-panel-badge">Ожидание</span>
-              </div>
 
-              <div class="help-card">
-                <p id="routing-status-line">Профиль маршрутизации ещё не импортирован.</p>
-                <p id="routing-geodata-line">Наборы GeoIP и GeoSite пока не подготовлены.</p>
-              </div>
+                <div class="direct-summary" id="direct-report-summary" aria-label="Сводка прямых маршрутов"></div>
 
-              <div class="routing-grid">
-                <form class="routing-form" id="routing-form">
-                  <div class="routing-status-grid">
-                    <span class="row-badge" data-tone="accent">Ручной импорт: JSON и `happ://routing/...`</span>
+                <div class="direct-report-list" id="direct-report-list"></div>
+              </section>
+
+              <section class="panel routing-panel" id="panel-routing">
+                <div class="panel-head">
+                  <div>
+                    <h2>Профиль маршрутизации</h2>
+                    <p id="routing-copy">Профиль может подтянуться автоматически после обновления подписки. Поле ниже нужно только для ручного импорта JSON или `happ://routing/...`.</p>
                   </div>
-                  <textarea
-                    class="routing-input mono"
-                    id="routing-import-text"
-                    placeholder='Только для ручного импорта: JSON профиля маршрутизации или `happ://routing/add/...`'
-                    autocomplete="off"
-                  ></textarea>
-                  <div class="routing-actions">
-                    <button class="action-button primary" id="routing-import-button" type="submit">Импорт вручную</button>
-                    <button class="ghost-button" id="routing-geodata-button" type="button">Подготовить GeoIP и GeoSite</button>
-                    <button class="ghost-button" id="routing-toggle-button" type="button">Включить маршрутизацию</button>
-                    <button class="ghost-button" id="routing-clear-button" type="button">Снять активный</button>
-                  </div>
-                </form>
+                  <span class="panel-badge" id="routing-panel-badge">Ожидание</span>
+                </div>
 
-                <div class="routing-profiles-panel">
-                  <div class="list-scroll">
-                    <div class="list-grid" id="routing-profile-list"></div>
+                <div class="help-card">
+                  <p id="routing-status-line">Профиль маршрутизации ещё не импортирован.</p>
+                  <p id="routing-geodata-line">Наборы GeoIP и GeoSite пока не подготовлены.</p>
+                </div>
+
+                <div class="routing-grid">
+                  <form class="routing-form" id="routing-form">
+                    <div class="routing-status-grid">
+                      <span class="row-badge" data-tone="accent">Ручной импорт: JSON и `happ://routing/...`</span>
+                    </div>
+                    <textarea
+                      class="routing-input mono"
+                      id="routing-import-text"
+                      placeholder='Только для ручного импорта: JSON профиля маршрутизации или `happ://routing/add/...`'
+                      autocomplete="off"
+                    ></textarea>
+                    <div class="routing-actions">
+                      <button class="action-button primary" id="routing-import-button" type="submit">Импорт вручную</button>
+                      <button class="ghost-button" id="routing-geodata-button" type="button">Подготовить GeoIP и GeoSite</button>
+                      <button class="ghost-button" id="routing-toggle-button" type="button">Включить маршрутизацию</button>
+                      <button class="ghost-button" id="routing-clear-button" type="button">Снять активный</button>
+                    </div>
+                  </form>
+
+                  <div class="routing-profiles-panel">
+                    <div class="list-scroll">
+                      <div class="list-grid" id="routing-profile-list"></div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </section>
+            </section>
+          </section>
+
+          <section class="view-pane" id="view-settings" data-view="settings" data-active="false" hidden>
+            <section class="settings-grid">
+              <section class="panel" id="panel-settings">
+                <div class="panel-head">
+                  <div>
+                    <h2>Настройки</h2>
+                    <p>Параметры интерфейса и служебные действия приложения.</p>
+                  </div>
+                  <span class="panel-badge" id="settings-state-badge">Интерфейс</span>
+                </div>
+
+                <div class="help-card">
+                  <p>Файловое логирование применяется при следующем старте backend.</p>
+                  <p>Тёмная тема закреплена контрактом интерфейса.</p>
+                </div>
+
+                <div class="list-grid">
+                  <div class="list-row">
+                    <div class="row-main">
+                      <strong>Файловое логирование</strong>
+                      <div class="row-meta" id="logging-status-line">Проверяю состояние.</div>
+                    </div>
+                    <div class="row-side">
+                      <button class="ghost-button" id="logging-toggle-button" type="button">Переключить</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
             </section>
           </section>
 
@@ -1509,6 +1680,7 @@
                   </div>
                 </div>
                 <div class="filter-row" id="log-filter-row">
+                  <button class="filter-chip" id="log-diagnostics-button" type="button">Снять диагностику</button>
                   <button class="filter-chip" data-log-filter="all" data-active="true" type="button">Все</button>
                   <button class="filter-chip" data-log-filter="error" data-active="false" type="button">Ошибки</button>
                 </div>
@@ -1558,6 +1730,8 @@
       renderCache: {
         subscriptions: "",
         nodes: "",
+        directReport: "",
+        directSummary: "",
         routing: "",
         logs: "",
       },
@@ -1570,11 +1744,13 @@
       viewTitle: document.getElementById("view-title"),
       viewCopy: document.getElementById("view-copy"),
       navConnectionButton: document.querySelector('[data-view-nav="connection"]'),
-      navRoutingButton: document.querySelector('[data-view-nav="routing"]'),
+      navRoutesButton: document.querySelector('[data-view-nav="routes"]'),
       navLogsButton: document.querySelector('[data-view-nav="logs"]'),
+      navSettingsButton: document.querySelector('[data-view-nav="settings"]'),
       navConnectionMeta: document.getElementById("nav-connection-meta"),
-      navRoutingMeta: document.getElementById("nav-routing-meta"),
+      navRoutesMeta: document.getElementById("nav-routes-meta"),
       navLogsMeta: document.getElementById("nav-logs-meta"),
+      navSettingsMeta: document.getElementById("nav-settings-meta"),
       statusPill: document.getElementById("status-pill"),
       statusText: document.getElementById("status-text"),
       activeSubscription: document.getElementById("active-subscription"),
@@ -1602,6 +1778,11 @@
       nodePanelBadge: document.getElementById("node-panel-badge"),
       nodeSelectionCopy: document.getElementById("node-selection-copy"),
       nodeList: document.getElementById("node-list"),
+      directReportTitle: document.getElementById("direct-report-title"),
+      directReportCopy: document.getElementById("direct-report-copy"),
+      directReportBadge: document.getElementById("direct-report-badge"),
+      directReportSummary: document.getElementById("direct-report-summary"),
+      directReportList: document.getElementById("direct-report-list"),
       routingPanelBadge: document.getElementById("routing-panel-badge"),
       routingCopy: document.getElementById("routing-copy"),
       routingStatusLine: document.getElementById("routing-status-line"),
@@ -1613,8 +1794,11 @@
       routingToggleButton: document.getElementById("routing-toggle-button"),
       routingClearButton: document.getElementById("routing-clear-button"),
       routingProfileList: document.getElementById("routing-profile-list"),
+      loggingStatusLine: document.getElementById("logging-status-line"),
+      loggingToggleButton: document.getElementById("logging-toggle-button"),
       logHelpToggle: document.getElementById("log-help-toggle"),
       logHelpPanel: document.getElementById("log-help-panel"),
+      logDiagnosticsButton: document.getElementById("log-diagnostics-button"),
       logFilterRow: document.getElementById("log-filter-row"),
       errorBanner: document.getElementById("error-banner"),
       errorBannerText: document.getElementById("error-banner-text"),
@@ -1628,15 +1812,20 @@
         title: "Подключение",
         copy: "Главный экран показывает состояние, подписки и узлы без routing и лога на одном полотне.",
       },
-      routing: {
+      routes: {
         eyebrow: "Служебный раздел",
-        title: "Маршрутизация",
-        copy: "Импортируйте, включайте и проверяйте routing-профили отдельно от рабочего экрана подключения.",
+        title: "Маршруты",
+        copy: "Прямые маршруты показаны отдельно от подписок вместе с активным routing-профилем.",
       },
       logs: {
         eyebrow: "Служебный раздел",
-        title: "Лог и ошибки",
+        title: "Диагностика",
         copy: "Последние действия backend, ошибки и диагностические сообщения собраны в отдельном разделе.",
+      },
+      settings: {
+        eyebrow: "Служебный раздел",
+        title: "Настройки",
+        copy: "Параметры интерфейса вынесены в отдельную верхнюю вкладку.",
       },
     };
 
@@ -1672,6 +1861,15 @@
       if (days > 0) return `${days}д ${hh}:${mm}:${ss}`;
       if (hours > 0) return `${hours}:${mm}:${ss}`;
       return `${mm}:${ss}`;
+    }
+
+    function pluralRu(value, one, few, many) {
+      const number = Math.abs(Number(value) || 0);
+      const mod10 = number % 10;
+      const mod100 = number % 100;
+      if (mod10 === 1 && mod100 !== 11) return one;
+      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+      return many;
     }
 
     function normalizeDataAttrName(name) {
@@ -1806,6 +2004,13 @@
       return state.storePayload?.active_routing_profile || null;
     }
 
+    function directReport() {
+      return state.statusPayload?.direct_report
+        || state.statusPayload?.routing?.direct_report
+        || state.storePayload?.status?.direct_report
+        || null;
+    }
+
     function ensureSelectedSubscription() {
       const subscriptions = subscriptionsFromStore();
       const activeSubscriptionId = activeProfile()?.source_subscription_id || null;
@@ -1933,6 +2138,14 @@
           ? `${statusSummary.label || "Нет данных"} · ${activeNodeName}`
           : (statusSummary.label || "Подписки и узлы")
       );
+      const report = directReport();
+      const conflicts = Number(report?.summary?.conflict_count || 0);
+      const directTotal = Number(report?.summary?.template_count || 0) + Number(report?.summary?.profile_count || 0);
+      setTextIfChanged(
+        els.navRoutesMeta,
+        conflicts ? `${directTotal} правил · ${conflicts} ${pluralRu(conflicts, "конфликт", "конфликта", "конфликтов")}` : `${directTotal} правил`
+      );
+      setTextIfChanged(els.navSettingsMeta, state.statusPayload?.settings?.file_logs_enabled ? "Логи включены" : "Логи выключены");
       setTextIfChanged(els.subscriptionIndicator, subscriptions.length
         ? `${freshSubscriptions}/${subscriptions.length} актуальны`
         : "нет подписок");
@@ -2081,6 +2294,69 @@
       setHtmlIfChanged(els.nodeList, markup, "nodes");
     }
 
+    function renderDirectReport() {
+      const report = directReport();
+      if (!report) {
+        setTextIfChanged(els.directReportBadge, "Нет данных");
+        setHtmlIfChanged(els.directReportSummary, "", "directSummary");
+        setHtmlIfChanged(els.directReportList, emptyState("Отчёт по прямым маршрутам ещё не получен."), "directReport");
+        return;
+      }
+
+      setTextIfChanged(els.directReportTitle, report.title || "Прямые маршруты");
+      setTextIfChanged(els.directReportCopy, report.subtitle || "Адреса и группы, которые идут напрямую, минуя VPN.");
+      const summary = report.summary || {};
+      const conflictCount = Number(summary.conflict_count || 0);
+      setTextIfChanged(
+        els.directReportBadge,
+        conflictCount ? `${conflictCount} ${pluralRu(conflictCount, "конфликт", "конфликта", "конфликтов")}` : "Без конфликтов"
+      );
+
+      const summaryMarkup = [
+        ["Шаблон", summary.template_count || 0],
+        ["Профиль", summary.profile_count || 0],
+        ["Runtime", summary.runtime_count || 0],
+        ["Конфликты", conflictCount],
+      ].map(([label, value]) => `
+        <div class="direct-stat">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>
+      `).join("");
+      setHtmlIfChanged(els.directReportSummary, summaryMarkup, "directSummary");
+
+      const entries = Array.isArray(report.entries) ? report.entries : [];
+      if (!entries.length) {
+        setHtmlIfChanged(els.directReportList, emptyState("Прямых маршрутов пока нет."), "directReport");
+        return;
+      }
+
+      const markup = entries.map((entry) => {
+        const conflicts = Array.isArray(entry.conflicts) ? entry.conflicts : [];
+        const covered = Array.isArray(entry.covered_by) ? entry.covered_by : [];
+        const side = [
+          `<span class="row-badge" data-tone="accent">${escapeHtml(entry.source_label || entry.source || "Источник")}</span>`,
+          `<span class="row-badge">${escapeHtml(entry.kind_label || entry.kind || "Правило")}</span>`,
+          conflicts.length ? `<span class="row-badge" data-tone="warning">Конфликт</span>` : "",
+          covered.length ? `<span class="row-badge" data-tone="success">Покрыто шаблоном</span>` : "",
+        ].join("");
+        const conflictText = conflicts.map((conflict) => conflict.message || "").filter(Boolean).join(" ");
+        const coveredText = covered.map((item) => item.message || "").filter(Boolean).join(" ");
+        return `
+          <div class="direct-row" data-conflict="${conflicts.length ? "true" : "false"}">
+            <div class="direct-main">
+              <div class="direct-value">${escapeHtml(entry.value || "—")}</div>
+              <div class="direct-meta">${escapeHtml(entry.reason || "Правило direct.")}</div>
+              ${conflictText ? `<div class="direct-meta">${escapeHtml(conflictText)}</div>` : ""}
+              ${coveredText ? `<div class="direct-meta">${escapeHtml(coveredText)}</div>` : ""}
+            </div>
+            <div class="direct-side">${side}</div>
+          </div>
+        `;
+      }).join("");
+      setHtmlIfChanged(els.directReportList, markup, "directReport");
+    }
+
     function renderRouting() {
       const routing = routingState();
       const profiles = routingProfiles();
@@ -2137,13 +2413,15 @@
       setTextIfChanged(els.routingGeodataLine, geodataMessage);
       setTextIfChanged(els.routingGeodataButton, geodata.ready ? "Обновить GeoIP и GeoSite" : "Подготовить GeoIP и GeoSite");
       setTextIfChanged(els.routingToggleButton, enabled ? "Выключить маршрутизацию" : "Включить маршрутизацию");
+      const report = directReport();
+      const conflictCount = Number(report?.summary?.conflict_count || 0);
       setTextIfChanged(
-        els.navRoutingMeta,
+        els.navRoutesMeta,
         active
-          ? `${active.name} · ${enabled ? (ready ? "включена" : "требует проверки") : "выключена"}`
+          ? `${active.name} · ${conflictCount ? `${conflictCount} ${pluralRu(conflictCount, "конфликт", "конфликта", "конфликтов")}` : "direct отчёт"}`
           : (profiles.length ? `${profiles.length} профилей в хранилище${autoProfiles.length ? ` · авто ${autoProfiles.length}` : ""}` : "Профиля нет")
       );
-      setDataAttrIfChanged(els.navRoutingButton, "alert", enabled && !ready ? "true" : "false");
+      setDataAttrIfChanged(els.navRoutesButton, "alert", enabled && !ready ? "true" : "false");
 
       if (!profiles.length) {
         setHtmlIfChanged(els.routingProfileList, emptyState("Профилей маршрутизации пока нет."), "routing");
@@ -2200,6 +2478,12 @@
         `;
       }).join("");
       setHtmlIfChanged(els.routingProfileList, markup, "routing");
+    }
+
+    function renderSettings() {
+      const enabled = Boolean(state.statusPayload?.settings?.file_logs_enabled);
+      setTextIfChanged(els.loggingStatusLine, enabled ? "Файловое логирование включено." : "Файловое логирование выключено.");
+      setTextIfChanged(els.loggingToggleButton, enabled ? "Выключить" : "Включить");
     }
 
     function renderLogs() {
@@ -2265,7 +2549,9 @@
       renderHeader();
       renderSubscriptions();
       renderNodes();
+      renderDirectReport();
       renderRouting();
+      renderSettings();
       renderLogs();
       renderViewShell();
       refreshActionButtons();
@@ -2299,6 +2585,8 @@
       els.routingGeodataButton.disabled = state.busy || (!currentRoutingProfile && routingProfiles().filter((profile) => profile.enabled !== false).length !== 1);
       els.routingToggleButton.disabled = state.busy || (!currentRoutingProfile && !routing.enabled);
       els.routingClearButton.disabled = state.busy || !currentRoutingProfile;
+      els.loggingToggleButton.disabled = state.busy;
+      els.logDiagnosticsButton.disabled = state.busy;
     }
 
     function setBusy(busy) {
@@ -2319,7 +2607,9 @@
       setTextIfChanged(els.activeNode, "Узел: —");
       setTextIfChanged(els.activeRouting, "Маршрутизация: —");
       setTextIfChanged(els.navConnectionMeta, "Нет связи с backend");
+      setTextIfChanged(els.navRoutesMeta, "Нет связи");
       setTextIfChanged(els.navLogsMeta, "Ошибка backend");
+      setTextIfChanged(els.navSettingsMeta, "Нет связи");
       setDataAttrIfChanged(els.navLogsButton, "alert", "true");
       const signature = `client:${new Date().toISOString()}:${error.message}`;
       showErrorBanner(`Не удалось получить состояние: ${error.message}`, signature);
@@ -2539,9 +2829,22 @@
       }
     }
 
+    async function toggleFileLogging() {
+      const enabled = !Boolean(state.statusPayload?.settings?.file_logs_enabled);
+      setBusy(true);
+      try {
+        const data = await apiPost("/api/settings/logging", { enabled });
+        await syncFromResponse(data);
+      } finally {
+        setBusy(false);
+        await loadStore().catch(reportLoadError);
+      }
+    }
+
     els.startButton.addEventListener("click", () => runAction("/api/start").catch(reportLoadError));
     els.stopButton.addEventListener("click", () => runAction("/api/stop").catch(reportLoadError));
     els.diagButton.addEventListener("click", () => runAction("/api/diagnostics").catch(reportLoadError));
+    els.logDiagnosticsButton.addEventListener("click", () => runAction("/api/diagnostics").catch(reportLoadError));
     els.refreshAllButton.addEventListener("click", () => {
       setBusy(true);
       apiPost("/api/subscriptions/refresh-all", {})
@@ -2566,6 +2869,9 @@
     });
     els.routingClearButton.addEventListener("click", () => {
       clearRoutingActive().catch(reportLoadError);
+    });
+    els.loggingToggleButton.addEventListener("click", () => {
+      toggleFileLogging().catch(reportLoadError);
     });
     els.nodeHelpToggle.addEventListener("click", () => {
       const nextExpanded = els.nodeHelpToggle.getAttribute("aria-expanded") !== "true";

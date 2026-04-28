@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import ipaddress
 import json
 import re
 import urllib.error
@@ -349,6 +350,262 @@ def _split_template_rules(config: dict[str, Any]) -> tuple[list[dict[str, Any]],
         if _is_tun_catchall_rule(rules[index]):
             return [copy.deepcopy(rule) for rule in rules[:index]], copy.deepcopy(rules[index])
     return [copy.deepcopy(rule) for rule in rules], None
+
+
+def _rule_values(rule: dict[str, Any], field_name: str) -> list[str]:
+    value = rule.get(field_name)
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _make_direct_report_entry(
+    *,
+    source: str,
+    source_label: str,
+    kind: str,
+    value: str,
+    priority: int,
+    reason: str,
+    rule_index: int | None = None,
+    action: str = "direct",
+) -> dict[str, Any]:
+    return {
+        "id": f"{source}:{kind}:{value}",
+        "source": source,
+        "source_label": source_label,
+        "kind": kind,
+        "kind_label": {
+            "domain": "Домен",
+            "ip": "IP",
+            "process": "Процесс",
+            "rule": "Правило",
+        }.get(kind, "Правило"),
+        "value": value,
+        "action": action,
+        "action_label": "Напрямую",
+        "priority": priority,
+        "reason": reason,
+        "rule_index": rule_index,
+        "active": True,
+        "conflicts": [],
+        "covered_by": [],
+        "wins_over": [],
+    }
+
+
+def extract_direct_rules_from_xray_config(
+    config: dict[str, Any],
+    *,
+    source: str,
+    source_label: str,
+    priority: int,
+    reason: str,
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    rules = list(config.get("routing", {}).get("rules", []) or [])
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("outboundTag") or "").strip() != "direct":
+            continue
+        if _is_tun_catchall_rule(rule):
+            continue
+        for kind, field_name in [("domain", "domain"), ("ip", "ip"), ("process", "process")]:
+            for value in _rule_values(rule, field_name):
+                entries.append(
+                    _make_direct_report_entry(
+                        source=source,
+                        source_label=source_label,
+                        kind=kind,
+                        value=value,
+                        priority=priority,
+                        reason=reason,
+                        rule_index=index,
+                    )
+                )
+    return entries
+
+
+def extract_direct_rules_from_routing_profile(profile: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not profile:
+        return []
+    profile_name = str(profile.get("name") or "активный профиль").strip()
+    entries: list[dict[str, Any]] = []
+    for kind, field_name in [("domain", "direct_sites"), ("ip", "direct_ip")]:
+        for value in [str(item).strip() for item in profile.get(field_name, []) if str(item).strip()]:
+            entries.append(
+                _make_direct_report_entry(
+                    source="profile",
+                    source_label="Активный профиль",
+                    kind=kind,
+                    value=value,
+                    priority=20,
+                    reason=f"Пришло из routing-профиля «{profile_name}».",
+                )
+            )
+    return entries
+
+
+def _profile_policy_entries(profile: dict[str, Any] | None) -> list[dict[str, str]]:
+    if not profile:
+        return []
+    result: list[dict[str, str]] = []
+    for policy, field_pairs in {
+        "direct": [("domain", "direct_sites"), ("ip", "direct_ip")],
+        "proxy": [("domain", "proxy_sites"), ("ip", "proxy_ip")],
+        "block": [("domain", "block_sites"), ("ip", "block_ip")],
+    }.items():
+        for kind, field_name in field_pairs:
+            for value in [str(item).strip() for item in profile.get(field_name, []) if str(item).strip()]:
+                result.append({"policy": policy, "kind": kind, "value": value})
+    return result
+
+
+def _plain_ip_network(value: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
+    raw = value.strip()
+    if not raw or raw.startswith("geoip:"):
+        return None
+    try:
+        return ipaddress.ip_network(raw, strict=False)
+    except ValueError:
+        return None
+
+
+def _values_overlap(left: str, right: str, kind: str) -> bool:
+    if left.casefold() == right.casefold():
+        return True
+    if kind != "ip":
+        return False
+    left_network = _plain_ip_network(left)
+    right_network = _plain_ip_network(right)
+    if left_network is None or right_network is None:
+        return False
+    return left_network.overlaps(right_network)
+
+
+def _profile_policy_label(policy: str) -> str:
+    return {
+        "direct": "напрямую",
+        "proxy": "через VPN",
+        "block": "блокировать",
+    }.get(policy, policy)
+
+
+def annotate_direct_report_conflicts(
+    entries: list[dict[str, Any]],
+    active_profile: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    annotated = copy.deepcopy(entries)
+    template_entries = [entry for entry in annotated if entry.get("source") == "template"]
+    profile_policy_entries = _profile_policy_entries(active_profile)
+
+    for template_entry in template_entries:
+        for policy_entry in profile_policy_entries:
+            if template_entry.get("kind") != policy_entry["kind"]:
+                continue
+            if not _values_overlap(str(template_entry.get("value") or ""), policy_entry["value"], policy_entry["kind"]):
+                continue
+            if policy_entry["policy"] == "direct":
+                template_entry["wins_over"].append(
+                    {
+                        "source": "profile",
+                        "policy": "direct",
+                        "value": policy_entry["value"],
+                        "message": "Профиль тоже ведёт это значение напрямую; правило шаблона остаётся выше по приоритету.",
+                    }
+                )
+                continue
+            template_entry["conflicts"].append(
+                {
+                    "source": "profile",
+                    "policy": policy_entry["policy"],
+                    "policy_label": _profile_policy_label(policy_entry["policy"]),
+                    "value": policy_entry["value"],
+                    "message": (
+                        "Правило шаблона отправляет это значение напрямую раньше, "
+                        f"чем профиль успевает применить действие «{_profile_policy_label(policy_entry['policy'])}»."
+                    ),
+                }
+            )
+
+    for profile_entry in [entry for entry in annotated if entry.get("source") == "profile"]:
+        for template_entry in template_entries:
+            if profile_entry.get("kind") != template_entry.get("kind"):
+                continue
+            if not _values_overlap(str(profile_entry.get("value") or ""), str(template_entry.get("value") or ""), str(profile_entry.get("kind") or "")):
+                continue
+            profile_entry["covered_by"].append(
+                {
+                    "source": "template",
+                    "value": template_entry.get("value"),
+                    "message": "Значение уже покрыто более приоритетным правилом шаблона.",
+                }
+            )
+    return annotated
+
+
+def _catchall_action(config: dict[str, Any] | None) -> str:
+    if not config:
+        return ""
+    _base_rules, catchall = _split_template_rules(config)
+    return str((catchall or {}).get("outboundTag") or "").strip()
+
+
+def build_direct_routes_report(
+    *,
+    template_config: dict[str, Any] | None,
+    active_profile: dict[str, Any] | None,
+    runtime_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    template_config = template_config if isinstance(template_config, dict) else {}
+    runtime_config = runtime_config if isinstance(runtime_config, dict) else {}
+    template_entries = extract_direct_rules_from_xray_config(
+        template_config,
+        source="template",
+        source_label="Шаблон",
+        priority=10,
+        reason="Зашито в базовом шаблоне приложения.",
+    )
+    profile_entries = extract_direct_rules_from_routing_profile(active_profile)
+    runtime_entries = extract_direct_rules_from_xray_config(
+        runtime_config,
+        source="runtime",
+        source_label="Фактический конфиг",
+        priority=30,
+        reason="Попало в активный или подготовленный Xray-конфиг.",
+    )
+    entries = annotate_direct_report_conflicts(template_entries + profile_entries + runtime_entries, active_profile)
+    conflicts = [
+        {
+            "entry_id": entry["id"],
+            "source": entry["source"],
+            "value": entry["value"],
+            "kind": entry["kind"],
+            **conflict,
+        }
+        for entry in entries
+        for conflict in entry.get("conflicts", [])
+    ]
+    return {
+        "title": "Прямые маршруты",
+        "subtitle": "Адреса и группы, которые идут напрямую, минуя VPN.",
+        "priority_order": ["template", "profile", "catchall"],
+        "priority_note": "При конфликте правило шаблона применяется раньше активного routing-профиля; catch-all остаётся последним.",
+        "summary": {
+            "template_count": len(template_entries),
+            "profile_count": len(profile_entries),
+            "runtime_count": len(runtime_entries),
+            "conflict_count": len(conflicts),
+            "runtime_available": bool(runtime_config),
+            "template_catchall": _catchall_action(template_config),
+            "runtime_catchall": _catchall_action(runtime_config),
+        },
+        "entries": entries,
+        "conflicts": conflicts,
+    }
 
 
 def _build_profile_rule(profile: dict[str, Any], prefix: str, outbound_tag: str) -> dict[str, Any] | None:

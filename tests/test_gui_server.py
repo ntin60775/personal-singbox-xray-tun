@@ -43,7 +43,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
 
     def test_gui_server_uses_shared_contract_version(self) -> None:
         self.assertEqual(gui_server.GUI_VERSION, gui_contract.GUI_VERSION)
-        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-08-main-gui-sidebar-v1")
+        self.assertEqual(gui_contract.GUI_VERSION, "2026-04-28-routes-direct-report-v1")
 
     def test_main_gui_html_is_loaded_from_single_asset(self) -> None:
         html = self.main_html()
@@ -86,14 +86,19 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('id="panel-nodes"', html)
         self.assertIn('id="view-stack"', html)
         self.assertIn('id="view-connection"', html)
-        self.assertIn('id="view-routing"', html)
+        self.assertIn('id="view-routes"', html)
+        self.assertIn('id="view-settings"', html)
         self.assertIn('id="view-logs"', html)
         self.assertIn('data-view-nav="connection"', html)
-        self.assertIn('data-view-nav="routing"', html)
+        self.assertIn('data-view-nav="routes"', html)
         self.assertIn('data-view-nav="logs"', html)
+        self.assertIn('data-view-nav="settings"', html)
         self.assertIn('id="view-title"', html)
-        self.assertIn('id="nav-routing-meta"', html)
+        self.assertIn('id="nav-routes-meta"', html)
         self.assertIn('id="nav-logs-meta"', html)
+        self.assertIn('id="nav-settings-meta"', html)
+        self.assertIn('id="direct-report-list"', html)
+        self.assertIn("Прямые маршруты", html)
         self.assertIn('id="connection-chip"', html)
         self.assertIn('id="connection-value"', html)
         self.assertIn('id="node-help-toggle"', html)
@@ -118,8 +123,8 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         html = self.main_html()
         self.assertIn("width: 100%;", html)
         self.assertIn("max-width: 1280px;", html)
-        self.assertIn("grid-template-columns: 248px minmax(0, 1fr);", html)
-        self.assertIn("grid-template-rows: auto auto minmax(0, 1fr);", html)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", html)
+        self.assertIn("grid-template-rows: auto auto auto minmax(0, 1fr);", html)
         self.assertIn("grid-template-columns: minmax(292px, 348px) minmax(0, 1fr);", html)
         self.assertNotIn("width: min(100%, 1200px);", html)
         self.assertNotIn("grid-template-rows: auto minmax(0, 1fr) minmax(180px, 24dvh);", html)
@@ -271,16 +276,16 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('els.startButton.title = !state.busy && (startBlocked || (summaryState !== "running" && !startReady)) ? nextStartReason : "";', html)
         self.assertIn('setDataAttrIfChanged(els.startButton, "ready", startReady ? "true" : "false");', html)
 
-    def test_main_gui_topbar_keeps_two_columns_at_1280_and_stacks_only_below_1120(self) -> None:
+    def test_main_gui_uses_top_tabs_and_stacks_only_below_1120(self) -> None:
         html = self.main_html()
         self.assertNotIn("@media (max-width: 1280px) {\n      .topbar {", html)
+        self.assertIn("@media (max-width: 1180px)", html)
         self.assertIn("@media (max-width: 1120px)", html)
         self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(288px, 360px);", html)
-        self.assertIn(".app-shell {\n        grid-template-columns: 1fr;", html)
-        self.assertIn(".sidebar-menu,\n      .sidebar-context {\n        grid-template-columns: repeat(3, minmax(0, 1fr));", html)
+        self.assertIn(".top-tabs {\n        grid-template-columns: 1fr;", html)
         self.assertIn(".topbar {\n        grid-template-columns: 1fr;", html)
         self.assertIn("@media (max-width: 920px)", html)
-        self.assertIn(".sidebar-menu,\n      .sidebar-context,\n      .workspace {\n        grid-template-columns: 1fr;", html)
+        self.assertIn(".workspace {\n        grid-template-columns: 1fr;", html)
 
     def test_user_backend_shell_action_uses_pkexec_not_sudo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

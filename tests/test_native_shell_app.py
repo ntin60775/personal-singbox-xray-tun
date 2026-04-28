@@ -115,6 +115,8 @@ class NativeShellAppTests(unittest.TestCase):
         app.dashboard_node_grid_scroller = None
         app.dashboard_node_empty_label = None
         app.routing_import_buffer = None
+        app.direct_report_list_box = None
+        app.direct_report_labels = {}
         app.shell_log_entries = []
         app.log_filter = "all"
         app.log_filter_buttons = {}
@@ -175,6 +177,20 @@ class NativeShellAppTests(unittest.TestCase):
         page = next(page for page in native_shell_app.NATIVE_SHELL_PAGES if page.page_id == "subscriptions")
 
         self.assertEqual(page.title, "Подписки")
+
+    def test_native_shell_top_tabs_include_routes_and_settings(self) -> None:
+        pages = [(page.page_id, page.title) for page in native_shell_app.NATIVE_SHELL_PAGES]
+
+        self.assertEqual(
+            pages,
+            [
+                ("dashboard", "Подключение"),
+                ("subscriptions", "Подписки"),
+                ("routes", "Маршруты"),
+                ("log", "Диагностика"),
+                ("settings", "Настройки"),
+            ],
+        )
 
     def test_handle_tray_helper_failure_shows_hidden_window(self) -> None:
         app = self.make_app()

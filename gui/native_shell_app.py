@@ -663,6 +663,17 @@ def remove_css_class(widget, css_class: str) -> None:
         widget.remove_css_class(css_class)
 
 
+def plural_ru(value: int, one: str, few: str, many: str) -> str:
+    number = abs(int(value))
+    mod10 = number % 10
+    mod100 = number % 100
+    if mod10 == 1 and mod100 != 11:
+        return one
+    if 2 <= mod10 <= 4 and (mod100 < 12 or mod100 > 14):
+        return few
+    return many
+
+
 class NativeShellApp:
     def __init__(
         self,
@@ -735,6 +746,8 @@ class NativeShellApp:
         self.dashboard_node_empty_label = None
         self.routing_profile_list_box = None
         self.routing_import_buffer = None
+        self.direct_report_list_box = None
+        self.direct_report_labels: dict[str, object] = {}
         self.subscription_labels: dict[str, object] = {}
         self.subscription_action_buttons: dict[str, object] = {}
         self.routing_action_buttons: dict[str, object] = {}
@@ -889,10 +902,6 @@ class NativeShellApp:
         self.stack_switcher = switcher
         header.set_title_widget(switcher)
 
-        settings_button = self.Gtk.Button(label="Настройки")
-        add_css_class(settings_button, "native-shell-button-secondary")
-        settings_button.connect("clicked", lambda *_args: self.open_settings_window())
-        header.pack_end(settings_button)
         return header
 
     def build_stack(self):
@@ -917,8 +926,12 @@ class NativeShellApp:
             page_box.append(self.build_dashboard_page())
         elif page.page_id == "subscriptions":
             page_box.append(self.build_subscriptions_page())
+        elif page.page_id == "routes":
+            page_box.append(self.build_routes_page())
         elif page.page_id == "log":
             page_box.append(self.build_log_page())
+        elif page.page_id == "settings":
+            page_box.append(self.build_settings_page())
 
         scrolled = self.Gtk.ScrolledWindow()
         scrolled.set_hexpand(True)
@@ -1167,7 +1180,7 @@ class NativeShellApp:
         title = self.Gtk.Label(label="Подписки", xalign=0)
         add_css_class(title, "native-shell-card-title")
         summary = self.Gtk.Label(
-            label="Подписки управляются здесь, а карточки узлов выбранного источника показываются на вкладке `Подключение`; справа остаётся маршрутизация.",
+            label="Подписки управляются здесь, а карточки узлов выбранного источника показываются на вкладке `Подключение`.",
             xalign=0,
         )
         summary.set_wrap(True)
@@ -1205,16 +1218,56 @@ class NativeShellApp:
         body.set_vexpand(True)
         add_css_class(body, "native-shell-subscriptions-root")
         subscriptions_panel = self.build_subscription_list_panel()
-        subscriptions_panel.set_size_request(420, -1)
+        subscriptions_panel.set_size_request(620, -1)
+        subscriptions_panel.set_hexpand(True)
         body.append(subscriptions_panel)
-        right_column = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
-        right_column.set_hexpand(True)
-        right_column.set_vexpand(True)
-        add_css_class(right_column, "native-shell-subscriptions-right")
-        right_column.append(self.build_routing_panel())
-        body.append(right_column)
         container.append(body)
         return container
+
+    def build_routes_page(self):
+        container = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
+        container.set_hexpand(True)
+        container.set_vexpand(True)
+
+        direct_panel = self.build_direct_report_panel()
+        direct_panel.set_size_request(460, -1)
+        direct_panel.set_hexpand(True)
+        direct_panel.set_vexpand(True)
+        container.append(direct_panel)
+
+        routing_panel = self.build_routing_panel()
+        routing_panel.set_size_request(430, -1)
+        routing_panel.set_hexpand(True)
+        routing_panel.set_vexpand(True)
+        container.append(routing_panel)
+        return container
+
+    def build_direct_report_panel(self):
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        panel.set_hexpand(True)
+        panel.set_vexpand(True)
+        add_css_class(panel, "native-shell-panel")
+
+        title = self.Gtk.Label(label="Прямые маршруты", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        summary = self.Gtk.Label(label="Адреса и группы, которые идут напрямую, минуя VPN.", xalign=0)
+        summary.set_wrap(True)
+        add_css_class(summary, "native-shell-muted")
+        badge = self.Gtk.Label(label="Ожидание", xalign=0)
+        add_css_class(badge, "native-shell-badge")
+        add_css_class(badge, "native-shell-chip-accent")
+        list_box = self.Gtk.ListBox()
+        list_box.set_selection_mode(self.Gtk.SelectionMode.NONE)
+        add_css_class(list_box, "native-shell-listbox")
+        self.direct_report_labels["badge"] = badge
+        self.direct_report_labels["summary"] = summary
+        self.direct_report_list_box = list_box
+
+        panel.append(title)
+        panel.append(summary)
+        panel.append(badge)
+        panel.append(self.build_list_scroller(list_box))
+        return panel
 
     def build_subscription_list_panel(self):
         panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=12)
@@ -1847,6 +1900,7 @@ class NativeShellApp:
 
         self.refresh_subscription_rows(subscriptions, selected_subscription)
         self.refresh_node_rows(selected_profile, selected_subscription, active_node)
+        self.refresh_direct_report_panel()
         self.refresh_routing_panel(routing, active_routing_profile)
         self.refresh_subscriptions_controls()
 
@@ -1974,6 +2028,79 @@ class NativeShellApp:
             empty_label.set_visible(False)
         if grid_scroller is not None:
             grid_scroller.set_visible(True)
+
+    def refresh_direct_report_panel(self) -> None:
+        list_box = self.direct_report_list_box
+        if list_box is None:
+            return
+        report = (self.last_status_payload or {}).get("direct_report") or (self.last_status_payload or {}).get("routing", {}).get("direct_report")
+        if not isinstance(report, dict):
+            self.clear_list_widget(list_box)
+            list_box.append(self.build_subscriptions_empty_row("Отчёт по прямым маршрутам ещё не получен."))
+            badge = self.direct_report_labels.get("badge")
+            if badge is not None:
+                badge.set_label("Нет данных")
+            return
+
+        summary = report.get("summary") or {}
+        conflict_count = int(summary.get("conflict_count") or 0)
+        badge = self.direct_report_labels.get("badge")
+        if badge is not None:
+            badge.set_label(
+                f"{conflict_count} {plural_ru(conflict_count, 'конфликт', 'конфликта', 'конфликтов')}"
+                if conflict_count
+                else "Без конфликтов"
+            )
+            for tone in ("success", "warning", "danger", "accent"):
+                if hasattr(badge, "remove_css_class"):
+                    badge.remove_css_class(f"native-shell-chip-{tone}")
+            add_css_class(badge, "native-shell-chip-warning" if conflict_count else "native-shell-chip-success")
+
+        details = (
+            f"Шаблон: {summary.get('template_count', 0)} · "
+            f"Профиль: {summary.get('profile_count', 0)} · "
+            f"Runtime: {summary.get('runtime_count', 0)}"
+        )
+        summary_label = self.direct_report_labels.get("summary")
+        if summary_label is not None:
+            summary_label.set_label(f"{report.get('subtitle') or 'Адреса и группы, которые идут напрямую, минуя VPN.'} {details}.")
+
+        self.clear_list_widget(list_box)
+        entries = report.get("entries") if isinstance(report.get("entries"), list) else []
+        if not entries:
+            list_box.append(self.build_subscriptions_empty_row("Прямых маршрутов пока нет."))
+            return
+
+        for entry in entries:
+            row = self.Gtk.ListBoxRow()
+            row.set_selectable(False)
+            row.set_activatable(False)
+            content = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=8)
+            add_css_class(content, "native-shell-list-row")
+            title = self.make_trimmed_row_text(str(entry.get("value") or "—"), "native-shell-row-title", limit=72)
+            content.append(title)
+            meta = " · ".join(
+                part
+                for part in [
+                    str(entry.get("source_label") or entry.get("source") or ""),
+                    str(entry.get("kind_label") or entry.get("kind") or ""),
+                    str(entry.get("reason") or ""),
+                ]
+                if part
+            )
+            content.append(self.make_row_text(meta or "Правило direct.", "native-shell-row-meta"))
+            conflicts = entry.get("conflicts") if isinstance(entry.get("conflicts"), list) else []
+            covered = entry.get("covered_by") if isinstance(entry.get("covered_by"), list) else []
+            badge_row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=8)
+            if conflicts:
+                badge_row.append(self.make_badge("конфликт", "warning"))
+                content.append(self.make_row_text(" ".join(str(item.get("message") or "") for item in conflicts if isinstance(item, dict)), "native-shell-row-meta"))
+            if covered:
+                badge_row.append(self.make_badge("покрыто шаблоном", "success"))
+            badge_row.append(self.make_badge("direct", "accent"))
+            content.append(badge_row)
+            row.set_child(content)
+            list_box.append(row)
 
     def refresh_routing_panel(
         self,
@@ -2510,6 +2637,75 @@ class NativeShellApp:
         window.set_child(root)
         self.refresh_settings_controls()
         return window
+
+    def build_settings_page(self):
+        root = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=16)
+        root.set_hexpand(True)
+        root.set_vexpand(True)
+
+        panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=14)
+        add_css_class(panel, "native-shell-panel")
+        panel.set_hexpand(True)
+
+        title = self.Gtk.Label(label="Настройки интерфейса", xalign=0)
+        add_css_class(title, "native-shell-card-title")
+        intro = self.Gtk.Label(
+            label="Параметры интерфейса: трей, локальный журнал и фиксированный тёмный режим.",
+            xalign=0,
+        )
+        intro.set_wrap(True)
+        add_css_class(intro, "native-shell-muted")
+        panel.append(title)
+        panel.append(intro)
+
+        switches = (
+            ("file_logs_enabled", "Файловое логирование", "Сохранять журнал интерфейса в пользовательском каталоге приложения."),
+            ("close_to_tray", "Закрытие окна уводит в трей", "Используется только если трей действительно доступен."),
+            ("start_minimized_to_tray", "Старт свёрнутым в трей", "Если трей недоступен, окно всё равно откроется обычным способом."),
+        )
+        for key, row_title, subtitle in switches:
+            row, switch = self.build_switch_row(row_title, subtitle, getattr(self.settings, key))
+            switch.connect("notify::active", self.on_settings_switch_changed, key)
+            self.settings_switches[key] = switch
+            panel.append(row)
+
+        theme_value = self.Gtk.Label(label=f"Тема окна: {native_shell_theme_label(self.settings.theme)}", xalign=0)
+        add_css_class(theme_value, "native-shell-card-subtitle")
+        panel.append(theme_value)
+
+        tray_note = self.Gtk.Label(label=f"Состояние трея: {self.tray_support.reason}", xalign=0)
+        tray_note.set_wrap(True)
+        add_css_class(tray_note, "native-shell-muted")
+        panel.append(tray_note)
+
+        update_panel = self.Gtk.Box(orientation=self.Gtk.Orientation.VERTICAL, spacing=10)
+        add_css_class(update_panel, "native-shell-panel")
+        update_title = self.Gtk.Label(label="Обновление ядра Xray", xalign=0)
+        add_css_class(update_title, "native-shell-card-title")
+        update_hint = self.Gtk.Label(
+            label="Обновляет только системный бинарник xray-core; активное подключение нужно отключить вручную.",
+            xalign=0,
+        )
+        update_hint.set_wrap(True)
+        add_css_class(update_hint, "native-shell-muted")
+        update_button = self.Gtk.Button(label="Обновить ядро Xray")
+        add_css_class(update_button, "native-shell-button-secondary")
+        update_button.set_tooltip_text("Запустить обновление ядра Xray через pkexec.")
+        update_button.connect("clicked", self.on_update_xray_core_clicked)
+        update_feedback = self.Gtk.Label(label="Готово к обновлению ядра Xray.", xalign=0)
+        update_feedback.set_wrap(True)
+        add_css_class(update_feedback, "native-shell-action-feedback")
+        self.settings_update_button = update_button
+        self.settings_update_feedback_label = update_feedback
+        update_panel.append(update_title)
+        update_panel.append(update_hint)
+        update_panel.append(update_button)
+        update_panel.append(update_feedback)
+
+        root.append(panel)
+        root.append(update_panel)
+        self.refresh_settings_controls()
+        return root
 
     def build_switch_row(self, title: str, subtitle: str, active: bool):
         row = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -3441,11 +3637,10 @@ class NativeShellApp:
         self.append_log(reason, "Главное окно скрыто и оставлено работать в фоне.")
 
     def open_settings_window(self) -> None:
-        if self.settings_window is None:
-            self.settings_window = self.build_settings_window()
         self.refresh_settings_controls()
-        self.settings_window.present()
-        self.append_log("settings", "Открыто окно настроек интерфейса.")
+        self.show_page("settings")
+        self.show_window(reason="settings")
+        self.append_log("settings", "Открыта вкладка настроек интерфейса.")
 
     def on_close_request(self, *_args):
         if should_hide_on_close(self.settings, self.tray_support) and not self.allow_close:

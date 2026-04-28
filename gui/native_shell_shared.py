@@ -100,13 +100,25 @@ NATIVE_SHELL_PAGES = (
         "subscriptions",
         "Подписки",
         "view-list-symbolic",
-        "Управление подписками и правилами маршрутизации в одном экране.",
+        "Управление подписками и источниками узлов.",
+    ),
+    NativeShellPage(
+        "routes",
+        "Маршруты",
+        "network-wired-symbolic",
+        "Прямые маршруты и активный routing-профиль.",
     ),
     NativeShellPage(
         "log",
         "Диагностика",
         "utilities-terminal-symbolic",
         "Конфликт экземпляров, служебные файлы подключения и журнал действий в одном экране.",
+    ),
+    NativeShellPage(
+        "settings",
+        "Настройки",
+        "preferences-system-symbolic",
+        "Параметры интерфейса и служебное обновление ядра Xray.",
     ),
 )
 

@@ -15,7 +15,10 @@ sys.path.insert(0, str(REPO_ROOT / "gui"))
 from subvost_paths import build_app_paths  # noqa: E402
 from subvost_routing import (  # noqa: E402
     apply_routing_profile_to_config,
+    build_direct_routes_report,
     download_routing_geodata,
+    extract_direct_rules_from_xray_config,
+    extract_direct_rules_from_routing_profile,
     parse_routing_profile_input,
 )
 
@@ -109,6 +112,88 @@ class SubvostRoutingTests(unittest.TestCase):
         self.assertEqual(rules[2]["outboundTag"], "direct")
         self.assertEqual(rules[3]["outboundTag"], "proxy")
         self.assertEqual(rules[4]["outboundTag"], "direct")
+
+    def test_extract_direct_rules_from_xray_config_skips_direct_catchall(self) -> None:
+        config = {
+            "routing": {
+                "rules": [
+                    {
+                        "type": "field",
+                        "domain": ["geosite:private"],
+                        "ip": ["10.0.0.0/8"],
+                        "outboundTag": "direct",
+                    },
+                    {
+                        "type": "field",
+                        "inboundTag": ["tun-in"],
+                        "network": "tcp,udp",
+                        "outboundTag": "direct",
+                    },
+                ]
+            }
+        }
+
+        entries = extract_direct_rules_from_xray_config(
+            config,
+            source="template",
+            source_label="Шаблон",
+            priority=10,
+            reason="Зашито.",
+        )
+
+        self.assertEqual([(entry["kind"], entry["value"]) for entry in entries], [("domain", "geosite:private"), ("ip", "10.0.0.0/8")])
+        self.assertTrue(all(entry["source"] == "template" for entry in entries))
+
+    def test_extract_direct_rules_from_routing_profile_reads_direct_fields_only(self) -> None:
+        profile = {
+            "name": "SubVostVPN",
+            "direct_sites": ["geosite:private"],
+            "direct_ip": ["geoip:private"],
+            "proxy_sites": ["geosite:youtube"],
+            "block_ip": ["203.0.113.0/24"],
+        }
+
+        entries = extract_direct_rules_from_routing_profile(profile)
+
+        self.assertEqual([(entry["kind"], entry["value"]) for entry in entries], [("domain", "geosite:private"), ("ip", "geoip:private")])
+        self.assertTrue(all(entry["source"] == "profile" for entry in entries))
+
+    def test_build_direct_routes_report_marks_template_priority_conflicts(self) -> None:
+        template = {
+            "routing": {
+                "rules": [
+                    {"type": "field", "ip": ["10.0.0.0/8"], "outboundTag": "direct"},
+                    {"type": "field", "domain": ["domain:localhost"], "outboundTag": "direct"},
+                    {"type": "field", "inboundTag": ["tun-in"], "network": "tcp,udp", "outboundTag": "proxy"},
+                ]
+            }
+        }
+        profile = {
+            "name": "Office",
+            "direct_sites": ["domain:localhost"],
+            "direct_ip": ["geoip:private"],
+            "proxy_sites": [],
+            "proxy_ip": ["10.2.12.56"],
+            "block_sites": [],
+            "block_ip": [],
+        }
+        runtime = apply_routing_profile_to_config(template, {**profile, "global_proxy": False, "route_order": ["direct", "proxy", "block"]})
+
+        report = build_direct_routes_report(
+            template_config=template,
+            active_profile=profile,
+            runtime_config=runtime,
+        )
+
+        self.assertEqual(report["summary"]["template_count"], 2)
+        self.assertEqual(report["summary"]["profile_count"], 2)
+        self.assertGreaterEqual(report["summary"]["runtime_count"], 4)
+        self.assertEqual(report["summary"]["conflict_count"], 1)
+        conflict = report["conflicts"][0]
+        self.assertEqual(conflict["policy"], "proxy")
+        self.assertEqual(conflict["value"], "10.2.12.56")
+        covered = [entry for entry in report["entries"] if entry["source"] == "profile" and entry["value"] == "domain:localhost"]
+        self.assertEqual(covered[0]["covered_by"][0]["source"], "template")
 
     def test_download_routing_geodata_writes_both_assets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

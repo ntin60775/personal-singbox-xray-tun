@@ -114,14 +114,14 @@
 
 ## Шаги
 
-- [ ] Спроектировать report shape и invariants
-- [ ] Реализовать extractor/report/conflict analyzer
-- [ ] Расширить service/status payload
-- [ ] Перевести web UI на верхние вкладки и добавить `Маршруты`
-- [ ] Перенести `Настройки` в верхнюю вкладку GTK UI и добавить `Маршруты`
-- [ ] Прогнать Kimi CLI review финального макета
-- [ ] Прогнать unit-тесты, localization guard и diff check
-- [ ] Прогнать Playwright/browser smoke и приложить evidence
+- [x] Спроектировать report shape и invariants
+- [x] Реализовать extractor/report/conflict analyzer
+- [x] Расширить service/status payload
+- [x] Перевести web UI на верхние вкладки и добавить `Маршруты`
+- [x] Перенести `Настройки` в верхнюю вкладку GTK UI и добавить `Маршруты`
+- [x] Прогнать Kimi CLI review финального макета
+- [x] Прогнать unit-тесты, localization guard и diff check
+- [x] Прогнать Playwright/browser smoke и приложить evidence
 
 ## Критерии завершения
 

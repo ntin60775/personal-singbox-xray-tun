@@ -555,6 +555,81 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["connection"]["security_label"], "REALITY")
             self.assertEqual(payload["connection"]["remote_sni"], "cdn.example.com")
 
+    def test_collect_status_includes_direct_routes_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            template = {
+                "outbounds": [{"tag": "proxy"}],
+                "routing": {
+                    "rules": [
+                        {"type": "field", "domain": ["domain:localhost"], "outboundTag": "direct"},
+                        {"type": "field", "ip": ["10.0.0.0/8"], "outboundTag": "direct"},
+                        {"type": "field", "inboundTag": ["tun-in"], "network": "tcp,udp", "outboundTag": "proxy"},
+                    ]
+                },
+            }
+            (root / "xray-tun-subvost.json").write_text(json.dumps(template), encoding="utf-8")
+            service = self.make_service(root, real_home)
+            store = ensure_store_initialized(service.context.app_paths, root)
+            store["routing"]["profiles"].append(
+                {
+                    "id": "routing-1",
+                    "name": "Office",
+                    "enabled": True,
+                    "direct_sites": ["geosite:private"],
+                    "direct_ip": ["geoip:private"],
+                    "proxy_sites": [],
+                    "proxy_ip": ["10.2.12.56"],
+                    "block_sites": [],
+                    "block_ip": [],
+                    "route_order": ["direct", "proxy", "block"],
+                    "global_proxy": False,
+                    "domain_strategy": "AsIs",
+                }
+            )
+            store["routing"]["active_profile_id"] = "routing-1"
+            service.persist_store(store)
+
+            state = {
+                "TUN_INTERFACE": "tun0",
+                "XRAY_CONFIG_SOURCE": "store",
+                "XRAY_CONFIG": str(service.context.app_paths.generated_xray_config_file),
+                "BUNDLE_PROJECT_ROOT": str(root),
+            }
+            runtime_info = {
+                "state": state,
+                "has_state": True,
+                "ownership": "current",
+                "ownership_label": "Текущий экземпляр",
+                "state_bundle_project_root": str(root),
+                "tun_interface": "tun0",
+                "xray_pid": None,
+                "xray_alive": False,
+                "tun_present": False,
+                "stack_is_live": False,
+                "owned_stack_is_live": False,
+            }
+
+            with (
+                patch.object(service, "load_state_file", return_value=state),
+                patch.object(service, "inspect_runtime_state", return_value=runtime_info),
+                patch.object(service, "read_resolv_conf_nameservers", return_value=[]),
+                patch.object(service, "collect_traffic_metrics", return_value={"rx_rate_label": "0 B/s", "tx_rate_label": "0 B/s"}),
+                patch.object(service, "collect_log_payload", return_value={}),
+                patch.object(service, "find_latest_diagnostic", return_value=None),
+                patch.object(service, "read_interface_addresses", return_value="—"),
+            ):
+                payload = service.collect_status()
+
+            report = payload["direct_report"]
+            self.assertEqual(report["title"], "Прямые маршруты")
+            self.assertEqual(report["summary"]["template_count"], 2)
+            self.assertEqual(report["summary"]["profile_count"], 2)
+            self.assertEqual(report["summary"]["conflict_count"], 1)
+            self.assertIs(payload["routing"]["direct_report"], report)
+
     def test_collect_status_keeps_connected_since_for_foreign_live_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

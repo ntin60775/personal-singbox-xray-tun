@@ -10,6 +10,8 @@ from typing import Any
 
 from gui_contract import GUI_VERSION
 from subvost_paths import AppPaths, build_app_paths, read_json_file
+from subvost_routing import build_direct_routes_report
+from subvost_runtime import read_json_config
 from subvost_store import (
     activate_selection as store_activate_selection,
     add_subscription as store_add_subscription,
@@ -193,6 +195,15 @@ class WindowsCoreService:
         payload = store_payload(store, self.context.app_paths)
         active_profile = payload.get("active_profile")
         active_node = payload.get("active_node")
+        active_routing_profile = payload.get("active_routing_profile")
+        routing_state = payload.get("store", {}).get("routing") if isinstance(payload.get("store"), dict) else {}
+        if not isinstance(routing_state, dict):
+            routing_state = {}
+        direct_report = build_direct_routes_report(
+            template_config=read_json_config(self.context.project_root / "xray-tun-subvost.json"),
+            active_profile=active_routing_profile if isinstance(active_routing_profile, dict) else None,
+            runtime_config=read_json_config(self.context.app_paths.generated_xray_config_file),
+        )
         active_node_name = "—"
         if isinstance(active_node, dict):
             active_node_name = str(active_node.get("name") or "Без имени")
@@ -254,7 +265,13 @@ class WindowsCoreService:
             "store_summary": payload["summary"],
             "active_profile": active_profile,
             "active_node": active_node,
-            "active_routing_profile": payload.get("active_routing_profile"),
+            "active_routing_profile": active_routing_profile,
+            "routing": {
+                **routing_state,
+                "active_profile": active_routing_profile,
+                "direct_report": direct_report,
+            },
+            "direct_report": direct_report,
             "artifacts": {
                 "store_file": str(self.context.app_paths.store_file),
                 "generated_xray_config": str(self.context.app_paths.generated_xray_config_file),
