@@ -9,6 +9,7 @@
 | Видно победившее runtime-правило | конфликт template/profile не объяснён | conflict fixture в `tests.test_subvost_routing` + UI smoke | covered |
 | `Подписки` не содержит основной report | вкладка подписок снова перегружена routing-report | Playwright assertion `#view-connection #panel-routing == false`; static check `#view-subscriptions` + `data-view-nav="subscriptions"` | covered |
 | `Настройки` доступны как верхняя вкладка | настройки остались только header-кнопкой | `tests.test_gui_server`, `tests.test_native_shell_app`, Playwright settings assertion | covered |
+| GTK-ярлык текущего repo не поднимает старую PortableApps-копию | старый живой GTK-процесс с тем же application id перехватывает запуск и показывает старый интерфейс | `tests.test_native_shell_app.test_native_shell_application_id_is_scoped_to_project_root`; `pgrep -af native_shell_app` показал старый процесс из `/home/prog7/РабочееПространство/tools/PortableApps/subvost-xray-tun` | covered |
 | Все новые строки на русском | owned UI text содержит английские заголовки | `owned-text-localization-guard` по task docs/native UI; web HTML отдельно просмотрен, потому guard считает машинные HTML/CSS/JS литералы пользовательским текстом | covered |
 | Длинные `geosite:*`/`geoip:*` не ломают layout | chips/rows переполняют контейнер | Playwright screenshots `1366x900` и `820x900`, overflowX=`false` | covered |
 | Kimi CLI review выполнен | финальный макет не получил внешнюю консультацию | `artifacts/kimi-design-review.md` | covered |

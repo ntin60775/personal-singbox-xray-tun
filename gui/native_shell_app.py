@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import re
 import subprocess
@@ -89,6 +90,13 @@ DASHBOARD_NODE_CARD_WIDTH = (
 ) // DASHBOARD_NODE_CARD_COLUMNS
 DASHBOARD_NODE_CARD_HEIGHT = 132
 NODE_FLAG_PREFIX_RE = re.compile(r"^(?:[\U0001F1E6-\U0001F1FF]{2})\s*")
+
+
+def build_native_shell_application_id(project_root: Path | str) -> str:
+    digest = hashlib.sha256(str(project_root).encode("utf-8")).hexdigest()[:16]
+    return f"{NATIVE_SHELL_APP_ID}.Bundle{digest}"
+
+
 GTK4_WINDOW_CSS = """
 @define-color app_bg #101218;
 @define-color window_bg #151821;
@@ -695,7 +703,8 @@ class NativeShellApp:
         self.log_path = self.settings_paths.store_dir / NATIVE_SHELL_LOG_FILENAME
         self.log_lines: list[str] = []
         self.shell_log_entries: list[dict[str, Any]] = []
-        self.app = self.Gtk.Application(application_id=NATIVE_SHELL_APP_ID, flags=self.Gio.ApplicationFlags.FLAGS_NONE)
+        self.app_id = build_native_shell_application_id(self.runtime_service.context.project_root)
+        self.app = self.Gtk.Application(application_id=self.app_id, flags=self.Gio.ApplicationFlags.FLAGS_NONE)
         self.window = None
         self.settings_window = None
         self.settings_update_button = None
@@ -3773,7 +3782,7 @@ class NativeShellApp:
             sys.executable,
             str(helper_path),
             "--control-bus-name",
-            NATIVE_SHELL_APP_ID,
+            self.app_id,
             "--control-object-path",
             NATIVE_SHELL_CONTROL_OBJECT_PATH,
             "--indicator-namespace",
