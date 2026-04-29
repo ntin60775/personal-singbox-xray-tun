@@ -20,3 +20,9 @@ __pycache__/
 *~
 *.swp
 *.swo
+
+# zip-context:artifacts:start
+# Локальные артефакты глобального навыка zip-context.
+zip_context_ignore.md
+output/share/*-zip-context-*.zip
+# zip-context:artifacts:end
