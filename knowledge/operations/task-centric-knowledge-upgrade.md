@@ -8,8 +8,8 @@
 | Эпоха совместимости | `module-core-v1` |
 | Статус перехода | `fully-upgraded` |
 | Контур исполнения | `single-writer` |
-| Последняя задача перехода | `TASK-2026-0059` |
-| Дата обновления | `2026-04-28` |
+| Последняя задача перехода | `TASK-2026-0024.7` |
+| Дата обновления | `2026-04-29` |
 
 ## Исторические задачи
 
@@ -90,3 +90,5 @@
 | `TASK-2026-0058.3` | `closed historical` | `note-only` | `knowledge/tasks/TASK-2026-0058-win81-native-windows-port/subtasks/TASK-2026-0058.3-windows-runtime-routing-hardening/artifacts/migration/task-centric-knowledge-upgrade.md` | Закрытая historical-задача получила только migration note без переписывания protected fields. |
 | `TASK-2026-0058.4` | `active` | `compatibility-backfilled` | `knowledge/tasks/TASK-2026-0058-win81-native-windows-port/subtasks/TASK-2026-0058.4-win81-verification-and-user-docs/artifacts/migration/task-centric-knowledge-upgrade.md` | Active-задача прошла controlled compatibility-backfill и остаётся в обычном task lifecycle. |
 | `TASK-2026-0059` | `closed historical` | `note-only` | `knowledge/tasks/TASK-2026-0059-task-centric-knowledge-upgrade/artifacts/migration/task-centric-knowledge-upgrade.md` | Закрытая historical-задача получила только migration note без переписывания protected fields. |
+| `TASK-2026-0060` | `closed historical` | `note-only` | `knowledge/tasks/TASK-2026-0060-project-local-skills-ignore-and-kimi-review/artifacts/migration/task-centric-knowledge-upgrade.md` | Закрытая historical-задача получила только migration note без переписывания protected fields. |
+| `TASK-2026-0061` | `active` | `compatibility-backfilled` | `knowledge/tasks/TASK-2026-0061-routes-direct-report-ui/artifacts/migration/task-centric-knowledge-upgrade.md` | Active-задача прошла controlled compatibility-backfill и остаётся в обычном task lifecycle. |
