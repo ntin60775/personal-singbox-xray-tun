@@ -278,6 +278,9 @@ backup_resolv_conf() {
 write_runtime_resolv_conf() {
   {
     echo "# Managed by ${0##*/}"
+    if [[ -n "$RUNTIME_DNS_SEARCH_DOMAINS" ]]; then
+      echo "search ${RUNTIME_DNS_SEARCH_DOMAINS}"
+    fi
     local nameserver
     for nameserver in $RUNTIME_DNS_SERVERS; do
       echo "nameserver ${nameserver}"
@@ -300,6 +303,46 @@ detect_default_ipv4_interface() {
     echo "Не удалось определить интерфейс из default IPv4 route: ${DEFAULT_IPV4_ROUTE_LINE}" >&2
     exit 1
   fi
+
+  DEFAULT_IPV4_GATEWAY="$(
+    awk '{for (i = 1; i <= NF; i++) if ($i == "via") { print $(i + 1); exit }}' <<<"$DEFAULT_IPV4_ROUTE_LINE"
+  )"
+  if [[ -z "$DEFAULT_IPV4_GATEWAY" ]]; then
+    echo "Не удалось определить gateway из default IPv4 route: ${DEFAULT_IPV4_ROUTE_LINE}" >&2
+    exit 1
+  fi
+}
+
+apply_vpn_excluded_ipv4_routes() {
+  local route_value host address resolved_any
+
+  [[ -n "$VPN_EXCLUDED_IPV4_ROUTES" ]] || return 0
+
+  for route_value in $VPN_EXCLUDED_IPV4_ROUTES; do
+    sudo ip route replace table "$ROUTE_TABLE" "$route_value" via "$DEFAULT_IPV4_GATEWAY" dev "$DEFAULT_IPV4_INTERFACE"
+  done
+
+  [[ -n "$VPN_EXCLUDED_HOSTNAMES" ]] || return 0
+
+  for host in $VPN_EXCLUDED_HOSTNAMES; do
+    resolved_any=0
+    while IFS= read -r address; do
+      [[ -n "$address" ]] || continue
+      resolved_any=1
+      sudo ip route replace table "$ROUTE_TABLE" "${address}/32" via "$DEFAULT_IPV4_GATEWAY" dev "$DEFAULT_IPV4_INTERFACE"
+    done < <(
+      {
+        getent ahostsv4 "$host" | awk '{print $1}' || true
+        for search_domain in $RUNTIME_DNS_SEARCH_DOMAINS; do
+          getent ahostsv4 "${host}.${search_domain}" | awk '{print $1}' || true
+        done
+      } | sort -u
+    )
+
+    if [[ "$resolved_any" == "0" ]]; then
+      echo "Предупреждение: не удалось разрешить hostname для VPN-исключения: ${host}" >&2
+    fi
+  done
 }
 
 materialize_runtime_config() {
@@ -418,7 +461,8 @@ XRAY_RUNTIME_CONFIG="${XRAY_RUNTIME_CONFIG:-${ACTIVE_RUNTIME_XRAY_CONFIG_DEFAULT
 XRAY_ASSET_DIR="${XRAY_ASSET_DIR:-${XRAY_ASSET_DIR_DEFAULT}}"
 STATE_FILE="${STATE_FILE:-${REAL_HOME}/.xray-tun-subvost.state}"
 RESOLV_BACKUP="${RESOLV_BACKUP:-${REAL_HOME}/.xray-tun-subvost.resolv.conf.backup}"
-RUNTIME_DNS_SERVERS="${RUNTIME_DNS_SERVERS:-8.8.8.8 1.1.1.1}"
+RUNTIME_DNS_SERVERS="${RUNTIME_DNS_SERVERS:-10.2.12.20 10.2.12.33 8.8.8.8 1.1.1.1}"
+RUNTIME_DNS_SEARCH_DOMAINS="${RUNTIME_DNS_SEARCH_DOMAINS:-bg.ru}"
 XRAY_LOG="${XRAY_LOG:-${LOG_DIR}/xray-subvost.log}"
 ENABLE_FILE_LOGS="${ENABLE_FILE_LOGS:-0}"
 POST_START_SANITY_TIMEOUT_SECS="${POST_START_SANITY_TIMEOUT_SECS:-12}"
@@ -432,8 +476,11 @@ ACTIVE_PROFILE_ID=""
 ACTIVE_NODE_ID=""
 DEFAULT_IPV4_ROUTE_LINE=""
 DEFAULT_IPV4_INTERFACE=""
+DEFAULT_IPV4_GATEWAY=""
 XRAY_CONFIG_SOURCE="store"
 BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
+VPN_EXCLUDED_IPV4_ROUTES="${VPN_EXCLUDED_IPV4_ROUTES:-10.0.0.0/14 10.3.40.33/32 81.29.134.113/32}"
+VPN_EXCLUDED_HOSTNAMES="${VPN_EXCLUDED_HOSTNAMES:-dcp33 dcp40 dcp41 kld33 mb011 mb012 mb013 mb017 sgp001 trm-stolovaya v11 v14 v2 v3 v38 v56 v69 vmscan inv0203 inv0125 mon002}"
 
 ensure_python3_available
 
@@ -557,6 +604,7 @@ echo "[2/8] Preflight DNS и routing-окружения"
 ensure_dns_environment_is_supported
 detect_default_ipv4_interface
 echo "Основной внешний интерфейс: ${DEFAULT_IPV4_INTERFACE}"
+echo "Основной gateway: ${DEFAULT_IPV4_GATEWAY}"
 echo "Default route: ${DEFAULT_IPV4_ROUTE_LINE}"
 
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
@@ -602,6 +650,7 @@ if [[ -n "$TUN_INTERFACE_ADDRESS" ]]; then
   sudo ip address add "$TUN_INTERFACE_ADDRESS" dev "$TUN_INTERFACE_NAME" >/dev/null 2>&1 || true
 fi
 sudo ip route replace table "$ROUTE_TABLE" default dev "$TUN_INTERFACE_NAME"
+apply_vpn_excluded_ipv4_routes
 sudo ip rule add pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE"
 sudo ip route flush cache >/dev/null 2>&1 || true
 
@@ -640,6 +689,10 @@ printf 'TUN_INTERFACE_ADDRESS=%s\n' "$TUN_INTERFACE_ADDRESS" >>"$STATE_FILE"
 printf 'ROUTE_TABLE=%s\n' "$ROUTE_TABLE" >>"$STATE_FILE"
 printf 'ROUTE_MARK=%s\n' "$ROUTE_MARK" >>"$STATE_FILE"
 printf 'ROUTE_RULE_PREF=%s\n' "$ROUTE_RULE_PREF" >>"$STATE_FILE"
+printf 'VPN_EXCLUDED_IPV4_ROUTES=%s\n' "$VPN_EXCLUDED_IPV4_ROUTES" >>"$STATE_FILE"
+printf 'VPN_EXCLUDED_HOSTNAMES=%s\n' "$VPN_EXCLUDED_HOSTNAMES" >>"$STATE_FILE"
+printf 'RUNTIME_DNS_SERVERS=%s\n' "$RUNTIME_DNS_SERVERS" >>"$STATE_FILE"
+printf 'RUNTIME_DNS_SEARCH_DOMAINS=%s\n' "$RUNTIME_DNS_SEARCH_DOMAINS" >>"$STATE_FILE"
 
 echo "[8/8] Готово"
 echo "XRAY_PID=$XRAY_PID"
@@ -650,6 +703,11 @@ echo "STARTED_AT=$STARTED_AT"
 echo "TUN_INTERFACE=$TUN_INTERFACE_NAME"
 echo "TUN_INTERFACE_ADDRESS=$TUN_INTERFACE_ADDRESS"
 echo "DEFAULT_IPV4_INTERFACE=$DEFAULT_IPV4_INTERFACE"
+echo "DEFAULT_IPV4_GATEWAY=$DEFAULT_IPV4_GATEWAY"
+echo "VPN_EXCLUDED_IPV4_ROUTES=$VPN_EXCLUDED_IPV4_ROUTES"
+echo "VPN_EXCLUDED_HOSTNAMES=$VPN_EXCLUDED_HOSTNAMES"
+echo "RUNTIME_DNS_SERVERS=$RUNTIME_DNS_SERVERS"
+echo "RUNTIME_DNS_SEARCH_DOMAINS=$RUNTIME_DNS_SEARCH_DOMAINS"
 echo "ROUTE_TABLE=$ROUTE_TABLE"
 echo "ROUTE_MARK=$ROUTE_MARK"
 if [[ "$ENABLE_FILE_LOGS" == "1" ]]; then
