@@ -566,9 +566,14 @@ if [[ -f "$STATE_FILE" ]]; then
       echo "Идентификатор текущей установки: ${BUNDLE_INSTALL_ID}" >&2
       echo "Живой процесс по этому файлу состояния не найден, новый запуск перезапишет устаревшее состояние." >&2
     else
-      echo "Обнаружен файл состояния прошлого запуска текущей установки bundle: $STATE_FILE" >&2
-      echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
-      exit 1
+      if legacy_state_runtime_is_live "$STATE_FILE"; then
+        echo "Обнаружен файл состояния прошлого запуска текущей установки bundle: $STATE_FILE" >&2
+        echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+        exit 1
+      fi
+
+      echo "Обнаружен устаревший файл состояния прошлого запуска текущей установки bundle: $STATE_FILE" >&2
+      echo "Живой процесс по этому файлу состояния не найден, новый запуск перезапишет устаревшее состояние." >&2
     fi
   elif [[ -n "$STATE_BUNDLE_PROJECT_ROOT" ]] && [[ "$STATE_BUNDLE_PROJECT_ROOT" != "$SUBVOST_PROJECT_ROOT" ]]; then
     if legacy_state_runtime_is_live "$STATE_FILE"; then
@@ -594,9 +599,14 @@ if [[ -f "$STATE_FILE" ]]; then
     echo "Обнаружен stale legacy state без bundle identity: $STATE_FILE" >&2
     echo "Процесс по этому файлу состояния уже не активен, файл будет перезаписан новым запуском." >&2
   else
-    echo "Обнаружен файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
-    echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
-    exit 1
+    if legacy_state_runtime_is_live "$STATE_FILE"; then
+      echo "Обнаружен файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
+      echo "Сначала выполни ${SUBVOST_STOP_WRAPPER}" >&2
+      exit 1
+    fi
+
+    echo "Обнаружен устаревший файл состояния прошлого запуска текущего bundle: $STATE_FILE" >&2
+    echo "Живой процесс по этому файлу состояния не найден, новый запуск перезапишет устаревшее состояние." >&2
   fi
 fi
 
