@@ -173,6 +173,13 @@ def ensure_bundle_install_id(project_root: Path) -> str:
         install_id_file.chmod(0o600)
     except OSError:
         pass
+    try:
+        real_user, _ = discover_real_user()
+        pw_entry = pwd.getpwnam(real_user)
+        os.chown(install_id_file.parent, pw_entry.pw_uid, pw_entry.pw_gid)
+        os.chown(install_id_file, pw_entry.pw_uid, pw_entry.pw_gid)
+    except (OSError, KeyError):
+        pass
     return install_id
 
 
