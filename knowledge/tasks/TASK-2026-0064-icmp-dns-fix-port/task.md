@@ -1,6 +1,6 @@
-# TASK-2026-0063 — Перенос ICMP + DNS rotate + sudo config check из subvost-xray-tun
+# TASK-2026-0064 — Перенос ICMP + DNS rotate + sudo config check из subvost-xray-tun
 
-**ID задачи:** TASK-2026-0063
+**ID задачи:** TASK-2026-0064
 **Краткое имя:** icmp-dns-fix-port
 **Человекочитаемое описание:** Портирование трёх исправлений из рабочего bundle `subvost-xray-tun` в основной репозиторий `personal-singbox-xray-tun`: разрешение ICMP echo-reply из VPN-excluded сетей, устранение нестабильности DNS-резолва из-за `rotate`, и запуск `xray -test` от root.
 
