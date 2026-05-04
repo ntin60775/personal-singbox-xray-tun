@@ -132,6 +132,14 @@ subvost_ensure_install_id() {
   printf '%s\n' "$install_id" >"$tmp_file"
   chmod 0600 "$tmp_file" 2>/dev/null || true
   mv -- "$tmp_file" "$install_id_file"
+
+  local real_user
+  real_user="$(subvost_resolve_real_user_name)"
+  if [[ -n "$real_user" ]]; then
+    chown "$real_user" "$install_id_dir" 2>/dev/null || true
+    chown "$real_user" "$install_id_file" 2>/dev/null || true
+  fi
+
   printf '%s\n' "$install_id"
 }
 
