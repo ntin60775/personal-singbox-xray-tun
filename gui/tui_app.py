@@ -479,7 +479,7 @@ class SubvostTUI(App):
         with TabbedContent():
             with TabPane("Подключение", id="tab-dashboard"):
                 yield DashboardTab(id="dashboard-tab")
-            with TabPane("Узлы", id="tab-nodes"):
+            with TabPane("Подписки", id="tab-nodes"):
                 yield NodesTab(id="nodes-tab")
             with TabPane("Лог", id="tab-log"):
                 yield LogTab(id="log-tab")
