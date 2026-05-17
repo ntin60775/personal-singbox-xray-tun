@@ -1,0 +1,640 @@
+#!/usr/bin/env python3
+"""Универсальный TUI-фронт Subvost Xray TUN на textual."""
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+import subprocess
+import sys
+import threading
+import traceback
+from pathlib import Path
+from typing import Any
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, Grid, Horizontal, Vertical
+from textual.reactive import reactive
+from textual.screen import ModalScreen, Screen
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    RichLog,
+    Select,
+    Static,
+    Switch,
+    TabbedContent,
+    TabPane,
+    TextArea,
+)
+
+# Импортируем бизнес-логику напрямую
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from subvost_app_service import (
+    SubvostAppService,
+    build_default_service,
+    humanize_bytes,
+)
+from subvost_store import store_payload
+
+TUI_APP_ID = "io.subvost.XrayTun.TUI"
+TUI_TITLE = "Subvost Xray TUN"
+
+
+def _run_in_thread(func, *args, **kwargs):
+    """Запускает функцию в потоке и возвращает результат через future."""
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(func, *args, **kwargs).result()
+
+
+class LoadingModal(ModalScreen):
+    """Модальный экран загрузки с сообщением."""
+
+    def __init__(self, message: str = "Выполнение...") -> None:
+        self.message = message
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        with Container(id="loading-container"):
+            yield Label(self.message, id="loading-label")
+
+
+class ConfirmModal(ModalScreen):
+    """Модальный экран подтверждения."""
+
+    BINDINGS = [("y", "confirm", "Да"), ("n", "dismiss", "Нет"), ("escape", "dismiss", "Отмена")]
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-container"):
+            yield Label(self.message, id="confirm-message")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Да", variant="success", id="confirm-yes")
+                yield Button("Нет", variant="error", id="confirm-no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-yes":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+
+class DashboardTab(Container):
+    """Вкладка Dashboard."""
+
+    status_text = reactive("Неизвестно")
+    active_node_text = reactive("—")
+    traffic_rx_text = reactive("—")
+    traffic_tx_text = reactive("—")
+    routing_badge_text = reactive("—")
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dashboard-vertical"):
+            yield Static("[b]Subvost Xray TUN[/b]", id="dashboard-title", classes="title")
+            with Grid(id="dashboard-grid"):
+                with Vertical(classes="dashboard-card"):
+                    yield Static("[b]Статус[/b]", classes="card-header")
+                    yield Label(self.status_text, id="status-label")
+                with Vertical(classes="dashboard-card"):
+                    yield Static("[b]Активный узел[/b]", classes="card-header")
+                    yield Label(self.active_node_text, id="active-node-label")
+                with Vertical(classes="dashboard-card"):
+                    yield Static("[b]Трафик[/b]", classes="card-header")
+                    yield Label(self.traffic_rx_text, id="traffic-rx-label")
+                    yield Label(self.traffic_tx_text, id="traffic-tx-label")
+                with Vertical(classes="dashboard-card"):
+                    yield Static("[b]Маршрутизация[/b]", classes="card-header")
+                    yield Label(self.routing_badge_text, id="routing-badge-label")
+            with Horizontal(id="dashboard-actions"):
+                yield Button("▶ Старт", variant="success", id="btn-start")
+                yield Button("■ Стоп", variant="error", id="btn-stop")
+                yield Button("🔍 Диагностика", variant="primary", id="btn-diag")
+
+    def watch_status_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#status-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+    def watch_active_node_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#active-node-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+    def watch_traffic_rx_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#traffic-rx-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+    def watch_traffic_tx_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#traffic-tx-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+    def watch_routing_badge_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#routing-badge-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+
+class NodesTab(Container):
+    """Вкладка Узлы и подписки."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="nodes-vertical"):
+            with Horizontal(id="nodes-actions"):
+                yield Button("➕ Импорт подписки", id="btn-import-sub")
+                yield Button("🔄 Обновить все", id="btn-refresh-all")
+                yield Button("➕ Добавить вручную", id="btn-add-manual")
+            yield DataTable(id="nodes-table")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#nodes-table", DataTable)
+        table.add_columns("Имя", "Протокол", "Сервер", "Пинг", "Подписка")
+        table.cursor_type = "row"
+        table.zebra_stripes = True
+
+
+class LogTab(Container):
+    """Вкладка Лог."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="log-vertical"):
+            with Horizontal(id="log-actions"):
+                yield Button("🔄 Обновить", id="btn-refresh-log")
+                yield Select(
+                    [("Все", "all"), ("Ошибки", "error"), ("Предупреждения", "warning"), ("Инфо", "info")],
+                    value="all",
+                    id="log-filter",
+                )
+            yield RichLog(id="log-viewer", highlight=True, wrap=True)
+
+
+class RoutingTab(Container):
+    """Вкладка Маршрутизация."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="routing-vertical"):
+            with Horizontal(id="routing-actions"):
+                yield Button("🔄 Обновить geodata", id="btn-refresh-geodata")
+            yield Static("[b]Routing-профили[/b]", classes="section-header")
+            yield DataTable(id="routing-table")
+            yield Static("[b]Прямые маршруты[/b]", classes="section-header")
+            yield DataTable(id="direct-table")
+
+    def on_mount(self) -> None:
+        rt = self.query_one("#routing-table", DataTable)
+        rt.add_columns("Имя", "Состояние", "Тип")
+        rt.cursor_type = "row"
+        rt.zebra_stripes = True
+        dt = self.query_one("#direct-table", DataTable)
+        dt.add_columns("Сеть", "Действие", "Источник")
+        dt.cursor_type = "row"
+        dt.zebra_stripes = True
+
+
+class SettingsTab(Container):
+    """Вкладка Настройки."""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="settings-vertical"):
+            yield Static("[b]Настройки[/b]", classes="title")
+            with Horizontal(classes="setting-row"):
+                yield Label("Файловые логи:", classes="setting-label")
+                yield Switch(id="sw-file-logs")
+            with Horizontal(classes="setting-row"):
+                yield Label("Retention (дней):", classes="setting-label")
+                yield Input("7", id="inp-retention", classes="setting-input")
+            with Horizontal(id="settings-actions"):
+                yield Button("💾 Сохранить", variant="success", id="btn-save-settings")
+                yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup")
+
+
+class SubvostTUI(App):
+    """Главное TUI-приложение."""
+
+    CSS = """
+    Screen {
+        align: center middle;
+    }
+    #dashboard-title {
+        text-align: center;
+        padding: 1 0;
+    }
+    .title {
+        text-style: bold;
+        color: $text-accent;
+    }
+    .dashboard-card {
+        border: solid $primary;
+        padding: 1 2;
+        height: auto;
+    }
+    .card-header {
+        text-style: bold;
+        color: $text-accent;
+        margin-bottom: 1;
+    }
+    #dashboard-grid {
+        grid-size: 2;
+        grid-gutter: 1;
+        height: auto;
+    }
+    #dashboard-actions {
+        height: auto;
+        margin-top: 1;
+    }
+    #dashboard-actions Button {
+        margin: 0 1;
+    }
+    #nodes-actions, #log-actions, #routing-actions, #settings-actions {
+        height: auto;
+        margin-bottom: 1;
+    }
+    #nodes-actions Button, #log-actions Button, #routing-actions Button, #settings-actions Button {
+        margin: 0 1;
+    }
+    #log-viewer {
+        height: 1fr;
+        border: solid $primary;
+    }
+    .setting-row {
+        height: auto;
+        margin: 1 0;
+    }
+    .setting-label {
+        width: 24;
+        content-align-vertical: middle;
+    }
+    .setting-input {
+        width: 12;
+    }
+    #loading-container {
+        width: 40;
+        height: 5;
+        border: solid $accent;
+        background: $surface;
+        content-align: center middle;
+    }
+    #confirm-container {
+        width: 50;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-message {
+        margin-bottom: 1;
+    }
+    #confirm-buttons {
+        height: auto;
+        align: center middle;
+    }
+    #confirm-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        ("q", "quit", "Выход"),
+        ("f5", "refresh", "Обновить"),
+    ]
+
+    def __init__(self, service: SubvostAppService | None = None) -> None:
+        self.service = service
+        self._status: dict[str, Any] = {}
+        self._store: dict[str, Any] = {}
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with TabbedContent():
+            with TabPane("Подключение", id="tab-dashboard"):
+                yield DashboardTab(id="dashboard-tab")
+            with TabPane("Узлы", id="tab-nodes"):
+                yield NodesTab(id="nodes-tab")
+            with TabPane("Лог", id="tab-log"):
+                yield LogTab(id="log-tab")
+            with TabPane("Маршруты", id="tab-routing"):
+                yield RoutingTab(id="routing-tab")
+            with TabPane("Настройки", id="tab-settings"):
+                yield SettingsTab(id="settings-tab")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        if self.service is None:
+            try:
+                self.service = build_default_service(SCRIPT_DIR)
+            except Exception as exc:
+                self.notify(f"Ошибка инициализации сервиса: {exc}", severity="error")
+                return
+        self.set_interval(2.0, self._update_dashboard)
+        self._update_dashboard()
+        self._update_nodes()
+        self._update_settings()
+
+    def _update_dashboard(self) -> None:
+        if self.service is None:
+            return
+        try:
+            status = self.service.collect_status()
+            self._status = status
+        except Exception as exc:
+            self.notify(f"Ошибка получения статуса: {exc}", severity="error")
+            return
+
+        dashboard = self.query_one("#dashboard-tab", DashboardTab)
+        summary = status.get("summary", {})
+        state_label = summary.get("label", "—")
+        dashboard.status_text = state_label
+
+        active_node = status.get("active_node")
+        if active_node:
+            dashboard.active_node_text = active_node.get("name", "—")
+        else:
+            dashboard.active_node_text = "—"
+
+        traffic = status.get("traffic", {})
+        rx = traffic.get("rx_total")
+        tx = traffic.get("tx_total")
+        dashboard.traffic_rx_text = f"↓ {humanize_bytes(rx)}"
+        dashboard.traffic_tx_text = f"↑ {humanize_bytes(tx)}"
+
+        routing = status.get("routing", {})
+        active_rp = routing.get("active_profile")
+        if active_rp:
+            dashboard.routing_badge_text = active_rp.get("name", "—")
+        else:
+            dashboard.routing_badge_text = "Нет профиля"
+
+    def _update_nodes(self) -> None:
+        if self.service is None:
+            return
+        try:
+            snapshot = self.service.collect_store_snapshot()
+            store = snapshot.get("store", {})
+            self._store = store
+        except Exception as exc:
+            self.notify(f"Ошибка загрузки store: {exc}", severity="error")
+            return
+
+        table = self.query_one("#nodes-table", DataTable)
+        table.clear()
+        for profile in store.get("profiles", []):
+            profile_name = profile.get("name", "Без имени")
+            for node in profile.get("nodes", []):
+                ping_cache = self._status.get("ping", {}).get("cache", {})
+                ping_key = f"{profile.get('id')}:{node.get('id')}"
+                ping_val = ping_cache.get(ping_key, "—")
+                row = (
+                    node.get("name", "—"),
+                    node.get("protocol", "—"),
+                    node.get("server", "—"),
+                    str(ping_val),
+                    profile_name,
+                )
+                table.add_row(*row, key=ping_key)
+
+    def _update_log(self) -> None:
+        log_tab = self.query_one("#log-tab", LogTab)
+        viewer = log_tab.query_one("#log-viewer", RichLog)
+        viewer.clear()
+
+        filter_widget = log_tab.query_one("#log-filter", Select)
+        level_filter = str(filter_widget.value or "all")
+
+        if self.service is None:
+            return
+
+        logs = self.service.collect_log_payload()
+        entries = logs.get("entries", [])
+        for entry in entries:
+            lvl = entry.get("level", "info")
+            if level_filter != "all" and lvl != level_filter:
+                continue
+            ts = entry.get("timestamp", "")
+            src = entry.get("source", "")
+            name = entry.get("name", "")
+            msg = entry.get("message", "")
+            line = f"[{ts}] [{src}/{name}] {msg}"
+            color = "white"
+            if lvl == "error":
+                color = "red"
+            elif lvl == "warning":
+                color = "yellow"
+            viewer.write(f"[{color}]{line}[/{color}]")
+
+    def _update_routing(self) -> None:
+        if not self._store:
+            return
+        rt = self.query_one("#routing-table", DataTable)
+        rt.clear()
+        for rp in self._store.get("routing_profiles", []):
+            enabled = "Вкл" if rp.get("enabled") else "Выкл"
+            rt.add_row(rp.get("name", "—"), enabled, rp.get("type", "custom"))
+
+        dt = self.query_one("#direct-table", DataTable)
+        dt.clear()
+        direct_report = self._status.get("direct_report", {})
+        for item in direct_report.get("entries", []):
+            dt.add_row(
+                item.get("network", "—"),
+                item.get("action", "—"),
+                item.get("source", "—"),
+            )
+
+    def _update_settings(self) -> None:
+        if self.service is None:
+            return
+        try:
+            settings = self.service.load_settings()
+        except Exception:
+            return
+        tab = self.query_one("#settings-tab", SettingsTab)
+        sw = tab.query_one("#sw-file-logs", Switch)
+        sw.value = bool(settings.get("file_logs_enabled", False))
+        inp = tab.query_one("#inp-retention", Input)
+        inp.value = str(settings.get("artifact_retention_days", 7))
+
+    def _show_loading(self, message: str = "Выполнение...") -> None:
+        self.push_screen(LoadingModal(message))
+
+    def _hide_loading(self) -> None:
+        self.pop_screen()
+
+    async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
+        self._show_loading(action_name)
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+            return result
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+            raise
+        finally:
+            self._hide_loading()
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+        if btn_id == "btn-start":
+            await self._action_start()
+        elif btn_id == "btn-stop":
+            await self._action_stop()
+        elif btn_id == "btn-diag":
+            await self._action_diag()
+        elif btn_id == "btn-import-sub":
+            await self._action_import_subscription()
+        elif btn_id == "btn-refresh-all":
+            await self._action_refresh_all()
+        elif btn_id == "btn-add-manual":
+            await self._action_add_manual()
+        elif btn_id == "btn-refresh-log":
+            self._update_log()
+        elif btn_id == "btn-refresh-geodata":
+            await self._action_refresh_geodata()
+        elif btn_id == "btn-save-settings":
+            await self._action_save_settings()
+        elif btn_id == "btn-cleanup":
+            await self._action_cleanup()
+
+    async def _action_start(self) -> None:
+        if self.service is None:
+            return
+        try:
+            await self._run_service_action("Запуск подключения...", self.service.start_runtime)
+            self.notify("Подключение запущено", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass
+
+    async def _action_stop(self) -> None:
+        if self.service is None:
+            return
+        try:
+            await self._run_service_action("Остановка подключения...", self.service.stop_runtime)
+            self.notify("Подключение остановлено", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass
+
+    async def _action_diag(self) -> None:
+        if self.service is None:
+            return
+        try:
+            await self._run_service_action("Снятие диагностики...", self.service.capture_diagnostics)
+            self.notify("Диагностика сохранена", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass
+
+    async def _action_import_subscription(self) -> None:
+        if self.service is None:
+            return
+        # Простая реализация: диалог ввода через notify
+        self.notify("Импорт подписок пока через CLI или веб-интерфейс", severity="warning")
+
+    async def _action_refresh_all(self) -> None:
+        if self.service is None:
+            return
+        try:
+            await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
+            self.notify("Подписки обновлены", severity="information")
+            self._update_nodes()
+        except Exception:
+            pass
+
+    async def _action_add_manual(self) -> None:
+        self.notify("Ручное добавление пока через CLI", severity="warning")
+
+    async def _action_refresh_geodata(self) -> None:
+        if self.service is None:
+            return
+        self.notify("Обновление geodata через CLI: python3 gui/subvost_routing.py --update-geodata", severity="warning")
+
+    async def _action_save_settings(self) -> None:
+        if self.service is None:
+            return
+        tab = self.query_one("#settings-tab", SettingsTab)
+        sw = tab.query_one("#sw-file-logs", Switch)
+        inp = tab.query_one("#inp-retention", Input)
+        try:
+            retention = int(inp.value or 7)
+        except ValueError:
+            retention = 7
+        try:
+            self.service.save_settings(
+                file_logs_enabled=sw.value,
+                artifact_retention_days=retention,
+            )
+            self.notify("Настройки сохранены", severity="information")
+        except Exception as exc:
+            self.notify(f"Ошибка сохранения: {exc}", severity="error")
+
+    async def _action_cleanup(self) -> None:
+        if self.service is None:
+            return
+        def do_cleanup():
+            return self.service.cleanup_runtime_artifacts()
+        try:
+            result = await self._run_service_action("Очистка артефактов...", do_cleanup)
+            removed = result.get("removed", [])
+            self.notify(f"Очищено файлов: {len(removed)}", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass
+
+    def action_refresh(self) -> None:
+        active_tab = self.query_one(TabbedContent).active
+        if active_tab == "tab-dashboard":
+            self._update_dashboard()
+        elif active_tab == "tab-nodes":
+            self._update_nodes()
+        elif active_tab == "tab-log":
+            self._update_log()
+        elif active_tab == "tab-routing":
+            self._update_routing()
+        elif active_tab == "tab-settings":
+            self._update_settings()
+
+    def on_tabbed_content_changed(self, event) -> None:
+        tab_id = event.tab.id
+        if tab_id == "tab-log":
+            self._update_log()
+        elif tab_id == "tab-nodes":
+            self._update_nodes()
+        elif tab_id == "tab-routing":
+            self._update_routing()
+        elif tab_id == "tab-settings":
+            self._update_settings()
+
+
+def main() -> None:
+    app = SubvostTUI()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

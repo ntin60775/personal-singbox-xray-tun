@@ -8,4 +8,4 @@ PROJECT_ROOT="$(subvost_resolve_project_root_from_entrypoint "${BASH_SOURCE[0]}"
 subvost_export_project_layout "$PROJECT_ROOT"
 subvost_sync_desktop_launcher_icon
 
-exec "${SUBVOST_LIBEXEC_DIR}/open-subvost-gtk-ui.sh" "$@"
+exec "${SUBVOST_LIBEXEC_DIR}/open-subvost-tui.sh" "$@"

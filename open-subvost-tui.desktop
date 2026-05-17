@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Subvost Xray TUN (TUI)
+Comment=Универсальный TUI-фронт Subvost Xray TUN
+Exec=bash -c 'cd "$(dirname "%k")" && ./open-subvost-tui.sh'
+Icon=subvost-xray-tun-icon
+Terminal=true
+Categories=Network;RemoteAccess;
