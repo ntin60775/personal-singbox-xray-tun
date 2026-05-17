@@ -205,6 +205,18 @@ class DashboardTab(Container):
                 yield Button("■ Стоп", variant="error", id="btn-stop")
                 yield Button("🔍 Диагностика", variant="primary", id="btn-diag")
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        app = self.app
+        if not isinstance(app, SubvostTUI):
+            return
+        btn_id = event.button.id
+        if btn_id == "btn-start":
+            asyncio.create_task(app._action_start())
+        elif btn_id == "btn-stop":
+            asyncio.create_task(app._action_stop())
+        elif btn_id == "btn-diag":
+            asyncio.create_task(app._action_diag())
+
     def watch_status_text(self, value: str) -> None:
         try:
             label = self.query_one("#status-label", Label)
@@ -264,6 +276,26 @@ class NodesTab(Container):
             yield DataTable(id="nodes-table")
             yield Label("Выберите строку и нажмите действие", id="nodes-hint")
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        app = self.app
+        if not isinstance(app, SubvostTUI):
+            return
+        btn_id = event.button.id
+        if btn_id == "btn-import-sub":
+            app._action_import_subscription()
+        elif btn_id == "btn-refresh-all":
+            asyncio.create_task(app._action_refresh_all())
+        elif btn_id == "btn-refresh-sub":
+            asyncio.create_task(app._action_refresh_sub())
+        elif btn_id == "btn-delete-sub":
+            app._action_delete_sub()
+        elif btn_id == "btn-add-manual":
+            app._action_add_manual()
+        elif btn_id == "btn-activate-node":
+            asyncio.create_task(app._action_activate_node())
+        elif btn_id == "btn-ping-node":
+            asyncio.create_task(app._action_ping_node())
+
     def on_mount(self) -> None:
         sub_table = self.query_one("#sub-table", DataTable)
         sub_table.add_columns("Название", "URL", "Узлов", "Состояние")
@@ -302,6 +334,13 @@ class LogTab(Container):
                 )
             yield RichLog(id="log-viewer", highlight=True, wrap=True)
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        app = self.app
+        if not isinstance(app, SubvostTUI):
+            return
+        if event.button.id == "btn-refresh-log":
+            app._update_log()
+
 
 class RoutingTab(Container):
     """Вкладка Маршрутизация."""
@@ -332,6 +371,22 @@ class RoutingTab(Container):
         dt.cursor_type = "row"
         dt.zebra_stripes = True
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        app = self.app
+        if not isinstance(app, SubvostTUI):
+            return
+        btn_id = event.button.id
+        if btn_id == "btn-refresh-geodata":
+            asyncio.create_task(app._action_refresh_geodata())
+        elif btn_id == "btn-import-rp":
+            app._action_import_routing_profile()
+        elif btn_id == "btn-activate-rp":
+            asyncio.create_task(app._action_activate_routing_profile())
+        elif btn_id == "btn-toggle-routing":
+            asyncio.create_task(app._action_toggle_routing())
+        elif btn_id == "btn-clear-rp":
+            app._action_clear_routing_profile()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.selected_profile_id = str(event.row_key.value) if event.row_key else None
         hint = self.query_one("#routing-hint", Label)
@@ -354,6 +409,16 @@ class SettingsTab(Container):
             with Horizontal(id="settings-actions"):
                 yield Button("💾 Сохранить", variant="success", id="btn-save-settings")
                 yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        app = self.app
+        if not isinstance(app, SubvostTUI):
+            return
+        btn_id = event.button.id
+        if btn_id == "btn-save-settings":
+            asyncio.create_task(app._action_save_settings())
+        elif btn_id == "btn-cleanup":
+            asyncio.create_task(app._action_cleanup())
 
 
 class SubvostTUI(App):
@@ -464,7 +529,7 @@ class SubvostTUI(App):
     """
 
     BINDINGS = [
-        ("q", "quit", "Выход"),
+        ("ctrl+q", "quit", "Выход"),
         ("f5", "refresh", "Обновить"),
     ]
 
@@ -661,44 +726,7 @@ class SubvostTUI(App):
         finally:
             self._hide_loading()
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id
-        if btn_id == "btn-start":
-            await self._action_start()
-        elif btn_id == "btn-stop":
-            await self._action_stop()
-        elif btn_id == "btn-diag":
-            await self._action_diag()
-        elif btn_id == "btn-import-sub":
-            await self._action_import_subscription()
-        elif btn_id == "btn-refresh-all":
-            await self._action_refresh_all()
-        elif btn_id == "btn-add-manual":
-            await self._action_add_manual()
-        elif btn_id == "btn-activate-node":
-            await self._action_activate_node()
-        elif btn_id == "btn-ping-node":
-            await self._action_ping_node()
-        elif btn_id == "btn-refresh-sub":
-            await self._action_refresh_sub()
-        elif btn_id == "btn-delete-sub":
-            await self._action_delete_sub()
-        elif btn_id == "btn-refresh-log":
-            self._update_log()
-        elif btn_id == "btn-refresh-geodata":
-            await self._action_refresh_geodata()
-        elif btn_id == "btn-activate-rp":
-            await self._action_activate_routing_profile()
-        elif btn_id == "btn-toggle-routing":
-            await self._action_toggle_routing()
-        elif btn_id == "btn-import-rp":
-            await self._action_import_routing_profile()
-        elif btn_id == "btn-clear-rp":
-            await self._action_clear_routing_profile()
-        elif btn_id == "btn-save-settings":
-            await self._action_save_settings()
-        elif btn_id == "btn-cleanup":
-            await self._action_cleanup()
+
 
     async def _action_start(self) -> None:
         if self.service is None:
@@ -730,11 +758,8 @@ class SubvostTUI(App):
         except Exception:
             pass
 
-    async def _action_import_subscription(self) -> None:
-        if self.service is None:
-            return
-        result = await self.push_screen_wait(ImportSubscriptionModal())
-        if result is None:
+    async def _do_import_subscription(self, result: dict[str, str] | None) -> None:
+        if result is None or self.service is None:
             return
         try:
             await self._run_service_action(
@@ -746,8 +771,16 @@ class SubvostTUI(App):
             self.notify("Подписка добавлена", severity="information")
             self._update_nodes()
             self._update_dashboard()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"ERROR _do_import_subscription: {exc}")
+            import traceback
+            traceback.print_exc()
+            self.notify(f"Ошибка: {exc}", severity="error")
+
+    def _action_import_subscription(self) -> None:
+        if self.service is None:
+            return
+        self.push_screen(ImportSubscriptionModal(), callback=lambda r: asyncio.create_task(self._do_import_subscription(r)))
 
     async def _action_refresh_all(self) -> None:
         if self.service is None:
@@ -759,11 +792,8 @@ class SubvostTUI(App):
         except Exception:
             pass
 
-    async def _action_add_manual(self) -> None:
-        if self.service is None:
-            return
-        result = await self.push_screen_wait(ImportLinkModal())
-        if result is None:
+    async def _do_add_manual(self, result: dict[str, Any] | None) -> None:
+        if result is None or self.service is None:
             return
         try:
             def _do_import():
@@ -783,6 +813,11 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
+
+    def _action_add_manual(self) -> None:
+        if self.service is None:
+            return
+        self.push_screen(ImportLinkModal(), callback=lambda r: asyncio.create_task(self._do_add_manual(r)))
 
     async def _action_activate_node(self) -> None:
         if self.service is None:
@@ -853,16 +888,13 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(f"Ошибка обновления: {exc}", severity="error")
 
-    async def _action_delete_sub(self) -> None:
-        if self.service is None:
+    async def _do_delete_sub(self, confirmed: bool) -> None:
+        if not confirmed or self.service is None:
             return
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         sub_id = nodes_tab.selected_sub_id
         if not sub_id:
             self.notify("Сначала выберите подписку в таблице", severity="warning")
-            return
-        confirmed = await self.push_screen_wait(ConfirmModal("Удалить выбранную подписку?"))
-        if not confirmed:
             return
         try:
             await self._run_service_action(
@@ -874,6 +906,16 @@ class SubvostTUI(App):
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка удаления: {exc}", severity="error")
+
+    def _action_delete_sub(self) -> None:
+        if self.service is None:
+            return
+        nodes_tab = self.query_one("#nodes-tab", NodesTab)
+        sub_id = nodes_tab.selected_sub_id
+        if not sub_id:
+            self.notify("Сначала выберите подписку в таблице", severity="warning")
+            return
+        self.push_screen(ConfirmModal("Удалить выбранную подписку?"), callback=lambda c: asyncio.create_task(self._do_delete_sub(c)))
 
     async def _action_refresh_geodata(self) -> None:
         if self.service is None:
@@ -927,11 +969,8 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(f"Ошибка: {exc}", severity="error")
 
-    async def _action_import_routing_profile(self) -> None:
-        if self.service is None:
-            return
-        result = await self.push_screen_wait(ImportRoutingProfileModal())
-        if result is None:
+    async def _do_import_routing_profile(self, result: dict[str, str] | None) -> None:
+        if result is None or self.service is None:
             return
         try:
             await self._run_service_action(
@@ -944,11 +983,13 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(f"Ошибка импорта: {exc}", severity="error")
 
-    async def _action_clear_routing_profile(self) -> None:
+    def _action_import_routing_profile(self) -> None:
         if self.service is None:
             return
-        confirmed = await self.push_screen_wait(ConfirmModal("Сбросить активный routing-профиль?"))
-        if not confirmed:
+        self.push_screen(ImportRoutingProfileModal(), callback=lambda r: asyncio.create_task(self._do_import_routing_profile(r)))
+
+    async def _do_clear_routing_profile(self, confirmed: bool) -> None:
+        if not confirmed or self.service is None:
             return
         try:
             await self._run_service_action(
@@ -960,6 +1001,11 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(f"Ошибка сброса: {exc}", severity="error")
+
+    def _action_clear_routing_profile(self) -> None:
+        if self.service is None:
+            return
+        self.push_screen(ConfirmModal("Сбросить активный routing-профиль?"), callback=lambda c: asyncio.create_task(self._do_clear_routing_profile(c)))
 
     async def _action_save_settings(self) -> None:
         if self.service is None:
