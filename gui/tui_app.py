@@ -631,6 +631,10 @@ class SubvostTUI(App):
             self._update_settings()
 
 
+    def on_exit(self) -> None:
+        self._stop_tray()
+
+
 def main() -> None:
     app = SubvostTUI()
     app.run()

@@ -7,35 +7,34 @@
 ## Фазы
 
 ### Фаза 1: Bootstrap и зависимости
-- [ ] `gui/tui_bootstrap.py` — проверка `python3-textual`, `xray`, `iproute2`, `curl`, `/dev/net/tun`
-- [ ] Предложение установки через `pkexec apt-get install`
-- [ ] Wrapper `open-subvost-tui.sh`
-- [ ] `.desktop` файл `open-subvost-tui.desktop`
+- [x] `gui/tui_bootstrap.py` — проверка `python3-textual`, `xray`, `iproute2`, `curl`, `/dev/net/tun`
+- [x] Предложение установки через `pkexec apt-get install`
+- [x] Wrapper `open-subvost-tui.sh`
+- [x] `.desktop` файл `open-subvost-tui.desktop`
 
 ### Фаза 2: Ядро TUI-приложения
-- [ ] `gui/tui_app.py` — базовое приложение `textual` с CSS
-- [ ] Экран Dashboard: статус, активный узел, Старт/Стоп/Диагностика
-- [ ] Экран Узлы/Подписки: таблица узлов, импорт, обновление, выбор
-- [ ] Экран Лог: просмотр с кнопкой Обновить
-- [ ] Экран Routing: профили, geodata, direct-отчёт
-- [ ] Экран Настройки: логирование, retention, тема
+- [x] `gui/tui_app.py` — базовое приложение `textual` с CSS
+- [x] Экран Dashboard: статус, активный узел, Старт/Стоп/Диагностика
+- [x] Экран Узлы/Подписки: таблица узлов, импорт, обновление, выбор
+- [x] Экран Лог: просмотр с кнопкой Обновить
+- [x] Экран Routing: профили, geodata, direct-отчёт
+- [x] Экран Настройки: логирование, retention, тема
 
 ### Фаза 3: Tray-индикатор
-- [ ] `gui/tui_tray.py` — Ayatana/AppIndicator tray
-- [ ] Меню: Показать, Старт, Стоп, Диагностика, Выход
-- [ ] Синхронизация статуса с TUI
+- [x] `gui/tui_tray.py` — Ayatana/AppIndicator tray
+- [x] Меню: Показать, Старт, Стоп, Диагностика, Выход
+- [x] Запуск tray из TUI, graceful shutdown
 
 ### Фаза 4: Удаление legacy GUI
-- [ ] Удаление `gui/embedded_webview.py`
-- [ ] Удаление `gui/native_shell_app.py`
-- [ ] Удаление `gui/native_shell_tray_helper.py`
-- [ ] Удаление `open-subvost-gui.sh`
-- [ ] Удаление `open-subvost-gtk-ui.sh`
-- [ ] Удаление `open-subvost-gui.desktop`
-- [ ] Удаление `open-subvost-gtk-ui.desktop`
-- [ ] Обновление `AGENTS.md`, `DESIGN.md`, `README.md`
+- [x] Удаление `gui/embedded_webview.py`
+- [x] Удаление `gui/native_shell_app.py`
+- [x] Удаление `gui/native_shell_tray_helper.py`
+- [x] Удаление `open-subvost-gui.sh`
+- [x] Удаление `open-subvost-gtk-ui.sh`
+- [x] Удаление `install-subvost-gtk-ui-menu-entry.sh`
+- [x] Обновление `AGENTS.md`, `DESIGN.md`, `README.md`
 
 ### Фаза 5: Проверка
-- [ ] Syntax check всех новых `.py`
-- [ ] Preflight check
+- [x] Syntax check всех новых `.py`
+- [x] Preflight check `.sh`
 - [ ] Ручной smoke: запуск, Старт, Стоп, Диагностика, выбор узла

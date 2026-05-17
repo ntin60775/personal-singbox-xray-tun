@@ -47,17 +47,25 @@ class TUITrayHelper:
             print(f"Tray: ошибка инициализации сервиса: {exc}", file=sys.stderr)
 
     def run(self) -> int:
-        gtk_module, gio_module, glib_module, indicator_module = self.load_runtime()
+        try:
+            gtk_module, gio_module, glib_module, indicator_module = self.load_runtime()
+        except Exception as exc:
+            print(f"Tray недоступен: {exc}", file=sys.stderr)
+            return 1
         self.indicator_module = indicator_module
         self.init_service()
 
         gtk_module.init_check()
         self.loop = glib_module.MainLoop()
-        indicator = indicator_module.Indicator.new(
-            "subvost-tui-tray",
-            self.args.icon_name,
-            indicator_module.IndicatorCategory.APPLICATION_STATUS,
-        )
+        try:
+            indicator = indicator_module.Indicator.new(
+                "subvost-tui-tray",
+                self.args.icon_name,
+                indicator_module.IndicatorCategory.APPLICATION_STATUS,
+            )
+        except Exception as exc:
+            print(f"Tray: не удалось создать индикатор: {exc}", file=sys.stderr)
+            return 1
         indicator.set_status(indicator_module.IndicatorStatus.ACTIVE)
         indicator.set_title("Subvost Xray TUN")
         indicator.set_menu(self.build_menu(gtk_module, glib_module))
