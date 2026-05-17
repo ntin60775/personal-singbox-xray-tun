@@ -220,28 +220,47 @@ class NodesTab(Container):
     """Вкладка Узлы и подписки."""
 
     selected_row_key: str | None = None
+    selected_sub_id: str | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="nodes-vertical"):
-            with Horizontal(id="nodes-actions"):
+            yield Static("[b]Подписки[/b]", classes="section-header")
+            with Horizontal(id="sub-actions"):
                 yield Button("➕ Импорт подписки", id="btn-import-sub")
                 yield Button("🔄 Обновить все", id="btn-refresh-all")
+                yield Button("🔄 Обновить", id="btn-refresh-sub")
+                yield Button("❌ Удалить", variant="error", id="btn-delete-sub")
+            yield DataTable(id="sub-table")
+            yield Static("[b]Узлы[/b]", classes="section-header")
+            with Horizontal(id="nodes-actions"):
                 yield Button("➕ Добавить вручную", id="btn-add-manual")
                 yield Button("▶ Активировать", variant="success", id="btn-activate-node")
+                yield Button("📡 Пинг", id="btn-ping-node")
             yield DataTable(id="nodes-table")
-            yield Label("Выберите строку и нажмите Активировать", id="nodes-hint")
+            yield Label("Выберите строку и нажмите действие", id="nodes-hint")
 
     def on_mount(self) -> None:
+        sub_table = self.query_one("#sub-table", DataTable)
+        sub_table.add_columns("Название", "URL", "Узлов", "Состояние")
+        sub_table.cursor_type = "row"
+        sub_table.zebra_stripes = True
         table = self.query_one("#nodes-table", DataTable)
         table.add_columns("Имя", "Протокол", "Сервер", "Пинг", "Подписка")
         table.cursor_type = "row"
         table.zebra_stripes = True
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.selected_row_key = str(event.row_key.value) if event.row_key else None
-        hint = self.query_one("#nodes-hint", Label)
-        if self.selected_row_key:
-            hint.update(f"Выбран: {self.selected_row_key}. Нажмите Активировать.")
+        table_id = event.data_table.id
+        if table_id == "nodes-table":
+            self.selected_row_key = str(event.row_key.value) if event.row_key else None
+            hint = self.query_one("#nodes-hint", Label)
+            if self.selected_row_key:
+                hint.update(f"Выбран узел: {self.selected_row_key}")
+        elif table_id == "sub-table":
+            self.selected_sub_id = str(event.row_key.value) if event.row_key else None
+            hint = self.query_one("#nodes-hint", Label)
+            if self.selected_sub_id:
+                hint.update(f"Выбрана подписка: {self.selected_sub_id}")
 
 
 class LogTab(Container):
@@ -262,12 +281,17 @@ class LogTab(Container):
 class RoutingTab(Container):
     """Вкладка Маршрутизация."""
 
+    selected_profile_id: str | None = None
+
     def compose(self) -> ComposeResult:
         with Vertical(id="routing-vertical"):
             with Horizontal(id="routing-actions"):
                 yield Button("🔄 Обновить geodata", id="btn-refresh-geodata")
+                yield Button("▶ Активировать профиль", variant="success", id="btn-activate-rp")
+                yield Button("Вкл/Выкл маршрутизацию", id="btn-toggle-routing")
             yield Static("[b]Routing-профили[/b]", classes="section-header")
             yield DataTable(id="routing-table")
+            yield Label("Выберите профиль и нажмите действие", id="routing-hint")
             yield Static("[b]Прямые маршруты[/b]", classes="section-header")
             yield DataTable(id="direct-table")
 
@@ -280,6 +304,12 @@ class RoutingTab(Container):
         dt.add_columns("Сеть", "Действие", "Источник")
         dt.cursor_type = "row"
         dt.zebra_stripes = True
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.selected_profile_id = str(event.row_key.value) if event.row_key else None
+        hint = self.query_one("#routing-hint", Label)
+        if self.selected_profile_id:
+            hint.update(f"Выбран профиль: {self.selected_profile_id}")
 
 
 class SettingsTab(Container):
@@ -482,6 +512,20 @@ class SubvostTUI(App):
             self.notify(f"Ошибка загрузки store: {exc}", severity="error")
             return
 
+        sub_table = self.query_one("#sub-table", DataTable)
+        sub_table.clear()
+        for sub in store.get("subscriptions", []):
+            profile = next((p for p in store.get("profiles", []) if p.get("id") == sub.get("profile_id")), {})
+            node_count = len(profile.get("nodes", []))
+            enabled = "Вкл" if sub.get("enabled", True) else "Выкл"
+            sub_table.add_row(
+                sub.get("name", "—"),
+                sub.get("url", "—")[:40] + "..." if len(sub.get("url", "")) > 40 else sub.get("url", "—"),
+                str(node_count),
+                enabled,
+                key=sub.get("id", ""),
+            )
+
         table = self.query_one("#nodes-table", DataTable)
         table.clear()
         for profile in store.get("profiles", []):
@@ -594,10 +638,20 @@ class SubvostTUI(App):
             await self._action_add_manual()
         elif btn_id == "btn-activate-node":
             await self._action_activate_node()
+        elif btn_id == "btn-ping-node":
+            await self._action_ping_node()
+        elif btn_id == "btn-refresh-sub":
+            await self._action_refresh_sub()
+        elif btn_id == "btn-delete-sub":
+            await self._action_delete_sub()
         elif btn_id == "btn-refresh-log":
             self._update_log()
         elif btn_id == "btn-refresh-geodata":
             await self._action_refresh_geodata()
+        elif btn_id == "btn-activate-rp":
+            await self._action_activate_routing_profile()
+        elif btn_id == "btn-toggle-routing":
+            await self._action_toggle_routing()
         elif btn_id == "btn-save-settings":
             await self._action_save_settings()
         elif btn_id == "btn-cleanup":
@@ -693,7 +747,7 @@ class SubvostTUI(App):
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         key = nodes_tab.selected_row_key
         if not key:
-            self.notify("Сначала выберите строку в таблице", severity="warning")
+            self.notify("Сначала выберите строку в таблице узлов", severity="warning")
             return
         parts = key.split(":", 1)
         if len(parts) != 2:
@@ -712,10 +766,123 @@ class SubvostTUI(App):
         except Exception:
             pass
 
+    async def _action_ping_node(self) -> None:
+        if self.service is None:
+            return
+        nodes_tab = self.query_one("#nodes-tab", NodesTab)
+        key = nodes_tab.selected_row_key
+        if not key:
+            self.notify("Сначала выберите строку в таблице узлов", severity="warning")
+            return
+        parts = key.split(":", 1)
+        if len(parts) != 2:
+            return
+        profile_id, node_id = parts
+        try:
+            result = await self._run_service_action(
+                "Пинг узла...",
+                self.service.ping_node_by_id,
+                profile_id,
+                node_id,
+            )
+            latency = result.get("latency_ms", "—")
+            self.notify(f"Пинг: {latency} мс", severity="information")
+            self._update_nodes()
+        except Exception as exc:
+            self.notify(f"Ошибка пинга: {exc}", severity="error")
+
+    async def _action_refresh_sub(self) -> None:
+        if self.service is None:
+            return
+        nodes_tab = self.query_one("#nodes-tab", NodesTab)
+        sub_id = nodes_tab.selected_sub_id
+        if not sub_id:
+            self.notify("Сначала выберите подписку в таблице", severity="warning")
+            return
+        try:
+            await self._run_service_action(
+                "Обновление подписки...",
+                self.service.refresh_subscription,
+                sub_id,
+            )
+            self.notify("Подписка обновлена", severity="information")
+            self._update_nodes()
+        except Exception as exc:
+            self.notify(f"Ошибка обновления: {exc}", severity="error")
+
+    async def _action_delete_sub(self) -> None:
+        if self.service is None:
+            return
+        nodes_tab = self.query_one("#nodes-tab", NodesTab)
+        sub_id = nodes_tab.selected_sub_id
+        if not sub_id:
+            self.notify("Сначала выберите подписку в таблице", severity="warning")
+            return
+        confirmed = await self.push_screen_wait(ConfirmModal("Удалить выбранную подписку?"))
+        if not confirmed:
+            return
+        try:
+            await self._run_service_action(
+                "Удаление подписки...",
+                self.service.delete_subscription,
+                sub_id,
+            )
+            self.notify("Подписка удалена", severity="information")
+            self._update_nodes()
+        except Exception as exc:
+            self.notify(f"Ошибка удаления: {exc}", severity="error")
+
     async def _action_refresh_geodata(self) -> None:
         if self.service is None:
             return
-        self.notify("Обновление geodata через CLI: python3 gui/subvost_routing.py --update-geodata", severity="warning")
+        try:
+            await self._run_service_action(
+                "Обновление geodata...",
+                self.service.prepare_routing_geodata,
+            )
+            self.notify("GeoIP/GeoSite обновлены", severity="information")
+            self._update_routing()
+        except Exception as exc:
+            self.notify(f"Ошибка обновления geodata: {exc}", severity="error")
+
+    async def _action_activate_routing_profile(self) -> None:
+        if self.service is None:
+            return
+        routing_tab = self.query_one("#routing-tab", RoutingTab)
+        rp_id = routing_tab.selected_profile_id
+        if not rp_id:
+            self.notify("Сначала выберите профиль в таблице", severity="warning")
+            return
+        try:
+            await self._run_service_action(
+                "Активация профиля...",
+                self.service.activate_routing_profile,
+                rp_id,
+            )
+            self.notify("Профиль активирован", severity="information")
+            self._update_routing()
+            self._update_dashboard()
+        except Exception as exc:
+            self.notify(f"Ошибка активации: {exc}", severity="error")
+
+    async def _action_toggle_routing(self) -> None:
+        if self.service is None:
+            return
+        try:
+            store = self.service.ensure_store_ready()
+            routing_state = store.get("routing", {})
+            current = bool(routing_state.get("enabled", False))
+            await self._run_service_action(
+                "Переключение маршрутизации...",
+                self.service.set_routing_enabled,
+                not current,
+            )
+            state = "включена" if not current else "выключена"
+            self.notify(f"Маршрутизация {state}", severity="information")
+            self._update_routing()
+            self._update_dashboard()
+        except Exception as exc:
+            self.notify(f"Ошибка: {exc}", severity="error")
 
     async def _action_save_settings(self) -> None:
         if self.service is None:
