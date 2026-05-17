@@ -149,6 +149,31 @@ class ImportLinkModal(ModalScreen):
         self.dismiss(None)
 
 
+class ImportRoutingProfileModal(ModalScreen):
+    """Модальный диалог импорта routing-профиля."""
+
+    BINDINGS = [("escape", "dismiss", "Отмена")]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import-rp-container"):
+            yield Static("[b]Импорт routing-профиля[/b]", classes="title")
+            yield Label("Вставьте JSON профиля:")
+            yield TextArea(id="ta-rp")
+            with Horizontal(id="import-rp-buttons"):
+                yield Button("Импортировать", variant="success", id="btn-rp-import")
+                yield Button("Отмена", variant="error", id="btn-rp-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-rp-import":
+            text = self.query_one("#ta-rp", TextArea).text
+            self.dismiss({"text": text})
+        else:
+            self.dismiss(None)
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
+
+
 class DashboardTab(Container):
     """Вкладка Dashboard."""
 
@@ -287,8 +312,10 @@ class RoutingTab(Container):
         with Vertical(id="routing-vertical"):
             with Horizontal(id="routing-actions"):
                 yield Button("🔄 Обновить geodata", id="btn-refresh-geodata")
+                yield Button("➕ Импорт профиля", id="btn-import-rp")
                 yield Button("▶ Активировать профиль", variant="success", id="btn-activate-rp")
                 yield Button("Вкл/Выкл маршрутизацию", id="btn-toggle-routing")
+                yield Button("❌ Сбросить профиль", variant="error", id="btn-clear-rp")
             yield Static("[b]Routing-профили[/b]", classes="section-header")
             yield DataTable(id="routing-table")
             yield Label("Выберите профиль и нажмите действие", id="routing-hint")
@@ -380,13 +407,20 @@ class SubvostTUI(App):
         background: $surface;
         padding: 1 2;
     }
-    #import-sub-buttons, #import-link-buttons {
+    #import-sub-buttons, #import-link-buttons, #import-rp-buttons {
         height: auto;
         margin-top: 1;
         align: center middle;
     }
-    #import-sub-buttons Button, #import-link-buttons Button {
+    #import-sub-buttons Button, #import-link-buttons Button, #import-rp-buttons Button {
         margin: 0 1;
+    }
+    #import-rp-container {
+        width: 60;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
     }
     #log-viewer {
         height: 1fr;
@@ -652,6 +686,10 @@ class SubvostTUI(App):
             await self._action_activate_routing_profile()
         elif btn_id == "btn-toggle-routing":
             await self._action_toggle_routing()
+        elif btn_id == "btn-import-rp":
+            await self._action_import_routing_profile()
+        elif btn_id == "btn-clear-rp":
+            await self._action_clear_routing_profile()
         elif btn_id == "btn-save-settings":
             await self._action_save_settings()
         elif btn_id == "btn-cleanup":
@@ -884,6 +922,40 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(f"Ошибка: {exc}", severity="error")
 
+    async def _action_import_routing_profile(self) -> None:
+        if self.service is None:
+            return
+        result = await self.push_screen_wait(ImportRoutingProfileModal())
+        if result is None:
+            return
+        try:
+            await self._run_service_action(
+                "Импорт профиля...",
+                self.service.import_routing_profile,
+                result["text"],
+            )
+            self.notify("Профиль импортирован", severity="information")
+            self._update_routing()
+        except Exception as exc:
+            self.notify(f"Ошибка импорта: {exc}", severity="error")
+
+    async def _action_clear_routing_profile(self) -> None:
+        if self.service is None:
+            return
+        confirmed = await self.push_screen_wait(ConfirmModal("Сбросить активный routing-профиль?"))
+        if not confirmed:
+            return
+        try:
+            await self._run_service_action(
+                "Сброс профиля...",
+                self.service.clear_active_routing_profile,
+            )
+            self.notify("Профиль сброшен", severity="information")
+            self._update_routing()
+            self._update_dashboard()
+        except Exception as exc:
+            self.notify(f"Ошибка сброса: {exc}", severity="error")
+
     async def _action_save_settings(self) -> None:
         if self.service is None:
             return
@@ -941,8 +1013,27 @@ class SubvostTUI(App):
             self._update_settings()
 
 
-    def on_exit(self) -> None:
-        self._stop_tray()
+    def _do_quit(self, confirmed: bool) -> None:
+        if confirmed:
+            self._stop_tray()
+            self.exit()
+
+    def action_quit(self) -> None:
+        if self.service is None:
+            self._stop_tray()
+            self.exit()
+            return
+        try:
+            status = self.service.collect_status()
+            runtime_live = status.get("processes", {}).get("xray_alive", False)
+            if runtime_live:
+                self.push_screen(ConfirmModal("VPN-подключение активно. Остановить и выйти?"), self._do_quit)
+            else:
+                self._stop_tray()
+                self.exit()
+        except Exception:
+            self._stop_tray()
+            self.exit()
 
 
 def main() -> None:
