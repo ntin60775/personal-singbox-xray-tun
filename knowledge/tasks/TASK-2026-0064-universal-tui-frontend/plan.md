@@ -37,4 +37,12 @@
 ### Фаза 5: Проверка
 - [x] Syntax check всех новых `.py`
 - [x] Preflight check `.sh`
-- [ ] Ручной smoke: запуск, Старт, Стоп, Диагностика, выбор узла
+- [x] Ручной smoke: запуск, Старт, Стоп, Диагностика, выбор узла
+
+### Фаза 6: Обновление textual до 8.2.6
+- [x] Обновить textual через pip (`python3 -m pip install --upgrade textual --break-system-packages`)
+- [x] Проверить совместимость: импорт, модальные окна, pilot-тесты
+- [x] Обновить `tui_bootstrap.py`: проверка версии, fallback на pip upgrade
+- [x] Обновить `AGENTS.md`: таблица стека TUI с минимальными версиями
+- [x] Обновить `install-on-new-pc.sh`: проверка и обновление textual через pip после apt
+- [x] Коммит с обновлением
