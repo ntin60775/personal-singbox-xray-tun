@@ -158,6 +158,11 @@ if [[ -f "$STATE_FILE" ]]; then
           ROUTE_RULE_PREF="$value"
         fi
         ;;
+      VPN_EXCLUDED_IPV4_ROUTES)
+        if [[ -n "$value" ]]; then
+          VPN_EXCLUDED_IPV4_ROUTES="$value"
+        fi
+        ;;
     esac
   done <"$STATE_FILE"
 fi
@@ -239,7 +244,18 @@ else
   sudo pkill -f "xray run -c ${XRAY_CONFIG}" 2>/dev/null || true
 fi
 
+cleanup_ufw_icmp_fix() {
+  local route_value
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for route_value in ${VPN_EXCLUDED_IPV4_ROUTES:-}; do
+    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
+  done
+}
+
 echo "[2/4] Очистка policy-routing"
+cleanup_ufw_icmp_fix
 sudo ip rule del pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE" >/dev/null 2>&1 || true
 sudo ip route flush table "$ROUTE_TABLE" >/dev/null 2>&1 || true
 sudo ip route flush cache >/dev/null 2>&1 || true

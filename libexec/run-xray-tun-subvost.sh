@@ -285,7 +285,7 @@ write_runtime_resolv_conf() {
     for nameserver in $RUNTIME_DNS_SERVERS; do
       echo "nameserver ${nameserver}"
     done
-    echo "options timeout:2 attempts:2 rotate"
+    echo "options timeout:2 attempts:2"
   } | sudo tee /etc/resolv.conf >/dev/null
 }
 
@@ -345,6 +345,27 @@ apply_vpn_excluded_ipv4_routes() {
   done
 }
 
+apply_ufw_icmp_fix() {
+  local route_value
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for route_value in $VPN_EXCLUDED_IPV4_ROUTES; do
+    sudo iptables -t filter -C INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || \
+      sudo iptables -t filter -I INPUT 1 -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT
+  done
+}
+
+cleanup_ufw_icmp_fix() {
+  local route_value
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for route_value in $VPN_EXCLUDED_IPV4_ROUTES; do
+    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
+  done
+}
+
 materialize_runtime_config() {
   python3 - \
     "$XRAY_CONFIG" \
@@ -394,6 +415,7 @@ policy_route_cleanup() {
 
 cleanup_partial_start() {
   policy_route_cleanup
+  cleanup_ufw_icmp_fix
 
   if [[ -n "${XRAY_PID:-}" ]]; then
     sudo kill "$XRAY_PID" 2>/dev/null || true
@@ -628,7 +650,7 @@ fi
 echo "[3/8] Materialize runtime-конфига"
 materialize_runtime_config
 
-if ! XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
+if ! sudo XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -c "$XRAY_RUNTIME_CONFIG" >>"$XRAY_CHECK_LOG" 2>&1; then
   echo "Xray config check завершился ошибкой. Смотри лог: $XRAY_CHECK_LOG" >&2
   exit 1
 fi
@@ -661,6 +683,7 @@ if [[ -n "$TUN_INTERFACE_ADDRESS" ]]; then
 fi
 sudo ip route replace table "$ROUTE_TABLE" default dev "$TUN_INTERFACE_NAME"
 apply_vpn_excluded_ipv4_routes
+apply_ufw_icmp_fix
 sudo ip rule add pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE"
 sudo ip route flush cache >/dev/null 2>&1 || true
 
