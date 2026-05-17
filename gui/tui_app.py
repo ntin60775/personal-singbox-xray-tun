@@ -42,7 +42,8 @@ from subvost_app_service import (
     build_default_service,
     humanize_bytes,
 )
-from subvost_store import store_payload
+from subvost_parser import preview_links
+from subvost_store import save_manual_import_results, store_payload
 
 TUI_APP_ID = "io.subvost.XrayTun.TUI"
 TUI_TITLE = "Subvost Xray TUN"
@@ -91,6 +92,61 @@ class ConfirmModal(ModalScreen):
 
     def action_confirm(self) -> None:
         self.dismiss(True)
+
+
+class ImportSubscriptionModal(ModalScreen):
+    """Модальный диалог импорта подписки."""
+
+    BINDINGS = [("escape", "dismiss", "Отмена")]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import-sub-container"):
+            yield Static("[b]Импорт подписки[/b]", classes="title")
+            yield Label("Название:")
+            yield Input(placeholder="Название подписки", id="inp-sub-name")
+            yield Label("URL:")
+            yield Input(placeholder="https://", id="inp-sub-url")
+            with Horizontal(id="import-sub-buttons"):
+                yield Button("Добавить", variant="success", id="btn-sub-add")
+                yield Button("Отмена", variant="error", id="btn-sub-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-sub-add":
+            name = self.query_one("#inp-sub-name", Input).value.strip()
+            url = self.query_one("#inp-sub-url", Input).value.strip()
+            if not name or not url:
+                return
+            self.dismiss({"name": name, "url": url})
+        else:
+            self.dismiss(None)
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
+
+
+class ImportLinkModal(ModalScreen):
+    """Модальный диалог импорта ссылок."""
+
+    BINDINGS = [("escape", "dismiss", "Отмена")]
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import-link-container"):
+            yield Static("[b]Импорт ссылок[/b]", classes="title")
+            yield Label("Вставьте ссылки (по одной на строку):")
+            yield TextArea(id="ta-links")
+            with Horizontal(id="import-link-buttons"):
+                yield Button("Импортировать", variant="success", id="btn-link-import")
+                yield Button("Отмена", variant="error", id="btn-link-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-link-import":
+            text = self.query_one("#ta-links", TextArea).text
+            self.dismiss({"text": text, "activate_single": False})
+        else:
+            self.dismiss(None)
+
+    def action_dismiss(self) -> None:
+        self.dismiss(None)
 
 
 class DashboardTab(Container):
@@ -163,19 +219,29 @@ class DashboardTab(Container):
 class NodesTab(Container):
     """Вкладка Узлы и подписки."""
 
+    selected_row_key: str | None = None
+
     def compose(self) -> ComposeResult:
         with Vertical(id="nodes-vertical"):
             with Horizontal(id="nodes-actions"):
                 yield Button("➕ Импорт подписки", id="btn-import-sub")
                 yield Button("🔄 Обновить все", id="btn-refresh-all")
                 yield Button("➕ Добавить вручную", id="btn-add-manual")
+                yield Button("▶ Активировать", variant="success", id="btn-activate-node")
             yield DataTable(id="nodes-table")
+            yield Label("Выберите строку и нажмите Активировать", id="nodes-hint")
 
     def on_mount(self) -> None:
         table = self.query_one("#nodes-table", DataTable)
         table.add_columns("Имя", "Протокол", "Сервер", "Пинг", "Подписка")
         table.cursor_type = "row"
         table.zebra_stripes = True
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.selected_row_key = str(event.row_key.value) if event.row_key else None
+        hint = self.query_one("#nodes-hint", Label)
+        if self.selected_row_key:
+            hint.update(f"Выбран: {self.selected_row_key}. Нажмите Активировать.")
 
 
 class LogTab(Container):
@@ -275,6 +341,21 @@ class SubvostTUI(App):
         margin-bottom: 1;
     }
     #nodes-actions Button, #log-actions Button, #routing-actions Button, #settings-actions Button {
+        margin: 0 1;
+    }
+    #import-sub-container, #import-link-container {
+        width: 60;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #import-sub-buttons, #import-link-buttons {
+        height: auto;
+        margin-top: 1;
+        align: center middle;
+    }
+    #import-sub-buttons Button, #import-link-buttons Button {
         margin: 0 1;
     }
     #log-viewer {
@@ -511,6 +592,8 @@ class SubvostTUI(App):
             await self._action_refresh_all()
         elif btn_id == "btn-add-manual":
             await self._action_add_manual()
+        elif btn_id == "btn-activate-node":
+            await self._action_activate_node()
         elif btn_id == "btn-refresh-log":
             self._update_log()
         elif btn_id == "btn-refresh-geodata":
@@ -553,8 +636,21 @@ class SubvostTUI(App):
     async def _action_import_subscription(self) -> None:
         if self.service is None:
             return
-        # Простая реализация: диалог ввода через notify
-        self.notify("Импорт подписок пока через CLI или веб-интерфейс", severity="warning")
+        result = await self.push_screen_wait(ImportSubscriptionModal())
+        if result is None:
+            return
+        try:
+            await self._run_service_action(
+                "Добавление подписки...",
+                self.service.add_subscription,
+                result["name"],
+                result["url"],
+            )
+            self.notify("Подписка добавлена", severity="information")
+            self._update_nodes()
+            self._update_dashboard()
+        except Exception:
+            pass
 
     async def _action_refresh_all(self) -> None:
         if self.service is None:
@@ -567,7 +663,54 @@ class SubvostTUI(App):
             pass
 
     async def _action_add_manual(self) -> None:
-        self.notify("Ручное добавление пока через CLI", severity="warning")
+        if self.service is None:
+            return
+        result = await self.push_screen_wait(ImportLinkModal())
+        if result is None:
+            return
+        try:
+            def _do_import():
+                store = self.service.ensure_store_ready()
+                results = preview_links(result["text"])
+                valid = sum(1 for r in results if r.get("valid"))
+                if valid == 0:
+                    raise ValueError("Нет валидных ссылок.")
+                save_result = save_manual_import_results(
+                    store, results, activate_single=result["activate_single"]
+                )
+                self.service.persist_store(store)
+                return save_result
+            save_result = await self._run_service_action("Импорт ссылок...", _do_import)
+            self.notify(f"Импортировано узлов: {len(save_result.get('added', []))}", severity="information")
+            self._update_nodes()
+            self._update_dashboard()
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+
+    async def _action_activate_node(self) -> None:
+        if self.service is None:
+            return
+        nodes_tab = self.query_one("#nodes-tab", NodesTab)
+        key = nodes_tab.selected_row_key
+        if not key:
+            self.notify("Сначала выберите строку в таблице", severity="warning")
+            return
+        parts = key.split(":", 1)
+        if len(parts) != 2:
+            return
+        profile_id, node_id = parts
+        try:
+            await self._run_service_action(
+                "Активация узла...",
+                self.service.activate_selection,
+                profile_id,
+                node_id,
+            )
+            self.notify("Узел активирован", severity="information")
+            self._update_dashboard()
+            self._update_nodes()
+        except Exception:
+            pass
 
     async def _action_refresh_geodata(self) -> None:
         if self.service is None:
