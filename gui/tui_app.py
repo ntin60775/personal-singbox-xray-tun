@@ -201,9 +201,9 @@ class DashboardTab(Container):
                     yield Static("[b]Маршрутизация[/b]", classes="card-header")
                     yield Label(self.routing_badge_text, id="routing-badge-label")
             with Horizontal(id="dashboard-actions"):
-                yield Button("[Старт]", variant="success", id="btn-start")
-                yield Button("[Стоп]", variant="error", id="btn-stop")
-                yield Button("[Диагностика]", variant="primary", id="btn-diag")
+                yield Button("▶ Старт", variant="success", id="btn-start")
+                yield Button("■ Стоп", variant="error", id="btn-stop")
+                yield Button("🔍 Диагностика", variant="primary", id="btn-diag")
             with Horizontal(id="dashboard-system-actions"):
                 yield Button("[Обновить]  Alt+R", id="btn-refresh")
                 yield Button("[Команды]   Alt+P", id="btn-palette")
@@ -273,16 +273,16 @@ class NodesTab(Container):
         with Vertical(id="nodes-vertical"):
             yield Static("[b]Подписки[/b]", classes="section-header")
             with Horizontal(id="sub-actions"):
-                yield Button("[Импорт подписки]", id="btn-import-sub")
-                yield Button("[Обновить все]", id="btn-refresh-all")
-                yield Button("[Обновить]", id="btn-refresh-sub")
-                yield Button("[Удалить]", variant="error", id="btn-delete-sub")
+                yield Button("➕ Импорт подписки", id="btn-import-sub")
+                yield Button("🔄 Обновить все", id="btn-refresh-all")
+                yield Button("🔄 Обновить", id="btn-refresh-sub")
+                yield Button("❌ Удалить", variant="error", id="btn-delete-sub")
             yield DataTable(id="sub-table")
             yield Static("[b]Узлы[/b]", classes="section-header")
             with Horizontal(id="nodes-actions"):
-                yield Button("[Добавить вручную]", id="btn-add-manual")
-                yield Button("[Активировать]", variant="success", id="btn-activate-node")
-                yield Button("[Пинг]", id="btn-ping-node")
+                yield Button("➕ Добавить вручную", id="btn-add-manual")
+                yield Button("▶ Активировать", variant="success", id="btn-activate-node")
+                yield Button("📡 Пинг", id="btn-ping-node")
             yield DataTable(id="nodes-table")
             yield Label("Выберите строку и нажмите действие", id="nodes-hint")
 
@@ -336,7 +336,7 @@ class LogTab(Container):
     def compose(self) -> ComposeResult:
         with Vertical(id="log-vertical"):
             with Horizontal(id="log-actions"):
-                yield Button("[Обновить]", id="btn-refresh-log")
+                yield Button("🔄 Обновить", id="btn-refresh-log")
                 yield Select(
                     [("Все", "all"), ("Ошибки", "error"), ("Предупреждения", "warning"), ("Инфо", "info")],
                     value="all",
@@ -360,11 +360,11 @@ class RoutingTab(Container):
     def compose(self) -> ComposeResult:
         with Vertical(id="routing-vertical"):
             with Horizontal(id="routing-actions"):
-                yield Button("[Обновить geodata]", id="btn-refresh-geodata")
-                yield Button("[Импорт профиля]", id="btn-import-rp")
-                yield Button("[Активировать профиль]", variant="success", id="btn-activate-rp")
-                yield Button("[Вкл/Выкл маршрутизацию]", id="btn-toggle-routing")
-                yield Button("[Сбросить профиль]", variant="error", id="btn-clear-rp")
+                yield Button("🔄 Обновить geodata", id="btn-refresh-geodata")
+                yield Button("➕ Импорт профиля", id="btn-import-rp")
+                yield Button("▶ Активировать профиль", variant="success", id="btn-activate-rp")
+                yield Button("Вкл/Выкл маршрутизацию", id="btn-toggle-routing")
+                yield Button("❌ Сбросить профиль", variant="error", id="btn-clear-rp")
             yield Static("[b]Routing-профили[/b]", classes="section-header")
             yield DataTable(id="routing-table")
             yield Label("Выберите профиль и нажмите действие", id="routing-hint")
@@ -417,8 +417,8 @@ class SettingsTab(Container):
                 yield Label("Retention (дней):", classes="setting-label")
                 yield Input("7", id="inp-retention", classes="setting-input")
             with Horizontal(id="settings-actions"):
-                yield Button("[Сохранить]", variant="success", id="btn-save-settings")
-                yield Button("[Очистить артефакты]", variant="warning", id="btn-cleanup")
+                yield Button("💾 Сохранить", variant="success", id="btn-save-settings")
+                yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -608,15 +608,15 @@ class SubvostTUI(App):
 
         active_node = status.get("active_node")
         if active_node:
-            dashboard.active_node_text = self._strip_emoji(active_node.get("name", "—"))
+            dashboard.active_node_text = active_node.get("name", "—")
         else:
             dashboard.active_node_text = "—"
 
         traffic = status.get("traffic", {})
         rx = traffic.get("rx_total")
         tx = traffic.get("tx_total")
-        dashboard.traffic_rx_text = f"RX: {humanize_bytes(rx)}"
-        dashboard.traffic_tx_text = f"TX: {humanize_bytes(tx)}"
+        dashboard.traffic_rx_text = f"↓ {humanize_bytes(rx)}"
+        dashboard.traffic_tx_text = f"↑ {humanize_bytes(tx)}"
 
         routing = status.get("routing", {})
         active_rp = routing.get("active_profile")
@@ -658,9 +658,8 @@ class SubvostTUI(App):
                 ping_cache = self._status.get("ping", {}).get("cache", {})
                 ping_key = f"{profile.get('id')}:{node.get('id')}"
                 ping_val = ping_cache.get(ping_key, "—")
-                node_name = self._strip_emoji(node.get("name", "—"))
                 row = (
-                    node_name,
+                    node.get("name", "—"),
                     node.get("protocol", "—"),
                     node.get("server", "—"),
                     str(ping_val),
@@ -697,12 +696,6 @@ class SubvostTUI(App):
                 color = "yellow"
             viewer.write(f"[{color}]{line}[/{color}]")
 
-    @staticmethod
-    def _strip_emoji(text: str) -> str:
-        import re
-        # Убираем эмодзи и флаги стран (суррогатные пары)
-        return re.sub(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U000024C2-\U0001F251\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002600-\U000026FF\U00002500-\U00002BEF]+', '', text).strip()
-
     def _update_routing(self) -> None:
         if not self._store:
             return
@@ -711,7 +704,7 @@ class SubvostTUI(App):
         for rp in self._store.get("routing_profiles", []):
             enabled = "Вкл" if rp.get("enabled") else "Выкл"
             rt.add_row(
-                self._strip_emoji(rp.get("name", "—")),
+                rp.get("name", "—"),
                 enabled,
                 rp.get("type", "custom"),
                 key=rp.get("id", ""),
