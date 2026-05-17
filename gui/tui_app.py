@@ -305,6 +305,10 @@ class NodesTab(Container):
         table.add_columns("Имя", "Протокол", "Сервер", "Пинг", "Подписка")
         table.cursor_type = "row"
         table.zebra_stripes = True
+        # Заполняем данные при первом открытии
+        app = self.app
+        if isinstance(app, SubvostTUI):
+            app._update_nodes()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table_id = event.data_table.id
@@ -370,6 +374,10 @@ class RoutingTab(Container):
         dt.add_columns("Сеть", "Действие", "Источник")
         dt.cursor_type = "row"
         dt.zebra_stripes = True
+        # Заполняем данные при первом открытии
+        app = self.app
+        if isinstance(app, SubvostTUI):
+            app._update_routing()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -632,36 +640,40 @@ class SubvostTUI(App):
             self.notify(f"Ошибка загрузки store: {exc}", severity="error")
             return
 
-        sub_table = self.query_one("#sub-table", DataTable)
-        sub_table.clear()
-        for sub in store.get("subscriptions", []):
-            profile = next((p for p in store.get("profiles", []) if p.get("id") == sub.get("profile_id")), {})
-            node_count = len(profile.get("nodes", []))
-            enabled = "Вкл" if sub.get("enabled", True) else "Выкл"
-            sub_table.add_row(
-                sub.get("name", "—"),
-                sub.get("url", "—")[:40] + "..." if len(sub.get("url", "")) > 40 else sub.get("url", "—"),
-                str(node_count),
-                enabled,
-                key=sub.get("id", ""),
-            )
-
-        table = self.query_one("#nodes-table", DataTable)
-        table.clear()
-        for profile in store.get("profiles", []):
-            profile_name = profile.get("name", "Без имени")
-            for node in profile.get("nodes", []):
-                ping_cache = self._status.get("ping", {}).get("cache", {})
-                ping_key = f"{profile.get('id')}:{node.get('id')}"
-                ping_val = ping_cache.get(ping_key, "—")
-                row = (
-                    node.get("name", "—"),
-                    node.get("protocol", "—"),
-                    node.get("server", "—"),
-                    str(ping_val),
-                    profile_name,
+        try:
+            sub_table = self.query_one("#sub-table", DataTable)
+            sub_table.clear()
+            for sub in store.get("subscriptions", []):
+                profile = next((p for p in store.get("profiles", []) if p.get("id") == sub.get("profile_id")), {})
+                node_count = len(profile.get("nodes", []))
+                enabled = "Вкл" if sub.get("enabled", True) else "Выкл"
+                sub_table.add_row(
+                    sub.get("name", "—"),
+                    sub.get("url", "—")[:40] + "..." if len(sub.get("url", "")) > 40 else sub.get("url", "—"),
+                    str(node_count),
+                    enabled,
+                    key=sub.get("id", ""),
                 )
-                table.add_row(*row, key=ping_key)
+
+            table = self.query_one("#nodes-table", DataTable)
+            table.clear()
+            for profile in store.get("profiles", []):
+                profile_name = profile.get("name", "Без имени")
+                for node in profile.get("nodes", []):
+                    ping_cache = self._status.get("ping", {}).get("cache", {})
+                    ping_key = f"{profile.get('id')}:{node.get('id')}"
+                    ping_val = ping_cache.get(ping_key, "—")
+                    row = (
+                        node.get("name", "—"),
+                        node.get("protocol", "—"),
+                        node.get("server", "—"),
+                        str(ping_val),
+                        profile_name,
+                    )
+                    table.add_row(*row, key=ping_key)
+        except Exception:
+            # Вкладка еще не смонтирована — игнорируем
+            pass
 
     def _update_log(self) -> None:
         log_tab = self.query_one("#log-tab", LogTab)
@@ -695,26 +707,30 @@ class SubvostTUI(App):
     def _update_routing(self) -> None:
         if not self._store:
             return
-        rt = self.query_one("#routing-table", DataTable)
-        rt.clear()
-        for rp in self._store.get("routing_profiles", []):
-            enabled = "Вкл" if rp.get("enabled") else "Выкл"
-            rt.add_row(
-                rp.get("name", "—"),
-                enabled,
-                rp.get("type", "custom"),
-                key=rp.get("id", ""),
-            )
+        try:
+            rt = self.query_one("#routing-table", DataTable)
+            rt.clear()
+            for rp in self._store.get("routing_profiles", []):
+                enabled = "Вкл" if rp.get("enabled") else "Выкл"
+                rt.add_row(
+                    rp.get("name", "—"),
+                    enabled,
+                    rp.get("type", "custom"),
+                    key=rp.get("id", ""),
+                )
 
-        dt = self.query_one("#direct-table", DataTable)
-        dt.clear()
-        direct_report = self._status.get("direct_report", {})
-        for item in direct_report.get("entries", []):
-            dt.add_row(
-                item.get("network", "—"),
-                item.get("action", "—"),
-                item.get("source", "—"),
-            )
+            dt = self.query_one("#direct-table", DataTable)
+            dt.clear()
+            direct_report = self._status.get("direct_report", {})
+            for item in direct_report.get("entries", []):
+                dt.add_row(
+                    item.get("network", "—"),
+                    item.get("action", "—"),
+                    item.get("source", "—"),
+                )
+        except Exception:
+            # Вкладка еще не смонтирована — игнорируем
+            pass
 
     def _update_settings(self) -> None:
         if self.service is None:
