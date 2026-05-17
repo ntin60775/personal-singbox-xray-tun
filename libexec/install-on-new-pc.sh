@@ -180,6 +180,22 @@ else
   exit 1
 fi
 
+echo "[5/5] Проверка версии textual"
+python3 -c "
+import textual
+ver = tuple(int(x) for x in textual.__version__.split('.')[:3])
+min_ver = (8, 2, 6)
+if ver < min_ver:
+    print(f'textual {textual.__version__} устарел (требуется >= {'.'.join(str(x) for x in min_ver)})')
+    exit(1)
+" 2>/dev/null || {
+  echo "apt-версия textual устарела. Обновляю через pip..."
+  python3 -m pip install --upgrade textual --break-system-packages || {
+    echo "Ошибка обновления textual через pip. Выполни вручную:"
+    echo "  python3 -m pip install --upgrade textual --break-system-packages"
+  }
+}
+
 echo
 echo "Зависимости установлены. Bundle не копировался."
 echo "Запускай TUI из текущего каталога:"

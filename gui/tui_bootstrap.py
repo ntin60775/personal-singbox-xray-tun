@@ -15,6 +15,8 @@ REQUIRED_COMMANDS = (
     ("curl", "curl"),
 )
 
+MIN_TEXTUAL_VERSION = (8, 2, 6)
+
 REQUIRED_PACKAGES = (
     ("python3-textual", "python3-textual"),
 )
@@ -75,12 +77,30 @@ def _install_packages(packages: list[str]) -> bool:
         return False
 
 
-def check_textual() -> tuple[bool, str]:
+def check_textual() -> tuple[bool, str, bool]:
+    """Проверка textual. Возвращает (ok, message, needs_pip_upgrade)."""
     try:
-        import textual  # noqa: F401
-        return True, ""
+        import textual
+        version = tuple(int(x) for x in textual.__version__.split(".")[:3])
+        if version >= MIN_TEXTUAL_VERSION:
+            return True, f"textual {textual.__version__}", False
+        return False, f"textual {textual.__version__} (требуется >= {'.'.join(str(x) for x in MIN_TEXTUAL_VERSION)})", True
     except ImportError:
-        return False, "python3-textual не установлен"
+        return False, "python3-textual не установлен", False
+
+
+def _upgrade_textual_via_pip() -> bool:
+    print("Обновление textual через pip...", file=sys.stderr)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "textual", "--break-system-packages"],
+            check=True,
+            capture_output=True,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        print("Ошибка обновления textual через pip.", file=sys.stderr)
+        return False
 
 
 def check_dependencies() -> list[dict[str, Any]]:
@@ -106,13 +126,14 @@ def check_dependencies() -> list[dict[str, Any]]:
             "message": f"{description} доступно" if ok else f"{description} не найдено (`{path}`)",
         })
 
-    ok, msg = check_textual()
+    ok, msg, needs_pip = check_textual()
     results.append({
         "name": "python3-textual",
         "kind": "python-package",
         "target": "textual",
         "ok": ok,
         "message": msg if msg else "python3-textual установлен",
+        "needs_pip_upgrade": needs_pip,
     })
 
     # xray
@@ -144,6 +165,7 @@ def suggest_install(results: list[dict[str, Any]]) -> list[str]:
         if r["ok"]:
             continue
         if r["kind"] == "python-package":
+            # apt может иметь старую версию, предлагаем pip как fallback
             missing_packages.append("python3-textual")
         elif r["name"] == "iproute2":
             missing_packages.append("iproute2")
@@ -167,6 +189,16 @@ def run_bootstrap(interactive: bool = True, check_only: bool = False) -> bool:
                 if not r["ok"]:
                     print(f"[FAIL] {r['message']}", file=sys.stderr)
         return all_ok
+
+    # Проверяем, нужен ли pip-апгрейд textual
+    textual_result = next((r for r in results if r["name"] == "python3-textual"), {})
+    if textual_result.get("needs_pip_upgrade"):
+        answer = input("Обновить textual через pip? [Д/н]: ").strip().lower()
+        if answer in ("", "д", "да", "y", "yes"):
+            if _upgrade_textual_via_pip():
+                print("Перепроверка...", file=sys.stderr)
+                return run_bootstrap(interactive=False)
+        return False
 
     if all_ok:
         return True

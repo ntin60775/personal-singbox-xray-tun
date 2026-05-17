@@ -30,7 +30,20 @@ Bundle умеет:
 - **GUI (TUI)**: Универсальный текстовый интерфейс на `textual` (`gui/tui_app.py`) — работает в любом эмуляторе терминала под любым DE без зависимости от GTK/WebKitGTK. Импортирует `subvost_app_service.py` напрямую, не использует HTTP backend.
 - **Tray**: Фоновый tray-индикатор (`gui/tui_tray.py`) через Ayatana/AppIndicator с быстрыми действиями.
 - **Сеть**: `iproute2`, `iptables` не требуется, policy-routing через `ip rule`/`ip route`.
-- **Системные зависимости**: `xray`, `python3`, `python3-textual`, `iproute2`, `curl`, `sudo`, `pkexec`, рабочий `/dev/net/tun`.
+- **Системные зависимости**: `xray`, `python3` (≥3.11), `textual` (≥8.2.6), `iproute2`, `curl`, `sudo`, `pkexec`, рабочий `/dev/net/tun`.
+
+### Стек TUI (зафиксирован)
+
+| Компонент | Версия | Примечание |
+|-----------|--------|------------|
+| Python | ≥3.11 | типизация, `pathlib`, `asyncio` |
+| textual | ≥8.2.6 | TUI framework; `push_screen_wait` требует worker-контекст, используем `push_screen` + callback |
+| rich | ≥15.0.0 | зависимость textual |
+| pygments | ≥2.20.0 | подсветка синтаксиса в textual |
+
+**Правило**: если apt предлагает textual <8.2.6, ставить через `pip install --upgrade textual --break-system-packages`.
+
+**Bootstrap**: `gui/tui_bootstrap.py` проверяет версию textual и предлагает обновить через pip, если apt-версия устарела.
 
 ### Windows 8.1
 
