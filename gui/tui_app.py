@@ -634,7 +634,10 @@ class SubvostTUI(App):
             return
         try:
             snapshot = self.service.collect_store_snapshot()
-            store = snapshot.get("store", {})
+            # collect_store_snapshot возвращает {"store": store_payload(), ...}
+            # store_payload() содержит {"store": real_store, ...}
+            store_payload = snapshot.get("store", {})
+            store = store_payload.get("store", {})
             self._store = store
         except Exception as exc:
             self.notify(f"Ошибка загрузки store: {exc}", severity="error")
@@ -1108,7 +1111,7 @@ class SubvostTUI(App):
         elif active_tab == "tab-settings":
             self._update_settings()
 
-    def on_tabbed_content_changed(self, event) -> None:
+    def on_tabbed_content_tab_activated(self, event) -> None:
         tab_id = event.tab.id
         if tab_id == "tab-log":
             self._update_log()
