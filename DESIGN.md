@@ -1,56 +1,56 @@
 # Дизайн-контракт проекта
 
 Этот файл нужен как корневая входная точка по визуальному направлению рядом с `AGENTS.md`.
-Для текущего нативного `GTK4` клиента проект использует тёмное направление на базе `Raycast DESIGN.md`, адаптированное под desktop utility для `xray/TUN`, а не под web-dashboard.
+Для текущего TUI-клиента проект использует тёмное направление, адаптированное под desktop utility для `xray/TUN`.
 
 ## Источник истины
 
-Подробный visual contract, ограничения и screen-by-screen правила зафиксированы в:
+Подробный контракт реализации зафиксирован в:
 
-- `knowledge/tasks/TASK-2026-0053-gtk4-native-ui-spike/subtasks/TASK-2026-0053.1-gtk4-shell-tray-and-settings-shell/subtasks/TASK-2026-0053.1.1-raycast-dark-ui-contract/sdd.md`
+- `knowledge/tasks/TASK-2026-0064-universal-tui-frontend/sdd.md`
 
-Этот `DESIGN.md` является коротким проектным входом. Детализация, которую нужно использовать при реализации `GTK4` экранов, живёт в `sdd.md` указанной подзадачи.
+Этот `DESIGN.md` является коротким проектным входом.
 
 ## Базовое направление
 
-- визуальный референс: `Raycast`
+- технология: `textual` (Python TUI framework)
 - тема по умолчанию: тёмная
-- тип интерфейса: desktop shell
+- тип интерфейса: терминальный desktop shell
 - приоритет: скорость считывания статуса и действий, а не декоративность
+- целевая совместимость: любой эмулятор терминала под любым DE (XFCE, KDE, GNOME, i3)
 
 ## Ключевые принципы
 
 - интерфейс должен ощущаться как нативная настольная утилита, а не как SaaS-панель;
-- поверхность окна должна быть плотной, тёмной и собранной;
+- поверхность должна быть плотной, тёмной и собранной;
 - акцентные цвета использовать только для selected-state, focus, CTA и критичных runtime-сигналов;
-- `Dashboard`, `Subscriptions`, `Log`, tray и settings обязаны жить в одной visual system;
+- `Dashboard`, `Узлы`, `Лог`, tray и settings обязаны жить в одной visual system;
 - все сценарии, которые можно автоматизировать, должны закрепляться кодовыми проверками раньше, чем попадут в финальный ручной smoke-лист.
 
-## Палитра
+## Палитра (textual CSS)
 
-- `bg/app`: `#101218`
-- `bg/window`: `#151821`
-- `bg/panel`: `#1B1F2A`
-- `bg/elevated`: `#222735`
-- `bg/log`: `#0D1016`
-- `border/subtle`: `#2B3140`
-- `text/primary`: `#F3F6FB`
-- `text/secondary`: `#B7C0D4`
-- `text/muted`: `#8D96AA`
-- `accent/primary`: `#FF6363`
-- `state/success`: `#3DDC97`
-- `state/warning`: `#FFB84D`
-- `state/error`: `#FF5D73`
-- `state/info`: `#7BC4FF`
+- `bg/app`: `#101218` → `$background-darken-2`
+- `bg/window`: `#151821` → `$background-darken-1`
+- `bg/panel`: `#1B1F2A` → `$surface-darken-1`
+- `bg/elevated`: `#222735` → `$surface`
+- `bg/log`: `#0D1016` → `$background`
+- `border/subtle`: `#2B3140` → `$primary-darken-2`
+- `text/primary`: `#F3F6FB` → `$text`
+- `text/secondary`: `#B7C0D4` → `$text-muted`
+- `accent/primary`: `#FF6363` → `$error` (для CTA и критичных сигналов)
+- `state/success`: `#3DDC97` → `$success`
+- `state/warning`: `#FFB84D` → `$warning`
+- `state/error`: `#FF5D73` → `$error`
+- `state/info`: `#7BC4FF` → `$primary`
 
 ## Типографика
 
-- UI: `Inter`, `SF Pro Text`, системный `sans-serif`
-- лог: `MesloLGS NF`, `FiraCode`, системный `monospace`
-- заголовок экрана: `24-28 px`
-- заголовок панели: `16-18 px`
-- основной текст: `13-14 px`
-- вторичный текст: `12-13 px`
+- UI: системный моноширинный шрифт терминала
+- лог: системный моноширинный шрифт терминала
+- заголовок экрана: `text-style: bold; color: $text-accent`
+- заголовок панели: `text-style: bold`
+- основной текст: стандартный размер textual
+- вторичный текст: `$text-muted`
 
 ## Контракт по экранам
 
@@ -90,12 +90,12 @@
 - светлые карточки на тёмном фоне;
 - крупные hero-композиции внутри operational UI;
 - декоративные blur-слои и стеклянные эффекты по умолчанию;
-- разные визуальные языки у `Dashboard`, `Subscriptions` и `Log`.
+- разные визуальные языки у `Dashboard`, `Узлы` и `Лог`.
 
 ## Применение
 
-Если меняется `GTK4` UI:
+Если меняется TUI:
 
 1. Сначала сверяться с этим `DESIGN.md`.
-2. Затем брать детальные правила из `sdd.md` подзадачи `TASK-2026-0053.1.1`.
+2. Затем брать детальные правила из `sdd.md` задачи `TASK-2026-0064`.
 3. Только после этого реализовывать конкретный экран или компонент.

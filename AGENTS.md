@@ -27,10 +27,10 @@ Bundle умеет:
 ### Linux
 
 - **Runtime**: Bash (`bash` + `set -euo pipefail`) + Python 3.
-- **GUI (основной)**: Python HTTP-backend (`gui/gui_server.py`, порт `127.0.0.1:8421`) + HTML-фронтенд (`gui/main_gui.html`), обёрнутый в GTK/WebKitGTK (`gui/embedded_webview.py`).
-- **GUI (нативный)**: Отдельный GTK4 native UI (`gui/native_shell_app.py`) с собственной визуальной системой, tray-поддержкой и D-Bus управляющим интерфейсом.
+- **GUI (TUI)**: Универсальный текстовый интерфейс на `textual` (`gui/tui_app.py`) — работает в любом эмуляторе терминала под любым DE без зависимости от GTK/WebKitGTK. Импортирует `subvost_app_service.py` напрямую, не использует HTTP backend.
+- **Tray**: Фоновый tray-индикатор (`gui/tui_tray.py`) через Ayatana/AppIndicator с быстрыми действиями.
 - **Сеть**: `iproute2`, `iptables` не требуется, policy-routing через `ip rule`/`ip route`.
-- **Системные зависимости**: `xray`, `python3`, `iproute2`, `curl`, `sudo`, `pkexec`, рабочий `/dev/net/tun`.
+- **Системные зависимости**: `xray`, `python3`, `python3-textual`, `iproute2`, `curl`, `sudo`, `pkexec`, рабочий `/dev/net/tun`.
 
 ### Windows 8.1
 
@@ -95,11 +95,8 @@ Bundle умеет:
 # Первоначальная установка зависимостей
 bash ./install-on-new-pc.sh
 
-# Запуск GUI (без раннего root-запроса)
-./open-subvost-gui.sh
-
-# Запуск GTK4 native UI
-./open-subvost-gtk-ui.sh
+# Запуск TUI (универсальный, работает в любом DE)
+./open-subvost-tui.sh
 
 # Ручной старт runtime
 sudo ./run-xray-tun-subvost.sh
@@ -129,7 +126,7 @@ powershell -ExecutionPolicy Bypass -File .\build\windows\build-win81-release.ps1
 ### Автоматические тесты (Python)
 
 ```bash
-python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview tests.test_subvost_app_service tests.test_subvost_routing tests.test_native_shell_shared tests.test_native_shell_app tests.test_windows_build_chain tests.test_windows_core_helper_contract tests.test_windows_runtime_adapter
+python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_subvost_app_service tests.test_subvost_routing tests.test_windows_build_chain tests.test_windows_core_helper_contract tests.test_windows_runtime_adapter
 ```
 
 Также выполняются проверки синтаксиса:
@@ -138,7 +135,7 @@ python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.tes
 bash -n *.sh
 bash -n libexec/*.sh
 bash -n lib/*.sh
-python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py gui/native_shell_app.py gui/subvost_app_service.py gui/subvost_routing.py gui/windows_core_cli.py gui/windows_runtime_adapter.py
+python3 -m py_compile gui/tui_app.py gui/tui_bootstrap.py gui/tui_tray.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_app_service.py gui/subvost_routing.py gui/windows_core_cli.py gui/windows_runtime_adapter.py
 python3 -m json.tool xray-tun-subvost.json
 ```
 
@@ -153,7 +150,7 @@ ip rule show
 ./stop-xray-tun-subvost.sh
 ```
 
-Если менялся GUI — прогон через `http://127.0.0.1:8421` или `.desktop`: `Старт`, `Стоп`, `Диагностика`, импорт подписки, выбор узла.
+Если менялся GUI — прогон через `./open-subvost-tui.sh`: `Старт`, `Стоп`, `Диагностика`, импорт подписки, выбор узла.
 
 ---
 
@@ -187,7 +184,7 @@ ip rule show
 
 ## Архитектура runtime (Linux)
 
-1. Пользователь выбирает узел в GUI → `gui_server.py` сохраняет выбор в store и генерирует `generated-xray-config.json`.
+1. Пользователь выбирает узел в TUI → `tui_app.py` сохраняет выбор в store через `subvost_app_service.py` и генерирует `generated-xray-config.json`.
 2. Кнопка **Старт** → backend вызывает `run-xray-tun-subvost.sh` через `pkexec`.
 3. Скрипт:
    - проверяет TUN-устройство, отсутствие конфликтующих сервисов;
@@ -206,20 +203,14 @@ ip rule show
 
 ## Архитектура GUI
 
-### Web-GUI (основной путь)
+### TUI (единственный Linux-путь)
 
-- `gui_server.py` — `ThreadingHTTPServer` на `127.0.0.1:8421`.
-- Фронтенд — `gui/main_gui.html` (Single Page Application).
-- Запуск окна — `embedded_webview.py` (GTK3/GTK4 + WebKitGTK с software rendering).
-- Взаимодействие: HTTP JSON API.
-
-### GTK4 Native Shell (альтернативный путь)
-
-- `native_shell_app.py` — полноценное GTK4-приложение без webview.
-- Экраны: Dashboard, Subscriptions, Routes, Log, Settings.
-- D-Bus управляющий интерфейс (`io.subvost.XrayTun.Control`) для tray-helper.
-- Tray-helper — отдельный процесс `native_shell_tray_helper.py` (AppIndicator).
-- Визуальный контракт описан в `DESIGN.md` (Raycast dark UI).
+- `gui/tui_app.py` — приложение на `textual` с 5 вкладками: Dashboard, Узлы, Лог, Маршруты, Настройки.
+- Запуск в любом эмуляторе терминала под любым DE (XFCE, KDE, GNOME, i3 и т.д.).
+- Нет зависимости от GTK4/WebKitGTK/AppIndicator.
+- Бизнес-логика импортируется напрямую из `subvost_app_service.py`, HTTP backend не используется.
+- Tray — фоновый процесс `gui/tui_tray.py` (Ayatana/AppIndicator) с быстрыми действиями.
+- Bootstrap — `gui/tui_bootstrap.py` проверяет зависимости и предлагает установить через `pkexec`.
 
 ### Windows UI
 

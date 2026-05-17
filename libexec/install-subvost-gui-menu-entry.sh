@@ -12,7 +12,7 @@ APPLICATIONS_DIR=""
 DESKTOP_ENTRY_PATH=""
 ICON_PATH="${SUBVOST_DESKTOP_ICON_PATH}"
 ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"
-LAUNCHER_PATH="${SUBVOST_OPEN_GUI_WRAPPER}"
+LAUNCHER_PATH="${SUBVOST_OPEN_TUI_WRAPPER}"
 
 ensure_real_home_detected() {
   if [[ -z "$REAL_HOME" ]]; then
@@ -27,7 +27,7 @@ ensure_runtime_paths() {
   subvost_ensure_absolute_path "$ICON_PATH" "ICON_PATH"
   subvost_ensure_absolute_path "$LAUNCHER_PATH" "LAUNCHER_PATH"
 
-  [[ -x "$LAUNCHER_PATH" ]] || subvost_die "Не найден launcher GUI: ${LAUNCHER_PATH}"
+  [[ -x "$LAUNCHER_PATH" ]] || subvost_die "Не найден launcher TUI: ${LAUNCHER_PATH}"
   [[ -f "$ICON_PATH" ]] || subvost_die "Не найдена иконка bundle: ${ICON_PATH}"
 }
 
@@ -37,12 +37,12 @@ write_desktop_entry() {
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Subvost Xray TUN GUI
-Comment=Запуск локального GUI для управления туннелем
-Exec=/usr/bin/env python3 -c "import os, sys; os.environ.setdefault('SUBVOST_GUI_LAUNCH_MODE', 'browser'); os.execv(sys.argv[1], [sys.argv[1]])" "${LAUNCHER_PATH}"
+Name=Subvost Xray TUN
+Comment=Универсальный TUI для управления туннелем
+Exec=${LAUNCHER_PATH}
 TryExec=${LAUNCHER_PATH}
 Icon=${ICON_NAME}
-Terminal=false
+Terminal=true
 Categories=Network;
 StartupNotify=true
 EOF_DESKTOP

@@ -137,21 +137,8 @@ collect_pkexec_dependency_package() {
   exit 1
 }
 
-collect_gui_dependency_packages() {
-  local packages=("python3-gi")
-
-  if apt_package_exists "gir1.2-gtk-4.0" && apt_package_exists "gir1.2-webkit-6.0"; then
-    packages+=("gir1.2-gtk-4.0" "gir1.2-webkit-6.0")
-  fi
-
-  if apt_package_exists "gir1.2-gtk-3.0"; then
-    packages+=("gir1.2-gtk-3.0")
-    if apt_package_exists "gir1.2-webkit2-4.1"; then
-      packages+=("gir1.2-webkit2-4.1")
-    elif apt_package_exists "gir1.2-webkit2-4.0"; then
-      packages+=("gir1.2-webkit2-4.0")
-    fi
-  fi
+collect_tui_dependency_packages() {
+  local packages=("python3-textual")
 
   if apt_package_exists "gir1.2-ayatanaappindicator3-0.1"; then
     packages+=("gir1.2-ayatanaappindicator3-0.1")
@@ -166,9 +153,9 @@ ensure_real_home_detected
 echo "[1/4] Проверка базовых системных утилит"
 if command -v apt-get >/dev/null 2>&1; then
   run_root apt-get update
-  mapfile -t GUI_PACKAGES < <(collect_gui_dependency_packages)
+  mapfile -t TUI_PACKAGES < <(collect_tui_dependency_packages)
   PKEXEC_PACKAGE="$(collect_pkexec_dependency_package)"
-  run_root apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 sudo unzip "${GUI_PACKAGES[@]}"
+  run_root apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 sudo unzip "${TUI_PACKAGES[@]}"
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
   echo "Установи зависимости вручную: curl, unzip, iproute2, pkexec или policykit-1, python3, sudo, xray." >&2
@@ -195,5 +182,5 @@ fi
 
 echo
 echo "Зависимости установлены. Bundle не копировался."
-echo "Запускай bundle из текущего каталога:"
-echo "  ${SUBVOST_RUN_WRAPPER}"
+echo "Запускай TUI из текущего каталога:"
+echo "  ${SUBVOST_OPEN_TUI_WRAPPER}"
