@@ -52,17 +52,24 @@ def _can_install_packages() -> bool:
 
 
 def _install_packages(packages: list[str]) -> bool:
+    update_cmd: list[str] | None = None
+    install_cmd: list[str]
     if os.geteuid() == 0:
-        cmd = ["apt-get", "install", "-y", *packages]
+        update_cmd = ["apt-get", "update"]
+        install_cmd = ["apt-get", "install", "-y", *packages]
     elif _has_command("pkexec"):
-        cmd = ["pkexec", "apt-get", "install", "-y", *packages]
+        update_cmd = ["pkexec", "apt-get", "update"]
+        install_cmd = ["pkexec", "apt-get", "install", "-y", *packages]
     elif _has_command("sudo"):
-        cmd = ["sudo", "apt-get", "install", "-y", *packages]
+        update_cmd = ["sudo", "apt-get", "update"]
+        install_cmd = ["sudo", "apt-get", "install", "-y", *packages]
     else:
         return False
 
     try:
-        subprocess.run(cmd, check=True)
+        if update_cmd:
+            subprocess.run(update_cmd, check=True, capture_output=True)
+        subprocess.run(install_cmd, check=True)
         return True
     except subprocess.CalledProcessError:
         return False

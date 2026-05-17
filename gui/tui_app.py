@@ -613,7 +613,12 @@ class SubvostTUI(App):
         rt.clear()
         for rp in self._store.get("routing_profiles", []):
             enabled = "Вкл" if rp.get("enabled") else "Выкл"
-            rt.add_row(rp.get("name", "—"), enabled, rp.get("type", "custom"))
+            rt.add_row(
+                rp.get("name", "—"),
+                enabled,
+                rp.get("type", "custom"),
+                key=rp.get("id", ""),
+            )
 
         dt = self.query_one("#direct-table", DataTable)
         dt.clear()
