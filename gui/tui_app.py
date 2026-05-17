@@ -204,10 +204,6 @@ class DashboardTab(Container):
                 yield Button("▶ Старт", variant="success", id="btn-start")
                 yield Button("■ Стоп", variant="error", id="btn-stop")
                 yield Button("🔍 Диагностика", variant="primary", id="btn-diag")
-            with Horizontal(id="dashboard-system-actions"):
-                yield Button("[Обновить]  Alt+R", id="btn-refresh")
-                yield Button("[Команды]   Alt+P", id="btn-palette")
-                yield Button("[Выход]     Alt+Q", id="btn-quit")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -220,12 +216,6 @@ class DashboardTab(Container):
             asyncio.create_task(app._action_stop())
         elif btn_id == "btn-diag":
             asyncio.create_task(app._action_diag())
-        elif btn_id == "btn-refresh":
-            app.action_refresh()
-        elif btn_id == "btn-palette":
-            app.action_command_palette()
-        elif btn_id == "btn-quit":
-            app.action_quit()
 
     def watch_status_text(self, value: str) -> None:
         try:
@@ -481,12 +471,15 @@ class SubvostTUI(App):
     #main-tabs {
         height: 1fr;
     }
-    #global-hints {
+    #footer-bar {
         height: auto;
-        text-align: center;
-        color: $text-muted;
+        width: 100%;
+        align: center middle;
         background: $surface-darken-1;
         padding: 0 1;
+    }
+    #footer-bar Button {
+        margin: 0 2;
     }
     #import-sub-container, #import-link-container {
         width: 60;
@@ -577,7 +570,10 @@ class SubvostTUI(App):
                     yield RoutingTab(id="routing-tab")
                 with TabPane("Настройки", id="tab-settings"):
                     yield SettingsTab(id="settings-tab")
-            yield Static("  Alt+Q — Выход   |   Alt+R — Обновить   |   Alt+P — Команды", id="global-hints")
+            with Horizontal(id="footer-bar"):
+                yield Button("Обновить  Alt+R", id="btn-footer-refresh")
+                yield Button("Команды   Alt+P", id="btn-footer-palette")
+                yield Button("Выход     Alt+Q", id="btn-footer-quit")
 
     def on_mount(self) -> None:
         if self.service is None:
@@ -1073,6 +1069,15 @@ class SubvostTUI(App):
         """Запустить tray-процесс в фоне."""
         # Tray-интеграция: запуск gui/tui_tray.py через subprocess
         pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        btn_id = event.button.id
+        if btn_id == "btn-footer-refresh":
+            self.action_refresh()
+        elif btn_id == "btn-footer-palette":
+            self.action_command_palette()
+        elif btn_id == "btn-footer-quit":
+            self.action_quit()
 
     def action_refresh(self) -> None:
         active_tab = self.query_one(TabbedContent).active
