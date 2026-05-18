@@ -617,8 +617,8 @@ class SubvostTUI(App):
             dashboard.active_node_text = "—"
 
         traffic = status.get("traffic", {})
-        rx = traffic.get("rx_total")
-        tx = traffic.get("tx_total")
+        rx = traffic.get("rx_bytes")
+        tx = traffic.get("tx_bytes")
         dashboard.traffic_rx_text = f"↓ {humanize_bytes(rx)}"
         dashboard.traffic_tx_text = f"↑ {humanize_bytes(tx)}"
 
@@ -628,6 +628,16 @@ class SubvostTUI(App):
             dashboard.routing_badge_text = active_rp.get("name", "—")
         else:
             dashboard.routing_badge_text = "Нет профиля"
+
+        processes = status.get("processes", {})
+        is_live = bool(processes.get("xray_alive"))
+        try:
+            start_btn = dashboard.query_one("#btn-start", Button)
+            stop_btn = dashboard.query_one("#btn-stop", Button)
+            start_btn.disabled = is_live
+            stop_btn.disabled = not is_live
+        except NoMatches:
+            pass
 
     def _update_nodes(self) -> None:
         if self.service is None:
