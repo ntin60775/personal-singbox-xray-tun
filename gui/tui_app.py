@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import shutil
 import subprocess
@@ -179,8 +180,8 @@ class DashboardTab(Container):
 
     status_text = reactive("Неизвестно")
     active_node_text = reactive("—")
-    traffic_rx_text = reactive("—")
-    traffic_tx_text = reactive("—")
+    traffic_text = reactive("—")
+    connection_time_text = reactive("—")
     routing_badge_text = reactive("—")
 
     def compose(self) -> ComposeResult:
@@ -190,13 +191,13 @@ class DashboardTab(Container):
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Статус[/b]", classes="card-header")
                     yield Label(self.status_text, id="status-label")
+                    yield Label(self.connection_time_text, id="conn-time-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Активный узел[/b]", classes="card-header")
                     yield Label(self.active_node_text, id="active-node-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Трафик[/b]", classes="card-header")
-                    yield Label(self.traffic_rx_text, id="traffic-rx-label")
-                    yield Label(self.traffic_tx_text, id="traffic-tx-label")
+                    yield Label(self.traffic_text, id="traffic-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Маршрутизация[/b]", classes="card-header")
                     yield Label(self.routing_badge_text, id="routing-badge-label")
@@ -216,6 +217,7 @@ class DashboardTab(Container):
             asyncio.create_task(app._action_stop())
         elif btn_id == "btn-diag":
             asyncio.create_task(app._action_diag())
+        self.set_focus(None)
 
     def watch_status_text(self, value: str) -> None:
         try:
@@ -231,16 +233,16 @@ class DashboardTab(Container):
         except Exception:
             pass
 
-    def watch_traffic_rx_text(self, value: str) -> None:
+    def watch_traffic_text(self, value: str) -> None:
         try:
-            label = self.query_one("#traffic-rx-label", Label)
+            label = self.query_one("#traffic-label", Label)
             label.update(value)
         except Exception:
             pass
 
-    def watch_traffic_tx_text(self, value: str) -> None:
+    def watch_connection_time_text(self, value: str) -> None:
         try:
-            label = self.query_one("#traffic-tx-label", Label)
+            label = self.query_one("#conn-time-label", Label)
             label.update(value)
         except Exception:
             pass
@@ -565,7 +567,7 @@ class SubvostTUI(App):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header(show_clock=False)
         with Vertical(id="main-container"):
             with TabbedContent(id="main-tabs"):
                 with TabPane("Подключение", id="tab-dashboard"):
@@ -619,8 +621,21 @@ class SubvostTUI(App):
         traffic = status.get("traffic", {})
         rx = traffic.get("rx_bytes")
         tx = traffic.get("tx_bytes")
-        dashboard.traffic_rx_text = f"↓ {humanize_bytes(rx)}"
-        dashboard.traffic_tx_text = f"↑ {humanize_bytes(tx)}"
+        dashboard.traffic_text = f"↓ {humanize_bytes(rx)}   ↑ {humanize_bytes(tx)}"
+
+        connected_since = status.get("runtime", {}).get("connected_since")
+        if connected_since:
+            try:
+                start = datetime.datetime.fromisoformat(connected_since)
+                now = datetime.datetime.now(start.tzinfo) if start.tzinfo else datetime.datetime.now()
+                elapsed = now - start
+                hours, remainder = divmod(int(elapsed.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                dashboard.connection_time_text = f"Время: {hours:02d}:{minutes:02d}:{seconds:02d}"
+            except Exception:
+                dashboard.connection_time_text = "—"
+        else:
+            dashboard.connection_time_text = "—"
 
         routing = status.get("routing", {})
         active_rp = routing.get("active_profile")
