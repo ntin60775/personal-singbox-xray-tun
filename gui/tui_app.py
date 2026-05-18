@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import json
-import shutil
+import os
+import signal
 import subprocess
 import sys
-import threading
 import traceback
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,7 @@ from typing import Any
 from textual.app import App, ComposeResult, NoMatches
 from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.screen import ModalScreen, Screen
+from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     DataTable,
@@ -1109,13 +1108,35 @@ class SubvostTUI(App):
 
     def _stop_tray(self) -> None:
         """Остановить tray-процесс, если запущен."""
-        # Tray-интеграция: при необходимости отправить сигнал процессу tui_tray.py
-        pass
+        tray_script = "tui_tray.py"
+        # Ищем PID через pgrep, если доступен
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", tray_script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in result.stdout.strip().splitlines():
+                try:
+                    pid = int(line.strip())
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, OSError):
+                    continue
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
 
     def _start_tray(self) -> None:
         """Запустить tray-процесс в фоне."""
-        # Tray-интеграция: запуск gui/tui_tray.py через subprocess
-        pass
+        tray_path = SCRIPT_DIR / "tui_tray.py"
+        if tray_path.exists():
+            subprocess.Popen(
+                [sys.executable, str(tray_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
