@@ -1153,6 +1153,11 @@ class SubvostTUI(App):
 
     def _do_quit(self, confirmed: bool) -> None:
         if confirmed:
+            if self.service is not None:
+                try:
+                    self.service.stop_runtime()
+                except Exception:
+                    pass
             self._stop_tray()
             self.exit()
 
