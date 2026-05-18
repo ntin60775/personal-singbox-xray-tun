@@ -12,7 +12,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, NoMatches
 from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import ModalScreen, Screen
@@ -313,12 +313,12 @@ class NodesTab(Container):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table_id = event.data_table.id
         if table_id == "nodes-table":
-            self.selected_row_key = str(event.row_key.value) if event.row_key else None
+            self.selected_row_key = str(event.row_key) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_row_key:
                 hint.update(f"Выбран узел: {self.selected_row_key}")
         elif table_id == "sub-table":
-            self.selected_sub_id = str(event.row_key.value) if event.row_key else None
+            self.selected_sub_id = str(event.row_key) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_sub_id:
                 hint.update(f"Выбрана подписка: {self.selected_sub_id}")
@@ -396,7 +396,7 @@ class RoutingTab(Container):
             app._action_clear_routing_profile()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.selected_profile_id = str(event.row_key.value) if event.row_key else None
+        self.selected_profile_id = str(event.row_key) if event.row_key else None
         hint = self.query_one("#routing-hint", Label)
         if self.selected_profile_id:
             hint.update(f"Выбран профиль: {self.selected_profile_id}")
@@ -652,10 +652,10 @@ class SubvostTUI(App):
                 enabled = "Вкл" if sub.get("enabled", True) else "Выкл"
                 sub_table.add_row(
                     sub.get("name", "—"),
-                    sub.get("url", "—")[:40] + "..." if len(sub.get("url", "")) > 40 else sub.get("url", "—"),
+                    (sub.get("url") or "—")[:40] + "..." if len(sub.get("url") or "") > 40 else (sub.get("url") or "—"),
                     str(node_count),
                     enabled,
-                    key=sub.get("id", ""),
+                    key=sub.get("id") or "",
                 )
 
             table = self.query_one("#nodes-table", DataTable)
@@ -674,7 +674,7 @@ class SubvostTUI(App):
                         profile_name,
                     )
                     table.add_row(*row, key=ping_key)
-        except Exception:
+        except NoMatches:
             # Вкладка еще не смонтирована — игнорируем
             pass
 
@@ -719,7 +719,7 @@ class SubvostTUI(App):
                     rp.get("name", "—"),
                     enabled,
                     rp.get("type", "custom"),
-                    key=rp.get("id", ""),
+                    key=rp.get("id") or "",
                 )
 
             dt = self.query_one("#direct-table", DataTable)
@@ -731,7 +731,7 @@ class SubvostTUI(App):
                     item.get("action", "—"),
                     item.get("source", "—"),
                 )
-        except Exception:
+        except NoMatches:
             # Вкладка еще не смонтирована — игнорируем
             pass
 
@@ -943,6 +943,9 @@ class SubvostTUI(App):
                 sub_id,
             )
             self.notify("Подписка удалена", severity="information")
+            nodes_tab.selected_sub_id = None
+            hint = nodes_tab.query_one("#nodes-hint", Label)
+            hint.update("Выберите строку и нажмите действие")
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка удаления: {exc}", severity="error")
