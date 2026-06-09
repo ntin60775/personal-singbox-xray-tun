@@ -110,3 +110,10 @@
 | `TASK-2026-0066.5` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 5: Дедупликация shell-слоя |
 | `TASK-2026-0066.6` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 6: Разделение `subvost_routing.py` |
 | `TASK-2026-0066.7` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 7: Тесты (характеризационные + интеграционные) |
+| `TASK-2026-0067` | `—` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Декомпозиция God Object: миграция 42 методов SubvostAppService в use cases, адаптеры и ViewModel |
+| `TASK-2026-0067.1` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 1: StatusViewModel в tui_app.py |
+| `TASK-2026-0067.2` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 2: SystemNetworkAdapter — ping |
+| `TASK-2026-0067.3` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 3: ShellRuntimeAdapter — start/stop/diag |
+| `TASK-2026-0067.4` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 4: Репозитории — Store CRUD |
+| `TASK-2026-0067.5` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 5: Оставшиеся методы |
+| `TASK-2026-0067.6` | `TASK-2026-0067` | `черновик` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0067-decompose-god-object/` | Шаг 6: Чистка и финальный suite |
