@@ -102,11 +102,11 @@
 | `TASK-2026-0064.4` | `TASK-2026-0064` | `завершена` | `низкий` | `main` | `knowledge/tasks/TASK-2026-0064-universal-tui-frontend/subtasks/TASK-2026-0064.4-p2-nice-to-have/` | Реализация P2-функций: полный паритет со старым UI |
 | `TASK-2026-0065` | `—` | `завершена` | `высокий` | `main` | `knowledge/tasks/TASK-2026-0064-icmp-dns-fix-port/` | Портирование ICMP echo-reply fix, DNS rotate fix и sudo config check из subvost-xray-tun |
 
-| `TASK-2026-0066` | `—` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | DDD-рефакторинг архитектуры: доменные сущности, репозитории, use cases, разделение слоёв |
-| `TASK-2026-0066.1` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 1: Доменные сущности, value objects, фабрики, события |
-| `TASK-2026-0066.2` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 2: Репозитории, Unit of Work, миграция вызовов |
-| `TASK-2026-0066.3` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 3: Use Cases, Ports, Adapters |
-| `TASK-2026-0066.4` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 4: ViewModel, отделение presentation |
-| `TASK-2026-0066.5` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 5: Дедупликация shell-слоя |
-| `TASK-2026-0066.6` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 6: Разделение `subvost_routing.py` |
-| `TASK-2026-0066.7` | `TASK-2026-0066` | `черновик` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 7: Тесты (характеризационные + интеграционные) |
+| `TASK-2026-0066` | `—` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | DDD-рефакторинг архитектуры: доменные сущности, репозитории, use cases, разделение слоёв — ВСЕ 7 ФАЗ ЗАВЕРШЕНЫ |
+| `TASK-2026-0066.1` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 1: Доменные сущности, value objects, фабрики, события |
+| `TASK-2026-0066.2` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 2: Репозитории, Unit of Work, миграция вызовов |
+| `TASK-2026-0066.3` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 3: Use Cases, Ports, Adapters |
+| `TASK-2026-0066.4` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 4: ViewModel, отделение presentation |
+| `TASK-2026-0066.5` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 5: Дедупликация shell-слоя |
+| `TASK-2026-0066.6` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 6: Разделение `subvost_routing.py` |
+| `TASK-2026-0066.7` | `TASK-2026-0066` | `завершена` | `средний` | `main` | `knowledge/tasks/TASK-2026-0066-ddd-refactoring/` | Фаза 7: Тесты (характеризационные + интеграционные) |
