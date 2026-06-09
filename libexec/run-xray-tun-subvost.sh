@@ -81,32 +81,9 @@ ensure_python3_available() {
 }
 
 sync_generated_runtime_snapshot_from_store() {
-  local config_home
-
-  config_home="$(subvost_resolve_real_config_home "$REAL_HOME")"
-  python3 - \
-    "$REAL_HOME" \
-    "$config_home" \
-    "$SUBVOST_PROJECT_ROOT" \
-    "$REAL_UID" \
-    "$REAL_GID" <<'PY'
-import sys
-from pathlib import Path
-
-real_home = Path(sys.argv[1])
-config_home = sys.argv[2]
-project_root = Path(sys.argv[3])
-uid = int(sys.argv[4])
-gid = int(sys.argv[5])
-
-sys.path.insert(0, str(project_root / "gui"))
-
-from subvost_paths import build_app_paths  # noqa: E402
-from subvost_store import ensure_store_initialized  # noqa: E402
-
-paths = build_app_paths(real_home, config_home)
-ensure_store_initialized(paths, project_root, uid=uid, gid=gid)
-PY
+  HOME="$REAL_HOME" python3 "${SUBVOST_LIBEXEC_DIR}/_subvost_store_reader.py" \
+    --uid "$REAL_UID" --gid "$REAL_GID" \
+    sync-generated-runtime
 }
 
 ensure_tun_device_available() {
@@ -180,69 +157,15 @@ capture_runtime_diagnostic() {
 
 load_active_selection_from_store() {
   local store_file="$1"
-  local selection_data=""
 
   if [[ ! -f "$store_file" ]]; then
     return 0
   fi
 
-  selection_data="$(
-    python3 - "$store_file" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-profile_id = ""
-node_id = ""
-try:
-    with open(path, "r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-    selection = payload.get("active_selection", {})
-    profile_id = selection.get("profile_id") or ""
-    node_id = selection.get("node_id") or ""
-except Exception:
-    pass
-print(profile_id)
-print(node_id)
-PY
-  )"
-
-  ACTIVE_PROFILE_ID="$(printf '%s\n' "$selection_data" | sed -n '1p')"
-  ACTIVE_NODE_ID="$(printf '%s\n' "$selection_data" | sed -n '2p')"
+  ACTIVE_PROFILE_ID="$(HOME="$REAL_HOME" python3 "${SUBVOST_LIBEXEC_DIR}/_subvost_store_reader.py" --store-file "$store_file" active-profile-id)"
+  ACTIVE_NODE_ID="$(HOME="$REAL_HOME" python3 "${SUBVOST_LIBEXEC_DIR}/_subvost_store_reader.py" --store-file "$store_file" active-node-id)"
 }
 
-read_state_bundle_install_id() {
-  local state_file="$1"
-  local key value
-
-  [[ -f "$state_file" ]] || return 0
-
-  while IFS='=' read -r key value; do
-    case "$key" in
-      BUNDLE_INSTALL_ID)
-        if subvost_validate_install_id "$value"; then
-          printf '%s\n' "$value"
-          return 0
-        fi
-        ;;
-    esac
-  done <"$state_file"
-}
-
-read_state_value() {
-  local state_file="$1"
-  local target_key="$2"
-  local key value
-
-  [[ -f "$state_file" ]] || return 0
-
-  while IFS='=' read -r key value; do
-    if [[ "$key" == "$target_key" ]]; then
-      printf '%s\n' "$value"
-      return 0
-    fi
-  done <"$state_file"
-}
 
 legacy_state_runtime_is_live() {
   local state_file="$1"
@@ -356,15 +279,6 @@ apply_ufw_icmp_fix() {
   done
 }
 
-cleanup_ufw_icmp_fix() {
-  local route_value
-  if ! command -v iptables >/dev/null 2>&1; then
-    return 0
-  fi
-  for route_value in $VPN_EXCLUDED_IPV4_ROUTES; do
-    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
-  done
-}
 
 materialize_runtime_config() {
   python3 - \

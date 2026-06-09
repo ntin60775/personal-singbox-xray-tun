@@ -368,22 +368,9 @@ subvost_store_has_active_selection() {
     return 1
   fi
 
-  python3 - "$store_file" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-try:
-    with open(path, "r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-except Exception:
-    raise SystemExit(1)
-
-selection = payload.get("active_selection", {})
-profile_id = selection.get("profile_id")
-node_id = selection.get("node_id")
-raise SystemExit(0 if profile_id and node_id else 1)
-PY
+  local result
+  result="$(python3 "${SUBVOST_LIBEXEC_DIR}/_subvost_store_reader.py" --store-file "$store_file" has-active-selection)"
+  [[ "$result" == "true" ]]
 }
 
 subvost_resolve_active_xray_config_for_home() {
@@ -392,4 +379,51 @@ subvost_resolve_active_xray_config_for_home() {
 
   generated_xray_config="$(subvost_resolve_generated_xray_config_for_home "$real_home")"
   printf '%s\n' "$generated_xray_config"
+}
+
+# ── Shared state-file helpers ─────────────────────────────────────────────
+
+read_state_bundle_install_id() {
+  local state_file="$1"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      BUNDLE_INSTALL_ID)
+        if subvost_validate_install_id "$value"; then
+          printf '%s\n' "$value"
+          return 0
+        fi
+        ;;
+    esac
+  done <"$state_file"
+}
+
+read_state_value() {
+  local state_file="$1"
+  local target_key="$2"
+  local key value
+
+  [[ -f "$state_file" ]] || return 0
+
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "$target_key" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done <"$state_file"
+}
+
+# ── Shared ICMP helpers ───────────────────────────────────────────────────
+
+cleanup_ufw_icmp_fix() {
+  local route_value
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for route_value in ${VPN_EXCLUDED_IPV4_ROUTES:-}; do
+    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
+  done
 }

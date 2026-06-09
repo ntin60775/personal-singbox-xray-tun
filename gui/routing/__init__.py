@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import urllib.request
-from routing import (
+from .profile_manager import (
     DEFAULT_GEOIP_URL,
     DEFAULT_GEOSITE_URL,
     SUPPORTED_DOMAIN_STRATEGIES,
@@ -11,7 +10,6 @@ from routing import (
     KNOWN_IMPORT_KEYS,
     RoutingProfileError,
     annotate_direct_report_conflicts,
-    apply_routing_profile_to_config,
     build_direct_routes_report,
     build_geodata_status,
     download_routing_geodata,
@@ -20,4 +18,8 @@ from routing import (
     get_existing_geodata_status,
     parse_routing_profile_input,
     routing_profile_rule_count,
+)
+
+from .config_rewriter import (
+    apply_routing_profile_to_config,
 )

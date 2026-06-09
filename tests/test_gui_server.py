@@ -548,7 +548,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("printf 'BUNDLE_INSTALL_ID=%s\\n' \"$BUNDLE_INSTALL_ID\" >>\"$STATE_FILE\"", run_script)
         self.assertIn("BUNDLE_PROJECT_ROOT_HINT", run_script)
         self.assertNotIn("printf 'BUNDLE_PROJECT_ROOT=%s\\n' \"$SUBVOST_PROJECT_ROOT\" >>\"$STATE_FILE\"", run_script)
-        self.assertIn("read_state_bundle_install_id()", run_script)
+        self.assertIn("read_state_bundle_install_id", run_script)
         self.assertIn("STATE_BUNDLE_INSTALL_ID", stop_script)
         self.assertIn('FORCE_TAKEOVER="${SUBVOST_FORCE_TAKEOVER:-0}"', stop_script)
         self.assertIn("Выполняется явный перехват подключения другой установки bundle", stop_script)

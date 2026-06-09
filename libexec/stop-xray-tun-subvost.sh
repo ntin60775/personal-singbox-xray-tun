@@ -44,38 +44,6 @@ ensure_absolute_path "$STATE_FILE" "STATE_FILE"
 ensure_absolute_path "$RESOLV_BACKUP" "RESOLV_BACKUP"
 BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
 
-read_state_bundle_install_id() {
-  local state_file="$1"
-  local key value
-
-  [[ -f "$state_file" ]] || return 0
-
-  while IFS='=' read -r key value; do
-    case "$key" in
-      BUNDLE_INSTALL_ID)
-        if subvost_validate_install_id "$value"; then
-          printf '%s\n' "$value"
-          return 0
-        fi
-        ;;
-    esac
-  done <"$state_file"
-}
-
-read_state_value() {
-  local state_file="$1"
-  local target_key="$2"
-  local key value
-
-  [[ -f "$state_file" ]] || return 0
-
-  while IFS='=' read -r key value; do
-    if [[ "$key" == "$target_key" ]]; then
-      printf '%s\n' "$value"
-      return 0
-    fi
-  done <"$state_file"
-}
 
 legacy_state_runtime_is_live() {
   local state_file="$1"
@@ -244,15 +212,6 @@ else
   sudo pkill -f "xray run -c ${XRAY_CONFIG}" 2>/dev/null || true
 fi
 
-cleanup_ufw_icmp_fix() {
-  local route_value
-  if ! command -v iptables >/dev/null 2>&1; then
-    return 0
-  fi
-  for route_value in ${VPN_EXCLUDED_IPV4_ROUTES:-}; do
-    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
-  done
-}
 
 echo "[2/4] Очистка policy-routing"
 cleanup_ufw_icmp_fix
