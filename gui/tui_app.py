@@ -40,13 +40,15 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from subvost_app_service import (
     SubvostAppService,
     build_default_service,
-    humanize_bytes,
 )
 from subvost_parser import preview_links
 from subvost_store import save_manual_import_results, store_payload
 
 
 from subvost_paths import APP_DIRNAME, resolve_config_home
+from gui.presentation.view_models import build_view_model, humanize_bytes as _humanize_bytes, humanize_rate as _humanize_rate
+from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
+from infrastructure.json_repositories import JsonNodeRepository, JsonSubscriptionRepository
 
 TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
 
@@ -635,6 +637,11 @@ class SubvostTUI(App):
         self.service = service
         self._status: dict[str, Any] = {}
         self._store: dict[str, Any] = {}
+        self.runtime_adapter = ShellRuntimeAdapter(
+            project_root=PROJECT_ROOT,
+            libexec_dir=PROJECT_ROOT / "libexec",
+        )
+        self.network_adapter = SystemNetworkAdapter()
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -678,29 +685,13 @@ class SubvostTUI(App):
             self.notify(f"Ошибка получения статуса: {exc}", severity="error")
             return
 
+        vm = build_view_model(status)
         dashboard = self.query_one("#dashboard-tab", DashboardTab)
-        summary = status.get("summary", {})
-        state_label = summary.get("label", "—")
-        dashboard.status_text = state_label
-
-        active_node = status.get("active_node")
-        if active_node:
-            dashboard.active_node_text = active_node.get("name", "—")
-        else:
-            dashboard.active_node_text = "—"
-
-        traffic = status.get("traffic", {})
-        rx = traffic.get("rx_total")
-        tx = traffic.get("tx_total")
-        dashboard.traffic_rx_text = f"↓ {humanize_bytes(rx)}"
-        dashboard.traffic_tx_text = f"↑ {humanize_bytes(tx)}"
-
-        routing = status.get("routing", {})
-        active_rp = routing.get("active_profile")
-        if active_rp:
-            dashboard.routing_badge_text = active_rp.get("name", "—")
-        else:
-            dashboard.routing_badge_text = "Нет профиля"
+        dashboard.status_text = vm.connection_label
+        dashboard.active_node_text = vm.active_node_name or "—"
+        dashboard.traffic_rx_text = vm.traffic_rx_text
+        dashboard.traffic_tx_text = vm.traffic_tx_text
+        dashboard.routing_badge_text = vm.routing_active_profile_name or "Нет профиля"
 
     def _update_nodes(self) -> None:
         if self.service is None:
@@ -736,9 +727,9 @@ class SubvostTUI(App):
             for profile in store.get("profiles", []):
                 profile_name = profile.get("name", "Без имени")
                 for node in profile.get("nodes", []):
-                    ping_cache = self._status.get("ping", {}).get("cache", {})
+                    vm = build_view_model(self._status)
                     ping_key = f"{profile.get('id')}:{node.get('id')}"
-                    ping_val = ping_cache.get(ping_key, "—")
+                    ping_val = vm.ping_for_node(profile.get('id'), node.get('id'))
                     row = (
                         node.get("name", "—"),
                         node.get("protocol", "—"),
@@ -797,15 +788,14 @@ class SubvostTUI(App):
 
             dt = self.query_one("#direct-table", DataTable)
             dt.clear()
-            direct_report = self._status.get("direct_report", {})
-            for item in direct_report.get("entries", []):
+            vm = build_view_model(self._status)
+            for item in vm.direct_report_entries:
                 dt.add_row(
                     item.get("network", "—"),
                     item.get("action", "—"),
                     item.get("source", "—"),
                 )
         except Exception:
-            # Вкладка еще не смонтирована — игнорируем
             pass
 
     def _update_settings(self) -> None:
@@ -845,7 +835,7 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            await self._run_service_action("Запуск подключения...", self.service.start_runtime)
+            await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
             self.notify("Подключение запущено", severity="information")
             self._update_dashboard()
         except Exception:
@@ -855,7 +845,7 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            await self._run_service_action("Остановка подключения...", self.service.stop_runtime)
+            await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
             self.notify("Подключение остановлено", severity="information")
             self._update_dashboard()
         except Exception:
@@ -865,7 +855,7 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            await self._run_service_action("Снятие диагностики...", self.service.capture_diagnostics)
+            await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
             self.notify("Диагностика сохранена", severity="information")
             self._update_dashboard()
         except Exception:
@@ -875,12 +865,13 @@ class SubvostTUI(App):
         if result is None or self.service is None:
             return
         try:
-            await self._run_service_action(
-                "Добавление подписки...",
-                self.service.add_subscription,
-                result["name"],
-                result["url"],
-            )
+            def _do_add():
+                store = self.service.ensure_store_ready()
+                repo = JsonSubscriptionRepository(store)
+                sub = repo.add_subscription(result["name"], result["url"])
+                self.service.persist_store(store)
+                return sub
+            await self._run_service_action("Добавление подписки...", _do_add)
             self.notify("Подписка добавлена", severity="information")
             self._update_nodes()
             self._update_dashboard()
@@ -945,12 +936,13 @@ class SubvostTUI(App):
             return
         profile_id, node_id = parts
         try:
-            await self._run_service_action(
-                "Активация узла...",
-                self.service.activate_selection,
-                profile_id,
-                node_id,
-            )
+            def _do_activate():
+                store = self.service.ensure_store_ready()
+                repo = JsonNodeRepository(store)
+                repo.activate(profile_id, node_id)
+                self.service.persist_store(store)
+                return {"ok": True}
+            await self._run_service_action("Активация узла...", _do_activate)
             self.notify("Узел активирован", severity="information")
             self._update_dashboard()
             self._update_nodes()
@@ -972,7 +964,8 @@ class SubvostTUI(App):
         try:
             result = await self._run_service_action(
                 "Пинг узла...",
-                self.service.ping_node_by_id,
+                self.network_adapter.ping_via_service,
+                self.service,
                 profile_id,
                 node_id,
             )

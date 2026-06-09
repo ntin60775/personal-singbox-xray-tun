@@ -99,6 +99,18 @@ class ShellRuntimeAdapter:
         return ["pkexec", "env", *pkexec_env, "/usr/bin/env", "bash", str(script)]
 
 
+    def start_runtime(self, service):
+        """Делегирует запуск runtime в SubvostAppService."""
+        return service.start_runtime()
+
+    def stop_runtime(self, service):
+        """Делегирует остановку runtime в SubvostAppService."""
+        return service.stop_runtime()
+
+    def diagnose(self, service):
+        """Делегирует снятие диагностики в SubvostAppService."""
+        return service.capture_diagnostics()
+
 class SystemNetworkAdapter:
     """NetworkPort через системные вызовы (/proc, /sys, socket).
 
@@ -150,3 +162,7 @@ class SystemNetworkAdapter:
         except Exception:
             pass
         return result
+
+    def ping_via_service(self, service, profile_id: str, node_id: str) -> dict[str, Any]:
+        """Делегирует пинг узла в SubvostAppService."""
+        return service.ping_node_by_id(profile_id, node_id)

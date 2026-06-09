@@ -148,6 +148,14 @@ class JsonSubscriptionRepository:
     def delete(self, subscription_id: str) -> None:
         _store.delete_subscription(self._store, subscription_id)
 
+    def add_subscription(self, name: str, url: str) -> dict[str, Any]:
+        """Добавить подписку через store-функцию.
+
+        Создаёт запись подписки и связанный профиль в store.
+        Возвращает словарь подписки.
+        """
+        return _store.add_subscription(self._store, name, url)
+
 
 class JsonRoutingRepository:
     """Реализация RoutingRepository поверх subvost_store."""
