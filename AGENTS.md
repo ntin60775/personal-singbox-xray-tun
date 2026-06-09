@@ -1,15 +1,13 @@
 # Subvost Xray TUN — справка для агента
 
-Этот файл описывает архитектуру, конвенции и процессы проекта **Subvost Xray TUN** — переносимого bundle для запуска `xray-core` в `TUN`-режиме на Linux и Windows 8.1.
+Этот файл описывает архитектуру, конвенции и процессы проекта **Subvost Xray TUN** — переносимого bundle для запуска `xray-core` в `TUN`-режиме на Linux.
 
 ---
 
 ## Обзор проекта
 
 - **Основная платформа**: Linux desktop (Debian/Ubuntu-совместимые дистрибутивы).
-- **Дополнительная платформа**: Windows 8.1 x64 (нативный UI, не браузер).
-- **Режим поставки Linux**: переносимый bundle без отдельной сборки.
-- **Режим поставки Windows**: сборка переносимого комплекта через PowerShell-скрипт `build\windows\build-win81-release.ps1`.
+- **Режим поставки**: переносимый bundle без отдельной сборки.
 - **Язык проекта**: весь интерфейс, документация и комментарии в коде — на русском языке.
 - **Лицензия**: MIT.
 
@@ -45,12 +43,6 @@ Bundle умеет:
 
 **Bootstrap**: `gui/tui_bootstrap.py` проверяет версию textual и предлагает обновить через pip, если apt-версия устарела.
 
-### Windows 8.1
-
-- **UI**: Нативное приложение на `.NET Framework 4.8 + Windows Forms` (`windows/SubvostXrayTun.WinForms/`).
-- **Служебный модуль**: Python CLI (`gui/windows_core_cli.py`), собираемый через PyInstaller в `subvost-core.exe` (`SubvostCore.win81.spec`).
-- **Runtime-адаптер**: `gui/windows_runtime_adapter.py` — управляет `xray.exe`, `wintun.dll`, таблицей маршрутов Windows.
-- **Сборка**: PowerShell-скрипты скачивают pinned-версии `Xray` и `Wintun`, проверяют `SHA256`, собирают helper и WinForms-UI через `MSBuild`.
 
 ### Общие компоненты
 
@@ -68,18 +60,16 @@ Bundle умеет:
 ```text
 ├── lib/                    # Общая shell-библиотека (subvost-common.sh)
 ├── libexec/                # Реализация скриптов runtime, installer, launcher
-├── gui/                    # Python-backend, web-интерфейс, GTK4 shell, Windows helper
-├── windows/                # .NET Framework 4.8 WinForms проект
-├── build/windows/          # PowerShell-скрипты сборки Windows-комплекта
-├── docs/windows/           # Документация для Windows: инструкции, smoke-протокол
+├── gui/                    # Python TUI, бизнес-логика, tray
 ├── tests/                  # Unit-тесты Python-части
 ├── assets/                 # Иконка и статические ресурсы
 ├── knowledge/              # Внутренняя task-centric knowledge-система проекта
 ├── logs/                   # Runtime-логи (не коммитятся)
-├── runtime/                # Runtime-артефакты (Windows: xray.exe, wintun.dll)
+├── runtime/                # Runtime-артефакты
+├── archive/                # Замороженные компоненты (Windows-порт)
 ├── xray-tun-subvost.json   # Tracked-шаблон Xray-конфига (с placeholder-ами)
 ├── *.sh                    # Корневые wrapper-скрипты (делегируют в libexec/)
-└── *.desktop               # Desktop entry для GUI и GTK4 UI
+└── *.desktop               # Desktop entry для TUI
 ```
 
 ### Правило для shell-скриптов
@@ -91,10 +81,7 @@ Bundle умеет:
 ## Ключевые конфигурационные файлы
 
 - **`xray-tun-subvost.json`** — санитизированный шаблон Xray-конфига. Содержит placeholder-ы (`REPLACE_WITH_REALITY_UUID`, `REPLACE_WITH_REALITY_PUBLIC_KEY`, `REPLACE_WITH_REALITY_SHORT_ID`). Не запускается напрямую; bundle генерирует `generated-xray-config.json` при активации узла.
-- **`SubvostCore.win81.spec`** — спецификация PyInstaller для сборки `subvost-core.exe`.
-- **`build/windows/runtime-assets.win81.json`** — manifest pinned-версий `Xray` и `Wintun` с URL и SHA256.
-- **`build/windows/python-build-requirements.txt`** — единственная зависимость: `pyinstaller==6.20.0`.
-- **`.gitignore`** — исключает `logs/`, `__pycache__/`, `.venv-win81-x64/`, `dist/`, runtime-артефакты.
+- **`.gitignore`** — исключает `logs/`, `__pycache__/`, `dist/`, runtime-артефакты.
 
 ---
 
@@ -121,16 +108,6 @@ sudo ./run-xray-tun-subvost.sh
 sudo ./capture-xray-tun-state.sh
 ```
 
-### Windows 8.1
-
-Сборка выполняется из PowerShell в папке проекта:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build\windows\install-win81-build-deps.ps1
-powershell -ExecutionPolicy Bypass -File .\build\windows\build-win81-release.ps1
-```
-
-Результат: `dist\SubvostXrayTun\SubvostXrayTun.exe`.
 
 ---
 
@@ -139,7 +116,7 @@ powershell -ExecutionPolicy Bypass -File .\build\windows\build-win81-release.ps1
 ### Автоматические тесты (Python)
 
 ```bash
-python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_subvost_app_service tests.test_subvost_routing tests.test_windows_build_chain tests.test_windows_core_helper_contract tests.test_windows_runtime_adapter
+python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_subvost_app_service tests.test_subvost_routing
 ```
 
 Также выполняются проверки синтаксиса:
@@ -148,7 +125,7 @@ python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.tes
 bash -n *.sh
 bash -n libexec/*.sh
 bash -n lib/*.sh
-python3 -m py_compile gui/tui_app.py gui/tui_bootstrap.py gui/tui_tray.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_app_service.py gui/subvost_routing.py gui/windows_core_cli.py gui/windows_runtime_adapter.py
+python3 -m py_compile gui/tui_app.py gui/tui_bootstrap.py gui/tui_tray.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_app_service.py gui/subvost_routing.py
 python3 -m json.tool xray-tun-subvost.json
 ```
 
@@ -183,10 +160,6 @@ ip rule show
 - Все пути — `pathlib.Path`.
 - JSON-файлы пишутся атомарно (`atomic_write_json`).
 
-### C# / Windows Forms
-- `.NET Framework 4.8`, `LangVersion` 7.3.
-- `PascalCase` для типов и публичных членов.
-- Проект: `windows/SubvostXrayTun.WinForms/SubvostXrayTun.WinForms.csproj`.
 
 ### Git и коммиты
 - Короткие префиксы: `feat:`, `fix:`, `docs:`, `chore:`.
@@ -225,26 +198,19 @@ ip rule show
 - Tray — фоновый процесс `gui/tui_tray.py` (Ayatana/AppIndicator) с быстрыми действиями.
 - Bootstrap — `gui/tui_bootstrap.py` проверяет зависимости и предлагает установить через `pkexec`.
 
-### Windows UI
-
-- `SubvostXrayTun.exe` — WinForms-приложение.
-- Общается со служебным модулем `subvost-core.exe` через JSON CLI.
-- `subvost-core.exe` реализует те же команды, что и Linux-backend: `status`, `runtime start`, `runtime stop`, `diagnostics capture`, `subscriptions add`, `nodes activate` и т.д.
 
 ---
 
 ## Хранение данных
 
 - **Linux store**: `~/.config/subvost-xray-tun/store.json` (XDG Base Directory).
-- **Windows store**: `%LOCALAPPDATA%\subvost-xray-tun\store.json`.
 - **Формат store**: версионированная структура (`version: 3`), содержит профили, узлы, подписки, active_selection, routing-профили, мета-данные.
 - **Geodata**: `geoip.dat` и `geosite.dat` в каталоге `xray-assets` рядом со store.
-- **Логи**: `logs/xray-subvost.log` (Linux), `AppData/Local/subvost-xray-tun/logs/` (Windows).
+- **Логи**: `logs/xray-subvost.log` (Linux).
 
 ---
 
 ## Подписки и HWID
-
 Bundle отправляет Xray-совместимые заголовки при запросе подписок:
 - `User-Agent: Xray-core`
 - `X-HWID`, `X-Device-OS`, `X-Ver-OS`, `X-Device-Model`
@@ -280,7 +246,3 @@ HWID вычисляется детерминированно из хоста, д
 - `DESIGN.md` — визуальный контракт GTK4 UI (палитра, типографика, запрещённые паттерны).
 - `CONTRIBUTING.md` — правила вклада, стиль кода, preflight-проверки.
 - `SECURITY.md` — политика безопасности и disclosure.
-- `docs/windows/README-win81-user.md` — пользовательская инструкция Windows.
-- `docs/windows/README-win81-build.md` — инструкция сборки Windows.
-- `docs/windows/README-win81-runtime.md` — runtime-заметки Windows.
-- `docs/windows/win81-smoke-protocol.md` — чек-лист живой проверки Windows.

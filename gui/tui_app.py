@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import shutil
+import atexit
+import os
 import subprocess
 import sys
 import threading
@@ -45,6 +45,79 @@ from subvost_app_service import (
 from subvost_parser import preview_links
 from subvost_store import save_manual_import_results, store_payload
 
+
+from subvost_paths import APP_DIRNAME, resolve_config_home
+
+TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
+
+
+def _cleanup_tui_lock() -> None:
+    """Удаляет lock-файл TUI при выходе, если он принадлежит текущему процессу."""
+    try:
+        if TUI_LOCK_PATH.exists():
+            lines = TUI_LOCK_PATH.read_text().strip().split("\n")
+            if len(lines) >= 1:
+                lock_pid = int(lines[0].strip())
+                if lock_pid == os.getpid():
+                    TUI_LOCK_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _write_tui_lock() -> None:
+    """Записывает lock-файл с PID и PROJECT_ROOT текущего процесса."""
+    TUI_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TUI_LOCK_PATH.write_text(f"{os.getpid()}\n{PROJECT_ROOT}")
+
+
+def _acquire_tui_lock(force: bool = False) -> bool:
+    """Пытается захватить lock для одного экземпляра TUI.
+
+    Возвращает True, если lock успешно захвачен (можно продолжать запуск).
+    Возвращает False и выводит сообщение, если другой экземпляр уже работает.
+    При force=True принудительно перезаписывает существующий lock.
+    """
+    if force:
+        _write_tui_lock()
+        return True
+
+    if not TUI_LOCK_PATH.exists():
+        _write_tui_lock()
+        return True
+
+    # Читаем существующий lock
+    try:
+        content = TUI_LOCK_PATH.read_text().strip()
+        lines = content.split("\n")
+        if len(lines) < 1:
+            raise ValueError("повреждённый lock-файл")
+        lock_pid_str = lines[0].strip()
+        if not lock_pid_str:
+            raise ValueError("пустой PID в lock-файле")
+        lock_pid = int(lock_pid_str)
+        lock_root = lines[1].strip() if len(lines) >= 2 else "неизвестно"
+    except Exception:
+        print("Предупреждение: повреждённый lock-файл TUI, перезаписываю.", file=sys.stderr)
+        _write_tui_lock()
+        return True
+
+    # Проверяем, жив ли процесс
+    try:
+        os.kill(lock_pid, 0)
+    except ProcessLookupError:
+        print("Предупреждение: обнаружен stale lock (PID не существует), перезаписываю.", file=sys.stderr)
+        _write_tui_lock()
+        return True
+    except PermissionError:
+        pass  # Чужой процесс — считаем живым
+
+    # Процесс жив — отказываем
+    print(
+        f"TUI уже запущен (pid {lock_pid}) из {lock_root}. "
+        f"Используйте --force для принудительного перезапуска.",
+        file=sys.stderr,
+    )
+    return False
 TUI_APP_ID = "io.subvost.XrayTun.TUI"
 TUI_TITLE = "Subvost Xray TUN"
 
@@ -1147,6 +1220,10 @@ class SubvostTUI(App):
 
 
 def main() -> None:
+    force = "--force" in sys.argv
+    if not _acquire_tui_lock(force=force):
+        sys.exit(1)
+    atexit.register(_cleanup_tui_lock)
     app = SubvostTUI()
     app.run()
 
