@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "gui"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from subvost_parser import (  # noqa: E402
+from gui.subvost_parser import (  # noqa: E402
     ParseError,
     extract_subscription_metadata,
     parse_proxy_uri,

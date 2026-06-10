@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from subvost_routing import apply_routing_profile_to_config
+from .subvost_routing import apply_routing_profile_to_config
 
 
 def read_json_config(path: Path) -> dict[str, Any]:

@@ -35,11 +35,10 @@ from pathlib import Path
 
 _THIS_FILE = Path(__file__).resolve()
 _PROJECT_ROOT = _THIS_FILE.parent.parent
-_GUI_DIR = _PROJECT_ROOT / "gui"
-if str(_GUI_DIR) not in sys.path:
-    sys.path.insert(0, str(_GUI_DIR))
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from subvost_paths import (  # noqa: E402
+from gui.subvost_paths import (  # noqa: E402
     APP_DIRNAME,
     GENERATED_XRAY_CONFIG_FILENAME,
     STORE_FILENAME,

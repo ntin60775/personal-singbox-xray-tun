@@ -9,9 +9,9 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "gui"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from rpc_client import SubvostRPCClient, RPCError  # noqa: E402
+from gui.rpc_client import SubvostRPCClient, RPCError  # noqa: E402
 
 BACKEND_PATH = REPO_ROOT / "subvostd"
 

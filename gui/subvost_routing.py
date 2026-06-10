@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import urllib.request
-from routing import (
+from .routing import (
     DEFAULT_GEOIP_URL,
     DEFAULT_GEOSITE_URL,
     SUPPORTED_DOMAIN_STRATEGIES,

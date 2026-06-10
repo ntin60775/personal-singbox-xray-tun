@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from subvost_paths import AppPaths, atomic_write_bytes, ensure_owned_dir
+from ..subvost_paths import AppPaths, atomic_write_bytes, ensure_owned_dir
 
 
 DEFAULT_GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"

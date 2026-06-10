@@ -32,23 +32,21 @@ from textual.widgets import (
     TextArea,
 )
 
-# Импортируем бизнес-логику напрямую
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from subvost_app_service import (
+from .subvost_app_service import (
     SubvostAppService,
     build_default_service,
 )
-from subvost_parser import preview_links
-from subvost_store import save_manual_import_results, store_payload
+from .subvost_parser import preview_links
+from .subvost_store import save_manual_import_results, store_payload
 
 
-from subvost_paths import APP_DIRNAME, resolve_config_home
-from gui.presentation.view_models import build_view_model, humanize_bytes as _humanize_bytes, humanize_rate as _humanize_rate
-from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
-from infrastructure.json_repositories import JsonNodeRepository, JsonSubscriptionRepository
+from .subvost_paths import APP_DIRNAME, resolve_config_home
+from .presentation.view_models import build_view_model, humanize_bytes as _humanize_bytes, humanize_rate as _humanize_rate
+from .infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
+from .infrastructure.json_repositories import JsonNodeRepository, JsonSubscriptionRepository
 
 TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
 
@@ -107,7 +105,6 @@ def _acquire_tui_lock(force: bool = False) -> bool:
     try:
         os.kill(lock_pid, 0)
     except ProcessLookupError:
-        print("Предупреждение: обнаружен stale lock (PID не существует), перезаписываю.", file=sys.stderr)
         _write_tui_lock()
         return True
     except PermissionError:
@@ -697,11 +694,7 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            snapshot = self.service.collect_store_snapshot()
-            # collect_store_snapshot возвращает {"store": store_payload(), ...}
-            # store_payload() содержит {"store": real_store, ...}
-            store_payload = snapshot.get("store", {})
-            store = store_payload.get("store", {})
+            store = self.service.ensure_store_ready()
             self._store = store
         except Exception as exc:
             self.notify(f"Ошибка загрузки store: {exc}", severity="error")

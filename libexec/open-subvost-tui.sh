@@ -22,5 +22,5 @@ if ! python3 "${SUBVOST_GUI_DIR}/tui_bootstrap.py" --check-only 2>/dev/null; the
   }
 fi
 
-# Запуск TUI
-exec python3 "${SUBVOST_GUI_DIR}/tui_app.py" "$@"
+# Запуск TUI как модуля (от корня проекта, для относительных импортов)
+cd "$SUBVOST_PROJECT_ROOT" && exec python3 -m gui.tui_app "$@"

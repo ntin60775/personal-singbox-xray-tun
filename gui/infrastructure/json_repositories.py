@@ -1,16 +1,10 @@
 """Инфраструктурный слой — адаптеры JSON-хранилища."""
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
-# Проект использует плоский импорт из gui/ — обеспечиваем его
-_SCRIPT_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from gui.domain import (
+from ..domain import (
     Node,
     Subscription,
     node_from_store_dict,
@@ -19,7 +13,7 @@ from gui.domain import (
     subscription_to_store_dict,
 )
 
-import subvost_store as _store
+from .. import subvost_store as _store
 
 
 class JsonNodeRepository:

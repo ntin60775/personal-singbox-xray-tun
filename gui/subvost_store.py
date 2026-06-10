@@ -14,9 +14,9 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_DNS, uuid4, uuid5
 
-from subvost_parser import ParseError, extract_subscription_metadata, parse_proxy_uri, parse_subscription_payload
-from subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
-from subvost_routing import (
+from .subvost_parser import ParseError, extract_subscription_metadata, parse_proxy_uri, parse_subscription_payload
+from .subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
+from .subvost_routing import (
     RoutingProfileError,
     build_geodata_status,
     download_routing_geodata,
@@ -24,7 +24,7 @@ from subvost_routing import (
     parse_routing_profile_input,
     routing_profile_rule_count,
 )
-from subvost_runtime import node_can_render_runtime, read_json_config, render_runtime_config
+from .subvost_runtime import node_can_render_runtime, read_json_config, render_runtime_config
 
 
 STORE_VERSION = 3

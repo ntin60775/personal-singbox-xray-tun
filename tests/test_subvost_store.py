@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "gui"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from subvost_paths import build_app_paths  # noqa: E402
-from subvost_store import (  # noqa: E402
+from gui.subvost_paths import build_app_paths  # noqa: E402
+from gui.subvost_store import (  # noqa: E402
     MANUAL_PROFILE_ID,
     activate_routing_profile,
     add_subscription,
@@ -22,6 +22,7 @@ from subvost_store import (  # noqa: E402
     ensure_store_structure,
     ensure_store_initialized,
     import_routing_profile,
+    load_store,
     prepare_routing_runtime,
     read_gui_settings,
     refresh_subscription,
@@ -311,7 +312,7 @@ class SubvostStoreTests(unittest.TestCase):
             )
 
             with patch(
-                "subvost_routing.urllib.request.urlopen",
+                "gui.subvost_routing.urllib.request.urlopen",
                 side_effect=[FakeResponse(b"geoip"), FakeResponse(b"geosite")],
             ):
                 result = import_routing_profile(store, paths, routing_json)
@@ -389,7 +390,7 @@ class SubvostStoreTests(unittest.TestCase):
             payload = (
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})) as mocked_urlopen:
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})) as mocked_urlopen:
                 result = refresh_subscription(store, subscription["id"])
             self.assertEqual(result["unique_nodes"], 1)
             self.assertEqual(result["duplicate_lines"], 0)
@@ -401,7 +402,7 @@ class SubvostStoreTests(unittest.TestCase):
             profile["nodes"][0]["name"] = "Custom name"
             profile["nodes"][0]["user_renamed"] = True
 
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-2"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-2"})):
                 refresh_subscription(store, subscription["id"])
 
             self.assertEqual(profile["nodes"][0]["name"], "Custom name")
@@ -420,7 +421,7 @@ class SubvostStoreTests(unittest.TestCase):
             payload = (
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
                 refresh_subscription(store, subscription["id"])
 
             self.assertIsNone(store["active_selection"]["profile_id"])
@@ -443,7 +444,7 @@ class SubvostStoreTests(unittest.TestCase):
                 ).encode("utf-8")
             )
 
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(stub_payload, {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(stub_payload, {"ETag": "etag-1"})):
                 with self.assertRaisesRegex(ValueError, "заглушку"):
                     refresh_subscription(store, subscription["id"])
 
@@ -464,7 +465,7 @@ class SubvostStoreTests(unittest.TestCase):
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
                 result = refresh_subscription(store, subscription["id"])
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
@@ -486,7 +487,7 @@ class SubvostStoreTests(unittest.TestCase):
             payload = (
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Imported\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-1"})):
                 refresh_subscription(store, subscription["id"])
 
             profile = update_profile(store, subscription["profile_id"], name="Custom profile", enabled=False)
@@ -495,7 +496,7 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["subscriptions"][0]["name"], "Custom profile")
             self.assertFalse(store["subscriptions"][0]["enabled"])
 
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-2"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(payload, {"ETag": "etag-2"})):
                 refresh_subscription(store, subscription["id"])
 
             self.assertEqual(profile["name"], "Custom profile")
@@ -515,7 +516,7 @@ class SubvostStoreTests(unittest.TestCase):
             valid_payload = (
                 b"vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=none#Stable\n"
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(valid_payload, {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(valid_payload, {"ETag": "etag-1"})):
                 refresh_subscription(store, subscription["id"])
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
@@ -527,7 +528,7 @@ class SubvostStoreTests(unittest.TestCase):
                     "vless://broken\n"
                 ).encode("utf-8")
             )
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(invalid_payload, {"ETag": "etag-2"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(invalid_payload, {"ETag": "etag-2"})):
                 with self.assertRaisesRegex(ValueError, "Обновление подписки не применено"):
                     refresh_subscription(store, subscription["id"])
 
@@ -651,7 +652,7 @@ class SubvostStoreTests(unittest.TestCase):
             store = ensure_store_initialized(paths, project_root)
 
             with patch(
-                "subvost_routing.urllib.request.urlopen",
+                "gui.subvost_routing.urllib.request.urlopen",
                 side_effect=[FakeResponse(b"geoip-bytes"), FakeResponse(b"geosite-bytes")],
             ):
                 imported = import_routing_profile(
@@ -668,7 +669,7 @@ class SubvostStoreTests(unittest.TestCase):
             )
             headers = {"ETag": "etag-1", "routing": routing_uri, "providerid": "provider-auto"}
 
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), headers)):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), headers)):
                 result = refresh_subscription(store, subscription["id"], paths=paths)
 
             same_name_profiles = [item for item in store["routing"]["profiles"] if item["name"] == "Shared route"]
@@ -767,7 +768,7 @@ class SubvostStoreTests(unittest.TestCase):
             paths.geosite_asset_file.write_bytes(b"old-geosite")
 
             with patch(
-                "subvost_store.download_routing_geodata",
+                "gui.subvost_store.download_routing_geodata",
                 return_value={
                     "ready": True,
                     "status": "ready",
@@ -796,7 +797,7 @@ class SubvostStoreTests(unittest.TestCase):
             store = ensure_store_initialized(paths, project_root)
             subscription = add_subscription(store, "Test", "https://example.com/sub#?providerid=url-fragment")
 
-            with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), {"ETag": "etag-1"})):
+            with patch("gui.subvost_store.urllib.request.urlopen", return_value=FakeResponse(single_vless_line(), {"ETag": "etag-1"})):
                 result = refresh_subscription(store, subscription["id"])
 
             self.assertEqual(result["provider_id"], "url-fragment")
@@ -840,6 +841,67 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["routing"]["profiles"], [])
             self.assertIsNone(store["routing"]["active_profile_id"])
             self.assertFalse(store["routing"]["enabled"])
+
+
+class TestAddSubscriptionRoundTrip(unittest.TestCase):
+    """Regression: add_subscription + save_store + load_store round-trip.
+
+    Гарантирует, что после добавления подписки она видна в store и
+    сохраняется на диск корректно (фикс: _update_nodes читает store
+    напрямую, а не через RPC-бэкенд).
+    """
+
+    def test_add_subscription_appears_in_store(self) -> None:
+        store = ensure_store_structure({})
+        result = add_subscription(store, "My Sub", "https://example.com/sub")
+        self.assertIn(result["id"], [s["id"] for s in store["subscriptions"]])
+        self.assertEqual(len(store["subscriptions"]), 1)
+        self.assertEqual(store["subscriptions"][0]["name"], "My Sub")
+        self.assertEqual(store["subscriptions"][0]["url"], "https://example.com/sub")
+
+    def test_add_subscription_creates_associated_profile(self) -> None:
+        store = ensure_store_structure({})
+        result = add_subscription(store, "My Sub", "https://example.com/sub")
+        profile_id = result["profile_id"]
+        profiles = [p for p in store["profiles"] if p["id"] == profile_id]
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]["kind"], "subscription")
+        self.assertEqual(profiles[0]["name"], "My Sub")
+        self.assertEqual(profiles[0]["nodes"], [])
+
+    def test_add_subscription_survives_save_load_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            real_home = Path(tmpdir) / "home"
+            real_home.mkdir()
+            config_home = Path(tmpdir) / "config"
+            paths = build_app_paths(str(real_home), str(config_home))
+            store = ensure_store_structure({})
+            add_subscription(store, "My Sub", "https://example.com/sub")
+            save_store(paths, store)
+
+            loaded = load_store(paths)
+            self.assertEqual(len(loaded["subscriptions"]), 1)
+            self.assertEqual(loaded["subscriptions"][0]["name"], "My Sub")
+            sub_profiles = [p for p in loaded["profiles"] if p["kind"] == "subscription"]
+            self.assertEqual(len(sub_profiles), 1)
+
+    def test_add_multiple_subscriptions_visible(self) -> None:
+        store = ensure_store_structure({})
+        add_subscription(store, "Sub A", "https://a.example.com")
+        add_subscription(store, "Sub B", "https://b.example.com")
+        self.assertEqual(len(store["subscriptions"]), 2)
+        names = {s["name"] for s in store["subscriptions"]}
+        self.assertEqual(names, {"Sub A", "Sub B"})
+
+    def test_add_subscription_default_name_from_url(self) -> None:
+        store = ensure_store_structure({})
+        result = add_subscription(store, "", "https://vpn.example.com/sub")
+        self.assertEqual(store["subscriptions"][0]["name"], "vpn.example.com")
+
+    def test_add_subscription_empty_store_has_no_stale_subscriptions(self) -> None:
+        store = ensure_store_structure({})
+        self.assertEqual(store["subscriptions"], [])
+        self.assertTrue(any(p["kind"] == "manual" for p in store["profiles"]))
 
 
 if __name__ == "__main__":

@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "gui"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from subvost_paths import build_app_paths  # noqa: E402
-from subvost_routing import (  # noqa: E402
+from gui.subvost_paths import build_app_paths  # noqa: E402
+from gui.subvost_routing import (  # noqa: E402
     apply_routing_profile_to_config,
     build_direct_routes_report,
     download_routing_geodata,
@@ -231,7 +231,7 @@ class SubvostRoutingTests(unittest.TestCase):
             }
 
             with patch(
-                "subvost_routing.urllib.request.urlopen",
+                "gui.subvost_routing.urllib.request.urlopen",
                 side_effect=[FakeResponse(b"geoip-bytes"), FakeResponse(b"geosite-bytes")],
             ):
                 status = download_routing_geodata(paths, profile)

@@ -4,15 +4,9 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-# Обеспечиваем плоский импорт из gui/
-_SCRIPT_DIR = Path(__file__).resolve().parent.parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
 
 
 @dataclass

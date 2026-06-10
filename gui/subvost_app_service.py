@@ -6,22 +6,22 @@ import re
 from pathlib import Path
 from typing import Any
 
-from gui.presentation.view_models import (
+from .presentation.view_models import (
     build_view_model,
     humanize_bytes,
     humanize_rate,
 )
-from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
-from infrastructure.json_repositories import (
+from .infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
+from .infrastructure.json_repositories import (
     JsonNodeRepository,
     JsonSubscriptionRepository,
 )
-from rpc_client import RPCError, SubvostRPCClient
+from .rpc_client import RPCError, SubvostRPCClient
 
 # Re-export for TUI compatibility
-from subvost_parser import preview_links
-from subvost_paths import APP_DIRNAME, resolve_config_home
-from subvost_store import (
+from .subvost_parser import preview_links
+from .subvost_paths import APP_DIRNAME, resolve_config_home
+from .subvost_store import (
     clear_active_routing_profile as store_clear_active_routing_profile,
     delete_profile as store_delete_profile,
     delete_subscription as store_delete_subscription,
@@ -118,7 +118,7 @@ class SubvostAppService:
     ) -> dict[str, Any]:
         # Use Python store for now (Go supports basic update via RPC)
         store = self.ensure_store_ready()
-        from subvost_store import update_subscription as store_update
+        from .subvost_store import update_subscription as store_update
         sub = store_update(store, subscription_id, name=name, enabled=enabled)
         self.persist_store(store)
         return {"ok": True, "subscription": sub}
@@ -138,7 +138,7 @@ class SubvostAppService:
         self, profile_id: str, node_id: str, *, name: str | None = None, enabled: bool | None = None
     ) -> dict[str, Any]:
         store = self.ensure_store_ready()
-        from subvost_store import update_node as store_update
+        from .subvost_store import update_node as store_update
         node = store_update(store, profile_id, node_id, name=name, enabled=enabled)
         self.persist_store(store)
         return {"ok": True, "node": node}
@@ -151,7 +151,7 @@ class SubvostAppService:
 
     def update_profile(self, profile_id: str, *, name: str | None = None, enabled: bool | None = None) -> dict[str, Any]:
         store = self.ensure_store_ready()
-        from subvost_store import update_profile as store_update
+        from .subvost_store import update_profile as store_update
         profile = store_update(store, profile_id, name=name, enabled=enabled)
         self.persist_store(store)
         return {"ok": True, "profile": profile}
@@ -271,7 +271,7 @@ class SubvostAppService:
 
 def build_app_paths() -> Any:
     """Build AppPaths for the Python store module."""
-    from subvost_paths import build_app_paths as _build
+    from .subvost_paths import build_app_paths as _build
     return _build(Path.home())
 
 
