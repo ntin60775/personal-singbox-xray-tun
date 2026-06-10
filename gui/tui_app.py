@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import datetime
 import os
+import signal
 import subprocess
 import sys
-import threading
 import traceback
 from pathlib import Path
 from typing import Any
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, NoMatches
 from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.screen import ModalScreen, Screen
+from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     DataTable,
@@ -251,8 +252,8 @@ class DashboardTab(Container):
 
     status_text = reactive("Неизвестно")
     active_node_text = reactive("—")
-    traffic_rx_text = reactive("—")
-    traffic_tx_text = reactive("—")
+    traffic_text = reactive("—")
+    connection_time_text = reactive("—")
     routing_badge_text = reactive("—")
 
     def compose(self) -> ComposeResult:
@@ -262,13 +263,13 @@ class DashboardTab(Container):
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Статус[/b]", classes="card-header")
                     yield Label(self.status_text, id="status-label")
+                    yield Label(self.connection_time_text, id="conn-time-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Активный узел[/b]", classes="card-header")
                     yield Label(self.active_node_text, id="active-node-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Трафик[/b]", classes="card-header")
-                    yield Label(self.traffic_rx_text, id="traffic-rx-label")
-                    yield Label(self.traffic_tx_text, id="traffic-tx-label")
+                    yield Label(self.traffic_text, id="traffic-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Маршрутизация[/b]", classes="card-header")
                     yield Label(self.routing_badge_text, id="routing-badge-label")
@@ -288,6 +289,7 @@ class DashboardTab(Container):
             asyncio.create_task(app._action_stop())
         elif btn_id == "btn-diag":
             asyncio.create_task(app._action_diag())
+        self.set_focus(None)
 
     def watch_status_text(self, value: str) -> None:
         try:
@@ -303,16 +305,16 @@ class DashboardTab(Container):
         except Exception:
             pass
 
-    def watch_traffic_rx_text(self, value: str) -> None:
+    def watch_traffic_text(self, value: str) -> None:
         try:
-            label = self.query_one("#traffic-rx-label", Label)
+            label = self.query_one("#traffic-label", Label)
             label.update(value)
         except Exception:
             pass
 
-    def watch_traffic_tx_text(self, value: str) -> None:
+    def watch_connection_time_text(self, value: str) -> None:
         try:
-            label = self.query_one("#traffic-tx-label", Label)
+            label = self.query_one("#conn-time-label", Label)
             label.update(value)
         except Exception:
             pass
@@ -385,12 +387,12 @@ class NodesTab(Container):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table_id = event.data_table.id
         if table_id == "nodes-table":
-            self.selected_row_key = str(event.row_key.value) if event.row_key else None
+            self.selected_row_key = str(event.row_key) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_row_key:
                 hint.update(f"Выбран узел: {self.selected_row_key}")
         elif table_id == "sub-table":
-            self.selected_sub_id = str(event.row_key.value) if event.row_key else None
+            self.selected_sub_id = str(event.row_key) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_sub_id:
                 hint.update(f"Выбрана подписка: {self.selected_sub_id}")
@@ -468,7 +470,7 @@ class RoutingTab(Container):
             app._action_clear_routing_profile()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.selected_profile_id = str(event.row_key.value) if event.row_key else None
+        self.selected_profile_id = str(event.row_key) if event.row_key else None
         hint = self.query_one("#routing-hint", Label)
         if self.selected_profile_id:
             hint.update(f"Выбран профиль: {self.selected_profile_id}")
@@ -642,7 +644,7 @@ class SubvostTUI(App):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header(show_clock=False)
         with Vertical(id="main-container"):
             with TabbedContent(id="main-tabs"):
                 with TabPane("Подключение", id="tab-dashboard"):
@@ -690,6 +692,16 @@ class SubvostTUI(App):
         dashboard.traffic_tx_text = vm.traffic_tx_text
         dashboard.routing_badge_text = vm.routing_active_profile_name or "Нет профиля"
 
+        processes = status.get("processes", {})
+        is_live = bool(processes.get("xray_alive"))
+        try:
+            start_btn = dashboard.query_one("#btn-start", Button)
+            stop_btn = dashboard.query_one("#btn-stop", Button)
+            start_btn.disabled = is_live
+            stop_btn.disabled = not is_live
+        except NoMatches:
+            pass
+
     def _update_nodes(self) -> None:
         if self.service is None:
             return
@@ -709,10 +721,10 @@ class SubvostTUI(App):
                 enabled = "Вкл" if sub.get("enabled", True) else "Выкл"
                 sub_table.add_row(
                     sub.get("name", "—"),
-                    sub.get("url", "—")[:40] + "..." if len(sub.get("url", "")) > 40 else sub.get("url", "—"),
+                    (sub.get("url") or "—")[:40] + "..." if len(sub.get("url") or "") > 40 else (sub.get("url") or "—"),
                     str(node_count),
                     enabled,
-                    key=sub.get("id", ""),
+                    key=sub.get("id") or "",
                 )
 
             table = self.query_one("#nodes-table", DataTable)
@@ -731,7 +743,7 @@ class SubvostTUI(App):
                         profile_name,
                     )
                     table.add_row(*row, key=ping_key)
-        except Exception:
+        except NoMatches:
             # Вкладка еще не смонтирована — игнорируем
             pass
 
@@ -776,7 +788,7 @@ class SubvostTUI(App):
                     rp.get("name", "—"),
                     enabled,
                     rp.get("type", "custom"),
-                    key=rp.get("id", ""),
+                    key=rp.get("id") or "",
                 )
 
             dt = self.query_one("#direct-table", DataTable)
@@ -788,7 +800,8 @@ class SubvostTUI(App):
                     item.get("action", "—"),
                     item.get("source", "—"),
                 )
-        except Exception:
+        except NoMatches:
+            # Вкладка еще не смонтирована — игнорируем
             pass
 
     def _update_settings(self) -> None:
@@ -1002,6 +1015,9 @@ class SubvostTUI(App):
                 sub_id,
             )
             self.notify("Подписка удалена", severity="information")
+            nodes_tab.selected_sub_id = None
+            hint = nodes_tab.query_one("#nodes-hint", Label)
+            hint.update("Выберите строку и нажмите действие")
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка удаления: {exc}", severity="error")
@@ -1140,13 +1156,35 @@ class SubvostTUI(App):
 
     def _stop_tray(self) -> None:
         """Остановить tray-процесс, если запущен."""
-        # Tray-интеграция: при необходимости отправить сигнал процессу tui_tray.py
-        pass
+        tray_script = "tui_tray.py"
+        # Ищем PID через pgrep, если доступен
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", tray_script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in result.stdout.strip().splitlines():
+                try:
+                    pid = int(line.strip())
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, OSError):
+                    continue
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
 
     def _start_tray(self) -> None:
         """Запустить tray-процесс в фоне."""
-        # Tray-интеграция: запуск gui/tui_tray.py через subprocess
-        pass
+        tray_path = SCRIPT_DIR / "tui_tray.py"
+        if tray_path.exists():
+            subprocess.Popen(
+                [sys.executable, str(tray_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -1184,6 +1222,11 @@ class SubvostTUI(App):
 
     def _do_quit(self, confirmed: bool) -> None:
         if confirmed:
+            if self.service is not None:
+                try:
+                    self.service.stop_runtime()
+                except Exception:
+                    pass
             self._stop_tray()
             self.exit()
 
