@@ -55,7 +55,8 @@ func ParseShadowsocks(rawURI string) (*ParsedNode, error) {
 		if err != nil {
 			return nil, newParseError("SS-ссылка содержит некорректный base64.")
 		}
-		if idx := strings.LastIndex(decoded, "@"); idx < 0 {
+		idx := strings.LastIndex(decoded, "@")
+		if idx < 0 {
 			return nil, newParseError("Shadowsocks-ссылка не содержит host:port.")
 		}
 		credentialPart = decoded[:idx]

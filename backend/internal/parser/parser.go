@@ -681,7 +681,9 @@ func providerIDFromURL(sourceURL string) (string, string) {
 	if fragment == "" {
 		return "", ""
 	}
-	query := singleValueQuery(fragment)
+	// Normalize fragment: strip leading ? if present (some URLs use ?key=val in fragment)
+	cleaned := strings.TrimLeft(fragment, "?")
+	query := singleValueQuery(cleaned)
 	pid := strings.TrimSpace(query["providerid"])
 	if pid != "" {
 		return pid, "url_fragment"

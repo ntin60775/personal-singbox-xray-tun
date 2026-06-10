@@ -10,7 +10,9 @@ build-release:
 
 test:
 	cd backend && go test ./...
-	cd . && python3 -m unittest discover tests/ -q 2>/dev/null || echo "Python tests: skipped or no tests found"
+	@echo ""
+	@echo "--- Python tests ---"
+	cd . && python3 -m unittest discover tests/ -q
 
 lint:
 	cd backend && go vet ./...
