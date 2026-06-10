@@ -1,17 +1,9 @@
 """Доменный слой Subvost Xray TUN.
 
-Содержит сущности, value objects, агрегаты, доменные события и фабрики
+Содержит сущности, value objects, агрегаты и фабрики
 для преобразования между доменными типами и dict-представлением store.
 """
 from .entities import Node, Profile, RoutingProfile, Subscription, RoutingRule
-from .events import (
-    NodeActivated,
-    RuntimeStarted,
-    RuntimeStopped,
-    SubscriptionImported,
-    SubscriptionRefreshed,
-    RoutingProfileActivated,
-)
 from .factories import (
     node_from_store_dict,
     node_to_store_dict,
@@ -34,13 +26,6 @@ __all__ = [
     "NodeAddress",
     "ProtocolConfig",
     "TransportHint",
-    # Events
-    "NodeActivated",
-    "RuntimeStarted",
-    "RuntimeStopped",
-    "SubscriptionImported",
-    "SubscriptionRefreshed",
-    "RoutingProfileActivated",
     # Factories
     "node_from_store_dict",
     "node_to_store_dict",

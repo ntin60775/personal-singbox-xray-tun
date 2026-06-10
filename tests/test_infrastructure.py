@@ -1,11 +1,10 @@
-"""Unit-тесты инфраструктурного слоя: репозитории и Unit of Work."""
+"""Unit-тесты инфраструктурного слоя: репозитории."""
 from __future__ import annotations
 
 import unittest
 
 from gui.domain import (
     Node,
-    Profile,
     ProtocolConfig,
     Subscription,
     node_from_store_dict,
@@ -13,10 +12,7 @@ from gui.domain import (
 )
 from gui.infrastructure import (
     JsonNodeRepository,
-    JsonProfileRepository,
     JsonSubscriptionRepository,
-    JsonRoutingRepository,
-    StoreUnitOfWork,
 )
 
 
@@ -145,29 +141,7 @@ class TestJsonNodeRepository(unittest.TestCase):
         self.repo.delete("manual", "nonexistent")  # не должно бросать
 
 
-class TestJsonProfileRepository(unittest.TestCase):
-    def setUp(self):
-        self.store = _make_store_with_manual_profile()
-        self.repo = JsonProfileRepository(self.store)
 
-    def test_get_all(self):
-        profiles = self.repo.get_all()
-        self.assertEqual(len(profiles), 1)
-        self.assertEqual(profiles[0].id, "manual")
-
-    def test_get_by_id(self):
-        profile = self.repo.get_by_id("manual")
-        self.assertIsNotNone(profile)
-        assert profile is not None
-        self.assertTrue(profile.has_nodes())
-
-    def test_save_new_profile(self):
-        profile = Profile(id="new-prof", name="New Profile", kind="manual")
-        self.repo.save(profile)
-        found = self.repo.get_by_id("new-prof")
-        self.assertIsNotNone(found)
-        assert found is not None
-        self.assertEqual(found.name, "New Profile")
 
 
 class TestJsonSubscriptionRepository(unittest.TestCase):
@@ -202,18 +176,6 @@ class TestJsonSubscriptionRepository(unittest.TestCase):
         self.assertEqual(found.name, "Updated Sub")
 
 
-class TestJsonRoutingRepository(unittest.TestCase):
-    def setUp(self):
-        self.store = _make_store_with_manual_profile()
-        self.repo = JsonRoutingRepository(self.store)
-
-    def test_get_all_empty(self):
-        profiles = self.repo.get_all()
-        self.assertEqual(len(profiles), 0)
-
-    def test_get_active_none(self):
-        rp = self.repo.get_active()
-        self.assertIsNone(rp)
 
 
 if __name__ == "__main__":

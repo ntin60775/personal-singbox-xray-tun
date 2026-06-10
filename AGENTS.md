@@ -26,7 +26,6 @@ Bundle умеет:
 
 - **Runtime**: Bash (`bash` + `set -euo pipefail`) + Python 3.
 - **GUI (TUI)**: Универсальный текстовый интерфейс на `textual` (`gui/tui_app.py`) — работает в любом эмуляторе терминала под любым DE без зависимости от GTK/WebKitGTK. Импортирует `subvost_app_service.py` напрямую, не использует HTTP backend.
-- **Tray**: Фоновый tray-индикатор (`gui/tui_tray.py`) через Ayatana/AppIndicator с быстрыми действиями.
 - **Сеть**: `iproute2`, `iptables` не требуется, policy-routing через `ip rule`/`ip route`.
 - **Системные зависимости**: `xray`, `python3` (≥3.11), `textual` (≥8.2.6), `iproute2`, `curl`, `sudo`, `pkexec`, рабочий `/dev/net/tun`.
 
@@ -124,7 +123,7 @@ python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.tes
 bash -n *.sh
 bash -n libexec/*.sh
 bash -n lib/*.sh
-python3 -m py_compile gui/tui_app.py gui/tui_bootstrap.py gui/tui_tray.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_app_service.py gui/subvost_routing.py
+python3 -m py_compile gui/tui_app.py gui/tui_bootstrap.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/subvost_app_service.py gui/subvost_routing.py
 python3 -m json.tool xray-tun-subvost.json
 ```
 
@@ -194,7 +193,6 @@ ip rule show
 - Запуск в любом эмуляторе терминала под любым DE (XFCE, KDE, GNOME, i3 и т.д.).
 - Нет зависимости от GTK4/WebKitGTK/AppIndicator.
 - Бизнес-логика импортируется напрямую из `subvost_app_service.py`, HTTP backend не используется.
-- Tray — фоновый процесс `gui/tui_tray.py` (Ayatana/AppIndicator) с быстрыми действиями.
 - Bootstrap — `gui/tui_bootstrap.py` проверяет зависимости и предлагает установить через `pkexec`.
 
 
