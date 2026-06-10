@@ -26,3 +26,4 @@ __pycache__/
 zip_context_ignore.md
 output/share/*-zip-context-*.zip
 # zip-context:artifacts:end
+.coverage
