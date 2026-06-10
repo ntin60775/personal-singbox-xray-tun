@@ -60,13 +60,12 @@ Bundle умеет:
 ```text
 ├── lib/                    # Общая shell-библиотека (subvost-common.sh)
 ├── libexec/                # Реализация скриптов runtime, installer, launcher
-├── gui/                    # Python TUI, бизнес-логика, tray
+├── gui/                    # Python TUI, бизнес-логика, tray + DDD-слои (domain, application, infrastructure, presentation)
 ├── tests/                  # Unit-тесты Python-части
 ├── assets/                 # Иконка и статические ресурсы
-├── knowledge/              # Внутренняя task-centric knowledge-система проекта
 ├── logs/                   # Runtime-логи (не коммитятся)
 ├── runtime/                # Runtime-артефакты
-├── archive/                # Замороженные компоненты (Windows-порт)
+├── archive/                # Замороженные компоненты (Windows-порт, историческая TCK)
 ├── xray-tun-subvost.json   # Tracked-шаблон Xray-конфига (с placeholder-ами)
 ├── *.sh                    # Корневые wrapper-скрипты (делегируют в libexec/)
 └── *.desktop               # Desktop entry для TUI
@@ -231,15 +230,11 @@ HWID вычисляется детерминированно из хоста, д
 
 ## Task-centric knowledge
 
-Проект использует внутреннюю систему знаний в `knowledge/`:
-- `knowledge/tasks/` — задачи, планы, SDD, журналы.
-- `knowledge/operations/` — операционные процедуры (сборка, обслуживание).
-- `knowledge/modules/` — reusable companion-layer (опционально).
+Проект использует **worktrail v2** для учёта задач. Данные хранятся в git-notes `refs/notes/worktrail`.
+Историческая TCK-система (`knowledge/tasks/`) перенесена в `archive/tck-knowledge/` для read-only контекста.
 
-Внешним контрибьюторам не нужно самостоятельно заводить task-артефакты без согласования.
-
+Новые задачи заводятся только через worktrail CLI: `worktrail contract init --task-id <id> --name "..."`.
 ---
-
 ## Полезные ссылки внутри репозитория
 
 - `README.md` — быстрый старт, пользовательская документация.
