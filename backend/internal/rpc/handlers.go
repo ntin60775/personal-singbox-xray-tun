@@ -129,11 +129,23 @@ func (s *Server) hStart(params json.RawMessage) (interface{}, error) {
 		}
 	}
 
-	if node.TransportHint != nil {
-		config, err = runtime.ApplyTransportHints(config, node.TransportHint)
-		if err != nil {
-			return nil, fmt.Errorf("apply transport hints: %w", err)
-		}
+	// Always apply transport hints with the correct fwmark matching policy routing.
+	// The template has placeholder interface/mark values that MUST be overridden
+	// at runtime. Without this, Xray's outbound traffic would use a wrong mark
+	// (or none) and loop back through the TUN device, killing internet access.
+	fwmark := 0x7073
+	table := 7073
+	defaultIface, _, _ := runtime.DetectDefaultInterface()
+	hint := &domain.TransportHint{
+		DefaultMark:      fwmark,
+		DefaultInterface: defaultIface,
+	}
+	if node.TransportHint != nil && node.TransportHint.DefaultInterface != "" {
+		hint.DefaultInterface = node.TransportHint.DefaultInterface
+	}
+	config, err = runtime.ApplyTransportHints(config, hint)
+	if err != nil {
+		return nil, fmt.Errorf("apply transport hints: %w", err)
 	}
 
 	// Write config
@@ -149,8 +161,7 @@ func (s *Server) hStart(params json.RawMessage) (interface{}, error) {
 
 	// Create TUN device
 	tunName := "tun0"
-	fwmark := 0x7073
-	table := 7073
+
 
 	if err := runtime.CreateTun(tunName, 1500); err != nil {
 		runtime.StopXray(pid)
@@ -159,7 +170,7 @@ func (s *Server) hStart(params json.RawMessage) (interface{}, error) {
 
 	// Setup policy routing
 	if err := runtime.SetupPolicyRouting(tunName, fwmark, table); err != nil {
-		runtime.TeardownTun(tunName, table)
+		runtime.TeardownTun(tunName, table, fwmark)
 		runtime.StopXray(pid)
 		return nil, fmt.Errorf("setup routing: %w", err)
 	}
@@ -170,13 +181,13 @@ func (s *Server) hStart(params json.RawMessage) (interface{}, error) {
 		nameservers = []string{"1.1.1.1", "8.8.8.8"}
 	}
 	if err := runtime.BackupResolvConf(s.paths.ResolvBackup); err != nil {
-		runtime.TeardownTun(tunName, table)
+		runtime.TeardownTun(tunName, table, fwmark)
 		runtime.StopXray(pid)
 		return nil, fmt.Errorf("backup resolv: %w", err)
 	}
 	if err := runtime.WriteTunResolvConf("/etc/resolv.conf", nameservers); err != nil {
 		runtime.RestoreResolvConf(s.paths.ResolvBackup)
-		runtime.TeardownTun(tunName, table)
+		runtime.TeardownTun(tunName, table, fwmark)
 		runtime.StopXray(pid)
 		return nil, fmt.Errorf("write tun resolv: %w", err)
 	}
@@ -194,7 +205,7 @@ func (s *Server) hStart(params json.RawMessage) (interface{}, error) {
 	}
 	if err := runtime.WriteStateFile(s.paths.StateFile, stateMap); err != nil {
 		runtime.RestoreResolvConf(s.paths.ResolvBackup)
-		runtime.TeardownTun(tunName, table)
+		runtime.TeardownTun(tunName, table, fwmark)
 		runtime.StopXray(pid)
 		return nil, fmt.Errorf("write state: %w", err)
 	}
@@ -230,7 +241,11 @@ func (s *Server) hStop(params json.RawMessage) (interface{}, error) {
 	if tbl, ok := state["TABLE"]; ok && tbl != "" {
 		fmt.Sscanf(tbl, "%d", &table)
 	}
-	runtime.TeardownTun(tunName, table)
+	fwmark := 0x7073
+	if fm, ok := state["FWMARK"]; ok && fm != "" {
+		fmt.Sscanf(fm, "%d", &fwmark)
+	}
+	runtime.TeardownTun(tunName, table, fwmark)
 
 	// Restore DNS
 	runtime.RestoreResolvConf(s.paths.ResolvBackup)

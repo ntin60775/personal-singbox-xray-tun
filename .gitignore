@@ -28,3 +28,4 @@ output/share/*-zip-context-*.zip
 # zip-context:artifacts:end
 .coverage
 /subvostd
+backend/subvostd

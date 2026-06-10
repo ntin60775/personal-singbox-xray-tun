@@ -73,8 +73,7 @@ func SetupPolicyRouting(tunName string, fwmark int, table int) error {
 
 // TeardownTun removes the policy routing rules, flushes the dedicated table,
 // and deletes the TUN interface.
-func TeardownTun(tunName string, table int) error {
-	fwmark := 0x7073
+func TeardownTun(tunName string, table int, fwmark int) error {
 	rulePref := 100
 
 	// Remove ip rule.
