@@ -60,7 +60,10 @@ class SubvostAppService:
         self._rpc = SubvostRPCClient(backend_cmd)
 
         # Keep adapters for operations still handled in Python
-        self.runtime_adapter = ShellRuntimeAdapter()
+        self.runtime_adapter = ShellRuntimeAdapter(
+            project_root=PROJECT_ROOT,
+            libexec_dir=PROJECT_ROOT / "libexec",
+        )
         self.network_adapter = SystemNetworkAdapter()
 
     # ---- Store operations (Python-side, shared store.json) ----
