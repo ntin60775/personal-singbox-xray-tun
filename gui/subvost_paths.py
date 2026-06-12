@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import fcntl
+import sys
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +16,7 @@ STORE_FILENAME = "store.json"
 GENERATED_XRAY_CONFIG_FILENAME = "generated-xray-config.json"
 ACTIVE_RUNTIME_XRAY_CONFIG_FILENAME = "active-runtime-xray-config.json"
 GUI_SETTINGS_FILENAME = "gui-settings.json"
+XRAY_CONFIG_TEMPLATE_FILENAME = "xray-config-template.json"
 XRAY_ASSET_DIRNAME = "xray-assets"
 GEOIP_ASSET_FILENAME = "geoip.dat"
 GEOSITE_ASSET_FILENAME = "geosite.dat"
@@ -92,23 +96,44 @@ def ensure_store_dir(paths: AppPaths, uid: int | None = None, gid: int | None = 
 
 
 def atomic_write_text(path: Path, text: str, mode: int = 0o600, uid: int | None = None, gid: int | None = None) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
-        handle.write(text)
-        temp_path = Path(handle.name)
+    # Acquire exclusive lock on parent directory to prevent concurrent writes
+    # from Python and Go backends to the same store directory.
+    lock_fd = None
+    try:
+        lock_fd = os.open(path.parent, os.O_RDONLY)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    except OSError:
+        if lock_fd is not None:
+            os.close(lock_fd)
+            lock_fd = None
 
     try:
-        os.chmod(temp_path, mode)
-    except OSError:
-        pass
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
 
-    if uid is not None and gid is not None and current_euid() == 0:
         try:
-            os.chown(temp_path, uid, gid)
+            os.chmod(temp_path, mode)
         except OSError:
             pass
 
-    os.replace(temp_path, path)
+        if uid is not None and gid is not None and current_euid() == 0:
+            try:
+                os.chown(temp_path, uid, gid)
+            except OSError:
+                pass
+
+        os.replace(temp_path, path)
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            except OSError:
+                pass
 
 
 def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600, uid: int | None = None, gid: int | None = None) -> None:
@@ -147,6 +172,19 @@ def read_json_file(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = path.name + ".corrupt-" + ts
+        backup_path = path.with_name(backup_name)
+        try:
+            path.rename(backup_path)
+        except OSError:
+            backup_path = None
+        msg = (
+            f"WARNING: Corrupted store file at {path}."
+            f" Renamed to {backup_path or '(rename failed)'}."
+            f" A fresh store will be created."
+        )
+        print(msg, file=sys.stderr)
         return {}
 
 

@@ -63,7 +63,6 @@ const ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 
 var PLACEHOLDER_MARKERS = []string{
 	"0.0.0.0",
-	"example.com",
 	"test.com",
 	"localhost",
 	"127.0.0.1",
@@ -222,9 +221,14 @@ func decodeBase64(value string) ([]byte, error) {
 	}, value)
 	padding := (4 - len(cleaned)%4) % 4
 	cleaned += strings.Repeat("=", padding)
+
+	// Try URL-safe base64 first, fall back to standard base64.
 	decoded, err := base64.URLEncoding.DecodeString(cleaned)
 	if err != nil {
-		return nil, newParseErrorf("Не удалось декодировать base64-фрагмент.")
+		decoded, err = base64.StdEncoding.DecodeString(cleaned)
+		if err != nil {
+			return nil, newParseErrorf("Не удалось декодировать base64-фрагмент.")
+		}
 	}
 	return decoded, nil
 }

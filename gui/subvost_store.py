@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+import shutil
 import platform
 import socket
 import urllib.error
@@ -15,7 +16,7 @@ from urllib.parse import urlsplit
 from uuid import NAMESPACE_DNS, uuid4, uuid5
 
 from .subvost_parser import ParseError, extract_subscription_metadata, parse_proxy_uri, parse_subscription_payload
-from .subvost_paths import AppPaths, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
+from .subvost_paths import AppPaths, XRAY_CONFIG_TEMPLATE_FILENAME, atomic_write_json, ensure_store_dir, read_json_file, remove_file_if_exists
 from .subvost_routing import (
     RoutingProfileError,
     build_geodata_status,
@@ -508,7 +509,7 @@ def sync_generated_runtime(
             remove_file_if_exists(paths.generated_xray_config_file)
             return None
 
-    template_config = read_json_config(project_root / "xray-tun-subvost.json")
+    template_config = read_json_config(paths.store_dir / XRAY_CONFIG_TEMPLATE_FILENAME)
     rendered = render_runtime_config(template_config, active_node, routing_profile=routing_profile)
     atomic_write_json(paths.generated_xray_config_file, rendered, uid=uid, gid=gid)
     return paths.generated_xray_config_file
@@ -521,6 +522,14 @@ def ensure_store_initialized(
     gid: int | None = None,
 ) -> dict[str, Any]:
     ensure_store_dir(paths, uid=uid, gid=gid)
+
+    # Copy config template to store_dir if missing
+    store_template = paths.store_dir / XRAY_CONFIG_TEMPLATE_FILENAME
+    if not store_template.exists():
+        source_template = project_root / "xray-tun-subvost.json"
+        if source_template.exists():
+            shutil.copy2(str(source_template), str(store_template))
+
     raw_store = read_json_file(paths.store_file)
     store = ensure_store_structure(raw_store)
     changed = raw_store != store
@@ -862,15 +871,25 @@ def activate_routing_profile(
     previous_runtime_ready = bool(routing.get("runtime_ready"))
     previous_runtime_error = str(routing.get("runtime_error") or "")
 
-    routing["active_profile_id"] = profile_id
-    geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
-    if routing.get("enabled") and not geodata.get("ready"):
+    try:
+        routing["active_profile_id"] = profile_id
+        geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
+        if routing.get("enabled") and not geodata.get("ready"):
+            routing["active_profile_id"] = previous_active_id
+            routing["geodata"] = previous_geodata
+            routing["runtime_ready"] = previous_runtime_ready
+            routing["runtime_error"] = previous_runtime_error
+            ensure_routing_state(store, paths)
+            raise ValueError(geodata.get("error") or "Не удалось подготовить geodata для выбранного routing-профиля.")
+    except (RoutingProfileError, OSError) as exc:
         routing["active_profile_id"] = previous_active_id
         routing["geodata"] = previous_geodata
         routing["runtime_ready"] = previous_runtime_ready
         routing["runtime_error"] = previous_runtime_error
         ensure_routing_state(store, paths)
-        raise ValueError(geodata.get("error") or "Не удалось подготовить geodata для выбранного routing-профиля.")
+        if isinstance(exc, OSError):
+            raise RoutingProfileError(str(exc)) from exc
+        raise
 
     ensure_routing_state(store, paths)
     return profile

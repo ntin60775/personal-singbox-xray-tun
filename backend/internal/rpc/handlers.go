@@ -640,6 +640,40 @@ func (s *Server) hRoutingProfilesActivate(params json.RawMessage) (interface{}, 
 		return nil, fmt.Errorf("routing profile %s not found", p.ProfileID)
 	}
 
+	// Ensure geodata is downloaded before activation.
+	if !fileExists(s.paths.GeoIPAssetFile) || !fileExists(s.paths.GeositeAssetFile) {
+		geoipURL := rp.GeoIPURL
+		geositeURL := rp.GeositeURL
+		if geoipURL == "" {
+			geoipURL = routing.DefaultGeoIPURL
+		}
+		if geositeURL == "" {
+			geositeURL = routing.DefaultGeositeURL
+		}
+
+		s.store.Routing.Geodata.GeoIPURL = geoipURL
+		s.store.Routing.Geodata.GeositeURL = geositeURL
+		s.store.Routing.Geodata.GeoIPPath = s.paths.GeoIPAssetFile
+		s.store.Routing.Geodata.GeositePath = s.paths.GeositeAssetFile
+		s.store.Routing.Geodata.AssetDir = s.paths.XrayAssetDir
+
+		if err := routing.DownloadGeodata(geoipURL, geositeURL, s.paths.XrayAssetDir); err != nil {
+			s.store.Routing.Geodata.Status = "error"
+			s.store.Routing.Geodata.Error = err.Error()
+			s.store.Routing.Geodata.Ready = false
+			if saveErr := store.SaveStore(s.paths, s.store); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: Failed to persist geodata error state: %v\n", saveErr)
+			}
+			return nil, fmt.Errorf("download geodata: %w", err)
+		}
+
+		s.store.Routing.Geodata.Status = "ready"
+		s.store.Routing.Geodata.Ready = true
+		s.store.Routing.Geodata.Error = ""
+		s.store.Routing.Geodata.GeoIPExists = fileExists(s.paths.GeoIPAssetFile)
+		s.store.Routing.Geodata.GeositeExists = fileExists(s.paths.GeositeAssetFile)
+	}
+
 	s.store.Routing.ActiveProfileID = p.ProfileID
 	s.store.Routing.Enabled = true
 
@@ -766,9 +800,6 @@ func (s *Server) hLinksImport(params json.RawMessage) (interface{}, error) {
 			continue
 		}
 		node := parsedNodeToDomain(parsed)
-		if node.ID == "" {
-			node.ID = "node-" + store.RandHex(16)
-		}
 		node.RawURI = uri
 		node.Origin = domain.NodeOrigin{Kind: "manual"}
 		node.Enabled = true
@@ -1006,10 +1037,84 @@ func fetchAndParseSubscription(url string) ([]domain.Node, error) {
 
 // parsedNodeToDomain converts a parser.ParsedNode to a domain.Node.
 func parsedNodeToDomain(p *parser.ParsedNode) *domain.Node {
-	node := &domain.Node{
-		Protocol: p.Protocol,
-		RawURI:   p.RawURI,
-		Name:     p.DisplayName,
+	// Build normalized map and compute fingerprint first —
+	// ID is derived from the fingerprint so repeated parsing of
+	// the same node always produces the same ID.
+	normMap := make(map[string]interface{})
+	normMap["protocol"] = p.Protocol
+	normMap["address"] = p.Address
+	normMap["port"] = p.Port
+	if p.UUID != "" {
+		normMap["uuid"] = p.UUID
+	}
+	if p.Password != "" {
+		normMap["password"] = p.Password
+	}
+	if p.Method != "" {
+		normMap["method"] = p.Method
+	}
+	if p.Flow != "" {
+		normMap["flow"] = p.Flow
+	}
+	if p.Encryption != "" {
+		normMap["encryption"] = p.Encryption
+	}
+	if p.Network != "" {
+		normMap["network"] = p.Network
+	}
+	if p.Security != "" {
+		normMap["security"] = p.Security
+	}
+	if p.Host != "" {
+		normMap["host"] = p.Host
+	}
+	if p.Path != "" {
+		normMap["path"] = p.Path
+	}
+	if p.ServerName != "" {
+		normMap["server_name"] = p.ServerName
+	}
+	if p.ServiceName != "" {
+		normMap["service_name"] = p.ServiceName
+	}
+	if p.GRPCAuthority != "" {
+		normMap["grpc_authority"] = p.GRPCAuthority
+	}
+	if p.Fingerprint != "" {
+		normMap["fingerprint"] = p.Fingerprint
+	}
+	if p.PublicKey != "" {
+		normMap["public_key"] = p.PublicKey
+	}
+	if p.ShortID != "" {
+		normMap["short_id"] = p.ShortID
+	}
+	if p.SpiderX != "" {
+		normMap["spider_x"] = p.SpiderX
+	}
+	if p.Mode != "" {
+		normMap["mode"] = p.Mode
+	}
+	if len(p.ALPN) > 0 {
+		normMap["alpn"] = p.ALPN
+	}
+	if p.AllowInsecure {
+		normMap["allow_insecure"] = p.AllowInsecure
+	}
+	fp := parser.FingerprintPayload(normMap)
+
+	name := p.DisplayName
+	if name == "" {
+		name = fmt.Sprintf("%s://%s:%d", p.Protocol, p.Address, p.Port)
+	}
+
+	return &domain.Node{
+		ID:          "node-" + fp[:16],
+		Fingerprint: fp,
+		Protocol:    p.Protocol,
+		RawURI:      p.RawURI,
+		Name:        name,
+		Enabled:     true,
 		Normalized: domain.NodeAddress{
 			Protocol:      p.Protocol,
 			Address:       p.Address,
@@ -1037,12 +1142,6 @@ func parsedNodeToDomain(p *parser.ParsedNode) *domain.Node {
 			RawURI:        p.RawURI,
 		},
 	}
-	if p.DisplayName != "" {
-		node.Name = p.DisplayName
-	} else {
-		node.Name = fmt.Sprintf("%s://%s:%d", p.Protocol, p.Address, p.Port)
-	}
-	return node
 }
 
 // fileExists checks if a file exists.

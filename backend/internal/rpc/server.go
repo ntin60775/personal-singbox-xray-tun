@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,9 +45,9 @@ func NewServer(configHome, projectRoot string) *Server {
 }
 
 // Serve initializes the store and enters the request/response loop on
-// stdin/stdout. It blocks until a "shutdown" method is received or
-// stdin is closed. Returns nil on clean shutdown.
-func (s *Server) Serve() error {
+// stdin/stdout. It blocks until a "shutdown" method is received,
+// ctx is cancelled, or stdin is closed. Returns nil on clean shutdown.
+func (s *Server) Serve(ctx context.Context) error {
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
@@ -62,6 +63,13 @@ func (s *Server) Serve() error {
 	scanner.Buffer(nil, 10*1024*1024) // 10 MB max line
 
 	for scanner.Scan() {
+		// Check for signal-driven shutdown before processing each line.
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
 		line := scanner.Text()
 		if line == "" {
 			continue

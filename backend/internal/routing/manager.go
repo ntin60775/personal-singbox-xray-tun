@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/subvost/xray-tun/backend/internal/domain"
 )
@@ -512,7 +513,7 @@ func downloadFile(targetURL string) ([]byte, error) {
 	req.Header.Set("User-Agent", "Subvost-Xray-Tun/1.0")
 	req.Header.Set("Accept", "*/*")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)

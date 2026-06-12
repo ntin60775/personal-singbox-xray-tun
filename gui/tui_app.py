@@ -387,12 +387,12 @@ class NodesTab(Container):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table_id = event.data_table.id
         if table_id == "nodes-table":
-            self.selected_row_key = str(event.row_key) if event.row_key else None
+            self.selected_row_key = str(event.row_key.value) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_row_key:
                 hint.update(f"Выбран узел: {self.selected_row_key}")
         elif table_id == "sub-table":
-            self.selected_sub_id = str(event.row_key) if event.row_key else None
+            self.selected_sub_id = str(event.row_key.value) if event.row_key else None
             hint = self.query_one("#nodes-hint", Label)
             if self.selected_sub_id:
                 hint.update(f"Выбрана подписка: {self.selected_sub_id}")
@@ -470,7 +470,7 @@ class RoutingTab(Container):
             app._action_clear_routing_profile()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        self.selected_profile_id = str(event.row_key) if event.row_key else None
+        self.selected_profile_id = str(event.row_key.value) if event.row_key else None
         hint = self.query_one("#routing-hint", Label)
         if self.selected_profile_id:
             hint.update(f"Выбран профиль: {self.selected_profile_id}")
@@ -540,7 +540,13 @@ class SubvostTUI(App):
     #dashboard-actions Button {
         margin: 0 1;
     }
-    #nodes-actions, #log-actions, #routing-actions, #settings-actions {
+    #nodes-vertical {
+        height: 1fr;
+    }
+    #nodes-vertical > DataTable {
+        height: 1fr;
+    }
+    #sub-actions, #nodes-actions, #log-actions, #routing-actions, #settings-actions {
         height: auto;
         margin-bottom: 1;
     }
@@ -738,7 +744,7 @@ class SubvostTUI(App):
                     row = (
                         node.get("name", "—"),
                         node.get("protocol", "—"),
-                        node.get("server", "—"),
+                        node.get("normalized", {}).get("address", "—"),
                         str(ping_val),
                         profile_name,
                     )
@@ -758,7 +764,11 @@ class SubvostTUI(App):
         if self.service is None:
             return
 
-        logs = self.service.collect_log_payload()
+        try:
+            logs = self.service.collect_log_payload()
+        except Exception as exc:
+            self.notify(f"Ошибка загрузки логов: {exc}", severity="error")
+            return
         entries = logs.get("entries", [])
         for entry in entries:
             lvl = entry.get("level", "info")
@@ -782,7 +792,7 @@ class SubvostTUI(App):
         try:
             rt = self.query_one("#routing-table", DataTable)
             rt.clear()
-            for rp in self._store.get("routing_profiles", []):
+            for rp in self._store.get("routing", {}).get("profiles", []):
                 enabled = "Вкл" if rp.get("enabled") else "Выкл"
                 rt.add_row(
                     rp.get("name", "—"),
@@ -840,32 +850,23 @@ class SubvostTUI(App):
     async def _action_start(self) -> None:
         if self.service is None:
             return
-        try:
-            await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
-            self.notify("Подключение запущено", severity="information")
-            self._update_dashboard()
-        except Exception:
-            pass
+        await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
+        self.notify("Подключение запущено", severity="information")
+        self._update_dashboard()
 
     async def _action_stop(self) -> None:
         if self.service is None:
             return
-        try:
-            await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
-            self.notify("Подключение остановлено", severity="information")
-            self._update_dashboard()
-        except Exception:
-            pass
+        await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
+        self.notify("Подключение остановлено", severity="information")
+        self._update_dashboard()
 
     async def _action_diag(self) -> None:
         if self.service is None:
             return
-        try:
-            await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
-            self.notify("Диагностика сохранена", severity="information")
-            self._update_dashboard()
-        except Exception:
-            pass
+        await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
+        self.notify("Диагностика сохранена", severity="information")
+        self._update_dashboard()
 
     async def _do_import_subscription(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
@@ -896,11 +897,20 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
+            def _do_refresh_all():
+                store = self.service.ensure_store_ready()
+                from .subvost_store import refresh_all_subscriptions as sra
+                from .subvost_paths import build_app_paths
+                from pathlib import Path
+                paths = build_app_paths(Path.home())
+                result = sra(store, paths=paths)
+                self.service.persist_store(store)
+                return result
+            await self._run_service_action("Обновление подписок...", _do_refresh_all)
             self.notify("Подписки обновлены", severity="information")
             self._update_nodes()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(f"Ошибка обновления: {exc}", severity="error")
 
     async def _do_add_manual(self, result: dict[str, Any] | None) -> None:
         if result is None or self.service is None:
@@ -941,19 +951,16 @@ class SubvostTUI(App):
         if len(parts) != 2:
             return
         profile_id, node_id = parts
-        try:
-            def _do_activate():
-                store = self.service.ensure_store_ready()
-                repo = JsonNodeRepository(store)
-                repo.activate(profile_id, node_id)
-                self.service.persist_store(store)
-                return {"ok": True}
-            await self._run_service_action("Активация узла...", _do_activate)
-            self.notify("Узел активирован", severity="information")
-            self._update_dashboard()
-            self._update_nodes()
-        except Exception:
-            pass
+        def _do_activate():
+            store = self.service.ensure_store_ready()
+            repo = JsonNodeRepository(store)
+            repo.activate(profile_id, node_id)
+            self.service.persist_store(store)
+            return {"ok": True}
+        await self._run_service_action("Активация узла...", _do_activate)
+        self.notify("Узел активирован", severity="information")
+        self._update_dashboard()
+        self._update_nodes()
 
     async def _action_ping_node(self) -> None:
         if self.service is None:
@@ -990,11 +997,16 @@ class SubvostTUI(App):
             self.notify("Сначала выберите подписку в таблице", severity="warning")
             return
         try:
-            await self._run_service_action(
-                "Обновление подписки...",
-                self.service.refresh_subscription,
-                sub_id,
-            )
+            def _do_refresh():
+                store = self.service.ensure_store_ready()
+                from .subvost_store import refresh_subscription as sr
+                from .subvost_paths import build_app_paths
+                from pathlib import Path
+                paths = build_app_paths(Path.home())
+                result = sr(store, sub_id, paths=paths)
+                self.service.persist_store(store)
+                return result
+            await self._run_service_action("Обновление подписки...", _do_refresh)
             self.notify("Подписка обновлена", severity="information")
             self._update_nodes()
         except Exception as exc:

@@ -239,3 +239,144 @@ HWID вычисляется детерминированно из хоста, д
 - `DESIGN.md` — визуальный контракт GTK4 UI (палитра, типографика, запрещённые паттерны).
 - `CONTRIBUTING.md` — правила вклада, стиль кода, preflight-проверки.
 - `SECURITY.md` — политика безопасности и disclosure.
+
+---
+
+## Деплой прод-бандла
+
+Прод-бандл живёт по адресу:
+```
+/home/prog7/MyWorkspace/40-Tools-and-Apps/Apps/subvost-xray-tun-tui/
+```
+
+### Конвенция имён
+
+Прод-бандл использует **подчёркивание** в именах libexec-скриптов:
+- Репо: `libexec/run-xray-tun-subvost.sh`
+- Прод: `libexec/_run-xray-tun-subvost.sh`
+
+Внешние wrapper-ы (в корне бандла) вызывают именно `_`-имена.
+
+### Что синхронизировать
+
+**Код (копировать из репо в прод):**
+- `gui/` — все `.py` файлы и подкаталоги (`domain/`, `infrastructure/`, `presentation/`, `routing/`)
+- `libexec/` — скрипты (с добавлением `_` префикса к именам)
+- `lib/` — `subvost-common.sh`
+- `backend/` — Go-исходники (при сборке)
+- `subvostd` — собранный Go-бинарник
+- `xray-tun-subvost.json` — шаблон Xray-конфига
+- `tests/` — Python-тесты
+- `assets/` — иконка
+- `*.sh` — корневые wrapper-ы
+- `*.desktop` — desktop entry
+- `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`
+- `Makefile`
+- `.gitignore`
+
+**НЕ копировать (user data / runtime):**
+- `.subvost/` — install-id, state (уникален для каждой установки)
+- `logs/` — runtime-логи
+- `runtime/` — runtime-артефакты
+- `output/` — выходные файлы
+- `knowledge/` — TCK (read-only контекст)
+- `build/`, `archive/`, `windows/`, `docs/windows/` — сборка/архив
+- `.agents/`, `.codex` — IDE-конфиги
+- `__pycache__/`, `.pytest_cache/`
+- `gui/__pycache__/`
+
+### Алгоритм деплоя
+
+```bash
+REPO="/home/prog7/MyWorkspace/20-Personal/PetProjects/Active/personal-singbox-xray-tun"
+PROD="/home/prog7/MyWorkspace/40-Tools-and-Apps/Apps/subvost-xray-tun-tui"
+
+# 1. Go-бинарник
+cp "$REPO/subvostd" "$PROD/subvostd"
+chmod +x "$PROD/subvostd"
+
+# 2. Python GUI (gui/)
+rsync -av --delete \
+  --exclude='__pycache__/' \
+  "$REPO/gui/" "$PROD/gui/"
+
+# 3. Shell-скрипты (libexec/) — с _ префиксом
+rsync -av --delete \
+  --exclude='__pycache__/' \
+  --exclude='_subvost_store_reader.py' \
+  "$REPO/libexec/" "$PROD/libexec/"
+# Переименовать: добавить _ к скриптам (если ещё нет)
+for f in "$PROD/libexec/"*.sh; do
+  base="$(basename "$f")"
+  [[ "$base" == _* ]] || mv "$f" "$PROD/libexec/_${base}"
+done
+cp "$REPO/libexec/_subvost_store_reader.py" "$PROD/libexec/_subvost_store_reader.py"
+
+# 4. lib/subvost-common.sh
+cp "$REPO/lib/subvost-common.sh" "$PROD/lib/subvost-common.sh"
+
+# 5. Корневые wrapper-ы (НЕ перезаписывать outer wrappers в проде!)
+#    Прод-бандл вызывает `_run-xray-tun-subvost.sh` (с underscore).
+#    Репо вызывает `run-xray-tun-subvost.sh` (без underscore).
+#    Outer wrappers в проде уже корректны — не трогать их.
+#    Копировать только launch-tui-in-terminal.sh (если есть в репо).
+cp "$REPO/launch-tui-in-terminal.sh" "$PROD/launch-tui-in-terminal.sh" 2>/dev/null || true
+
+# 6. Остальные файлы
+cp "$REPO/xray-tun-subvost.json" "$PROD/xray-tun-subvost.json"
+cp "$REPO/subvost-xray-tun.desktop" "$PROD/subvost-xray-tun.desktop"
+cp "$REPO/Makefile" "$PROD/Makefile" 2>/dev/null || true
+cp "$REPO/.gitignore" "$PROD/.gitignore"
+cp "$REPO/README.md" "$PROD/README.md"
+cp "$REPO/CONTRIBUTING.md" "$PROD/CONTRIBUTING.md"
+cp "$REPO/SECURITY.md" "$PROD/SECURITY.md"
+cp "$REPO/LICENSE" "$PROD/LICENSE"
+
+# 7. Тесты
+rsync -av --delete \
+  --exclude='__pycache__/' \
+  "$REPO/tests/" "$PROD/tests/"
+
+# 8. Assets (иконка)
+rsync -av --delete "$REPO/assets/" "$PROD/assets/"
+
+# 9. Desktop entry в ~/.local/share/applications/
+#    ВАЖНО: Exec должен указывать на абсолютный путь к launch-tui-in-terminal.sh из прод-бандла!
+cat > ~/.local/share/applications/subvost-xray-tun.desktop << DESKTOP_EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Subvost Xray TUN
+Comment=Универсальный TUI для управления туннелем
+Exec=${PROD}/launch-tui-in-terminal.sh
+Icon=subvost-xray-tun-icon
+Terminal=false
+Categories=Network;
+StartupNotify=true
+DESKTOP_EOF
+rm -f ~/.local/share/applications/subvost-xray-tun-gtk-ui.desktop
+update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
+
+# 10. Иконка
+mkdir -p ~/.local/share/icons/hicolor/scalable/apps/
+ln -sf "$PROD/assets/subvost-xray-tun-icon.svg" \
+  ~/.local/share/icons/hicolor/scalable/apps/subvost-xray-tun-icon.svg
+```
+
+### Проверка после деплоя
+
+```bash
+# Синтаксис shell-скриптов
+bash -n "$PROD"/*.sh
+bash -n "$PROD"/libexec/*.sh
+bash -n "$PROD"/lib/*.sh
+
+# Синтаксис Python
+python3 -m py_compile "$PROD"/gui/tui_app.py
+python3 -m py_compile "$PROD"/gui/subvost_store.py
+python3 -m py_compile "$PROD"/gui/subvost_routing.py
+python3 -m json.tool "$PROD"/xray-tun-subvost.json > /dev/null
+
+# Тесты
+cd "$PROD" && python3 -m unittest discover -s tests
+```

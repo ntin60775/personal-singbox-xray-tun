@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -70,6 +71,9 @@ func findProjectRoot() string {
 }
 
 func runServe(configHome string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	srv := rpc.NewServer(configHome, findProjectRoot())
 
 	sigCh := make(chan os.Signal, 1)
@@ -77,10 +81,10 @@ func runServe(configHome string) {
 
 	go func() {
 		<-sigCh
-		srv.Shutdown()
+		cancel()
 	}()
 
-	if err := srv.Serve(); err != nil {
+	if err := srv.Serve(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

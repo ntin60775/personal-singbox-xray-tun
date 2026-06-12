@@ -191,54 +191,6 @@ def render_runtime_config(
     return config
 
 
-def _apply_outbound_transport_hints(
-    outbound: dict[str, Any],
-    *,
-    default_interface: str,
-    outbound_mark: int,
-) -> dict[str, Any]:
-    updated = copy.deepcopy(outbound)
-    stream_settings = copy.deepcopy(updated.get("streamSettings") or {})
-    sockopt = copy.deepcopy(stream_settings.get("sockopt") or {})
-    sockopt["interface"] = default_interface
-    sockopt["mark"] = outbound_mark
-    stream_settings["sockopt"] = sockopt
-    updated["streamSettings"] = stream_settings
-    return updated
 
 
-def apply_transport_hints_to_runtime_config(
-    active_config: dict[str, Any],
-    *,
-    default_interface: str,
-    outbound_mark: int,
-) -> dict[str, Any]:
-    if not default_interface:
-        raise ValueError("Не передан интерфейс для TUN-runtime.")
 
-    if outbound_mark <= 0:
-        raise ValueError("Маркер исходящего трафика должен быть положительным числом.")
-
-    config = copy.deepcopy(active_config)
-    outbounds = []
-    seen_tags: set[str] = set()
-    for outbound in config.get("outbounds", []):
-        tag = outbound.get("tag")
-        if tag in {"proxy", "direct"}:
-            outbounds.append(
-                _apply_outbound_transport_hints(
-                    outbound,
-                    default_interface=default_interface,
-                    outbound_mark=outbound_mark,
-                )
-            )
-            seen_tags.add(str(tag))
-        else:
-            outbounds.append(copy.deepcopy(outbound))
-    config["outbounds"] = outbounds
-
-    missing_tags = [tag for tag in ("proxy", "direct") if tag not in seen_tags]
-    if missing_tags:
-        raise ValueError(f"В активном Xray-конфиге не найдены outbound'ы: {', '.join(missing_tags)}.")
-
-    return config

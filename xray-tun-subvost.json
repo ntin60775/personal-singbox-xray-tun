@@ -72,7 +72,7 @@
         "security": "reality",
         "sockopt": {
           "interface": "eth0",
-          "mark": 8421
+          "mark": 28787
         },
         "realitySettings": {
           "serverName": "edge.example.com",
@@ -110,7 +110,7 @@
       "streamSettings": {
         "sockopt": {
           "interface": "eth0",
-          "mark": 8421
+          "mark": 28787
         }
       }
     },

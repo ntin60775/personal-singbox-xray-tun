@@ -275,8 +275,14 @@ def download_routing_geodata(
 
     geoip_bytes = fetch(geoip_url, "geoip.dat")
     geosite_bytes = fetch(geosite_url, "geosite.dat")
-    atomic_write_bytes(paths.geoip_asset_file, geoip_bytes, uid=uid, gid=gid)
-    atomic_write_bytes(paths.geosite_asset_file, geosite_bytes, uid=uid, gid=gid)
+    try:
+        atomic_write_bytes(paths.geoip_asset_file, geoip_bytes, uid=uid, gid=gid)
+    except OSError as exc:
+        raise RoutingProfileError(f"Не удалось записать geoip.dat: {exc}") from exc
+    try:
+        atomic_write_bytes(paths.geosite_asset_file, geosite_bytes, uid=uid, gid=gid)
+    except OSError as exc:
+        raise RoutingProfileError(f"Не удалось записать geosite.dat: {exc}") from exc
     return build_geodata_status(
         paths,
         geoip_url=geoip_url,

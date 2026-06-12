@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 SUPPORTED_SCHEMES = {"vless", "vmess", "trojan", "ss"}
 SUPPORTED_LINK_NETWORKS = {"tcp", "ws", "grpc", "xhttp"}
 SUPPORTED_LINK_SECURITIES = {"none", "tls", "reality"}
-SUPPORTED_VMESS_NETWORKS = {"tcp", "ws", "grpc"}
+SUPPORTED_VMESS_NETWORKS = {"tcp", "ws", "grpc", "xhttp"}
 SUPPORTED_VMESS_SECURITIES = {"none", "tls"}
 SUPPORTED_SS_METHODS = {
     "aes-128-gcm",

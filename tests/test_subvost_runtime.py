@@ -11,7 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from gui.subvost_runtime import (  # noqa: E402
-    apply_transport_hints_to_runtime_config,
     render_runtime_config,
 )
 
@@ -184,22 +183,6 @@ class SubvostRuntimeTests(unittest.TestCase):
         self.assertEqual(routing_rules[2]["outboundTag"], "direct")
         self.assertEqual(routing_rules[3]["outboundTag"], "proxy")
         self.assertEqual(routing_rules[-1]["outboundTag"], "direct")
-
-    def test_apply_transport_hints_updates_proxy_and_direct_outbounds(self) -> None:
-        active_config = copy.deepcopy(TEMPLATE_CONFIG)
-        rendered = apply_transport_hints_to_runtime_config(
-            active_config,
-            default_interface="wlp3s0",
-            outbound_mark=8421,
-        )
-
-        self.assertEqual(rendered["outbounds"][0]["settings"], active_config["outbounds"][0]["settings"])
-        self.assertEqual(rendered["outbounds"][0]["streamSettings"]["sockopt"]["interface"], "wlp3s0")
-        self.assertEqual(rendered["outbounds"][0]["streamSettings"]["sockopt"]["mark"], 8421)
-        self.assertEqual(rendered["outbounds"][1]["streamSettings"]["sockopt"]["interface"], "wlp3s0")
-        self.assertEqual(rendered["outbounds"][1]["streamSettings"]["sockopt"]["mark"], 8421)
-        self.assertEqual(rendered["outbounds"][2], active_config["outbounds"][2])
-        self.assertEqual(rendered["routing"]["rules"], active_config["routing"]["rules"])
 
 
 if __name__ == "__main__":

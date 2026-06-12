@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/subvost/xray-tun/backend/internal/domain"
 )
@@ -64,17 +65,45 @@ func LoadStore(paths AppPaths) (*domain.Store, error) {
 func SaveStore(paths AppPaths, store *domain.Store) error {
 	ensureStoreDir(paths)
 	normalizeStore(store)
+	// Lock store directory to prevent concurrent writes with Python backend.
+	dirFd, err := syscall.Open(filepath.Dir(paths.StoreFile), syscall.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("open store dir for lock: %w", err)
+	}
+	defer func() {
+		syscall.Flock(dirFd, syscall.LOCK_UN)
+		syscall.Close(dirFd)
+	}()
+	if err := syscall.Flock(dirFd, syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("lock store dir: %w", err)
+	}
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal store: %w", err)
 	}
-	tmpFile := filepath.Join(paths.StoreDir, ".store.tmp")
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return fmt.Errorf("write tmp store: %w", err)
+	tmpFile, err := os.CreateTemp(paths.StoreDir, ".store-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
 	}
-	if err := os.Rename(tmpFile, paths.StoreFile); err != nil {
-		os.Remove(tmpFile)
-		return fmt.Errorf("rename store: %w", err)
+	if err := os.Chmod(tmpFile.Name(), 0600); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return fmt.Errorf("chmod temp store: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write temp store: %w", err)
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("sync temp store: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp store: %w", err)
+	}
+	if err := os.Rename(tmpFile.Name(), paths.StoreFile); err != nil {
+		return fmt.Errorf("rename temp store: %w", err)
 	}
 	return nil
 }

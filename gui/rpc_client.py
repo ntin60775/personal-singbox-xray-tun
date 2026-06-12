@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +65,27 @@ class SubvostRPCClient:
         self._proc.stdin.write(request_line)
         self._proc.stdin.flush()
 
-        response_line = self._proc.stdout.readline()
+        q: queue.Queue[str | None] = queue.Queue()
+
+        def _reader() -> None:
+            try:
+                assert self._proc is not None and self._proc.stdout is not None
+                q.put(self._proc.stdout.readline())
+            except Exception:
+                q.put(None)
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+        try:
+            response_line = q.get(timeout=30)
+        except queue.Empty:
+            self._proc.kill()
+            self._proc = None
+            raise ConnectionError("Backend did not respond within 30s")
+
+        if response_line is None:
+            raise ConnectionError("Failed to read backend response")
         if not response_line:
             raise ConnectionError("Backend process closed stdout")
 
@@ -166,7 +188,7 @@ class RPCAccessors:
         return self._client.call("routing.profiles.list")  # type: ignore[return-value]
 
     def routing_profiles_import(self, text: str) -> dict[str, Any]:
-        return self._client.call("routing.profiles.import", {"text": text})  # type: ignore[return-value]
+        return self._client.call("routing.profiles.import", {"payload": text})  # type: ignore[return-value]
 
     def routing_profiles_activate(self, profile_id: str) -> dict[str, Any]:
         return self._client.call("routing.profiles.activate", {"profile_id": profile_id})  # type: ignore[return-value]
@@ -182,7 +204,7 @@ class RPCAccessors:
 
     # Links
     def links_import(self, text: str) -> dict[str, Any]:
-        return self._client.call("links.import", {"text": text})  # type: ignore[return-value]
+        return self._client.call("links.import", {"uris": [text]})  # type: ignore[return-value]
 
     # Ping
     def ping(self, profile_id: str, node_id: str) -> dict[str, Any]:
