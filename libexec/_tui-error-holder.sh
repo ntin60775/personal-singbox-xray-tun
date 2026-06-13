@@ -6,6 +6,7 @@ set -uo pipefail
 # bash выйдет немедленно, не дав отработать read -r ниже.
 
 SCRIPT_PATH="$1"
+printf '\033]0;Subvost Xray TUN\007'
 shift
 
 bash "$SCRIPT_PATH" "$@"
