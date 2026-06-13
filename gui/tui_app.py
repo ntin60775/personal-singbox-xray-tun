@@ -719,6 +719,10 @@ class SubvostTUI(App):
             return
 
         try:
+            nodes_tab = self.query_one("#nodes-tab", NodesTab)
+            saved_sub_id = nodes_tab.selected_sub_id
+            saved_node_key = nodes_tab.selected_row_key
+
             sub_table = self.query_one("#sub-table", DataTable)
             sub_table.clear()
             for sub in store.get("subscriptions", []):
@@ -749,6 +753,14 @@ class SubvostTUI(App):
                         profile_name,
                     )
                     table.add_row(*row, key=ping_key)
+
+            # Restore visual selection after table rebuild
+            if saved_node_key:
+                ordered = table.ordered_rows
+                for idx, (rk, _) in enumerate(ordered):
+                    if str(rk) == saved_node_key:
+                        table.move_cursor(row=idx, column=0)
+                        break
         except NoMatches:
             # Вкладка еще не смонтирована — игнорируем
             pass
@@ -834,8 +846,8 @@ class SubvostTUI(App):
         self.pop_screen()
 
     async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
-        self._show_loading(action_name)
         try:
+            self._show_loading(action_name)
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
             return result
@@ -850,23 +862,32 @@ class SubvostTUI(App):
     async def _action_start(self) -> None:
         if self.service is None:
             return
-        await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
-        self.notify("Подключение запущено", severity="information")
-        self._update_dashboard()
+        try:
+            await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
+            self.notify("Подключение запущено", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass  # _run_service_action already notified the error
 
     async def _action_stop(self) -> None:
         if self.service is None:
             return
-        await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
-        self.notify("Подключение остановлено", severity="information")
-        self._update_dashboard()
+        try:
+            await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
+            self.notify("Подключение остановлено", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass  # _run_service_action already notified the error
 
     async def _action_diag(self) -> None:
         if self.service is None:
             return
-        await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
-        self.notify("Диагностика сохранена", severity="information")
-        self._update_dashboard()
+        try:
+            await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
+            self.notify("Диагностика сохранена", severity="information")
+            self._update_dashboard()
+        except Exception:
+            pass  # _run_service_action already notified the error
 
     async def _do_import_subscription(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
@@ -951,16 +972,19 @@ class SubvostTUI(App):
         if len(parts) != 2:
             return
         profile_id, node_id = parts
-        def _do_activate():
-            store = self.service.ensure_store_ready()
-            repo = JsonNodeRepository(store)
-            repo.activate(profile_id, node_id)
-            self.service.persist_store(store)
-            return {"ok": True}
-        await self._run_service_action("Активация узла...", _do_activate)
-        self.notify("Узел активирован", severity="information")
-        self._update_dashboard()
-        self._update_nodes()
+        try:
+            def _do_activate():
+                store = self.service.ensure_store_ready()
+                repo = JsonNodeRepository(store)
+                repo.activate(profile_id, node_id)
+                self.service.persist_store(store)
+                return {"ok": True}
+            await self._run_service_action("Активация узла...", _do_activate)
+            self.notify("Узел активирован", severity="information")
+            self._update_dashboard()
+            self._update_nodes()
+        except Exception:
+            pass  # _run_service_action already notified the error
 
     async def _action_ping_node(self) -> None:
         if self.service is None:
