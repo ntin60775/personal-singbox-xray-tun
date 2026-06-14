@@ -28,6 +28,9 @@ TUN_INTERFACE="${TUN_INTERFACE:-tun0}"
 ROUTE_TABLE="${ROUTE_TABLE:-18421}"
 ROUTE_MARK="${ROUTE_MARK:-8421}"
 ROUTE_RULE_PREF="${ROUTE_RULE_PREF:-100}"
+VPN_EXCLUDED_SOURCE_IPV4_RANGES="${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}"
+ROUTE_RULE_PREF_EXCLUDED_SOURCE="${ROUTE_RULE_PREF_EXCLUDED_SOURCE:-$((ROUTE_RULE_PREF - 1))}"
+ROUTE_RULE_PREF_EXCLUDED_DESTINATION="${ROUTE_RULE_PREF_EXCLUDED_DESTINATION:-$((ROUTE_RULE_PREF - 2))}"
 SKIP_RUNTIME_PROCESS_STOP=0
 FORCE_TAKEOVER="${SUBVOST_FORCE_TAKEOVER:-0}"
 
@@ -131,6 +134,21 @@ if [[ -f "$STATE_FILE" ]]; then
           VPN_EXCLUDED_IPV4_ROUTES="$value"
         fi
         ;;
+      VPN_EXCLUDED_SOURCE_IPV4_RANGES)
+        if [[ -n "$value" ]]; then
+          VPN_EXCLUDED_SOURCE_IPV4_RANGES="$value"
+        fi
+        ;;
+      ROUTE_RULE_PREF_EXCLUDED_SOURCE)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_RULE_PREF_EXCLUDED_SOURCE="$value"
+        fi
+        ;;
+      ROUTE_RULE_PREF_EXCLUDED_DESTINATION)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          ROUTE_RULE_PREF_EXCLUDED_DESTINATION="$value"
+        fi
+        ;;
     esac
   done <"$STATE_FILE"
 fi
@@ -213,8 +231,52 @@ else
 fi
 
 
+cleanup_ufw_icmp_fix() {
+  local route_value
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for route_value in ${VPN_EXCLUDED_IPV4_ROUTES:-}; do
+    sudo iptables -t filter -D INPUT -p icmp --icmp-type echo-reply -s "$route_value" -j ACCEPT >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_vpn_excluded_source_rules() {
+  local source_range
+  [[ -n "${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule del pref "$ROUTE_RULE_PREF_EXCLUDED_SOURCE" from "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_vpn_excluded_destination_rules() {
+  local source_range
+  [[ -n "${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule del pref "$ROUTE_RULE_PREF_EXCLUDED_DESTINATION" to "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_vpn_excluded_source_marks() {
+  local source_range
+  [[ -n "${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}" ]] || return 0
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -z "${DEFAULT_IPV4_INTERFACE:-}" ]]; then
+    return 0
+  fi
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo iptables -t mangle -D POSTROUTING -s "$source_range" ! -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || true
+    sudo iptables -t mangle -D PREROUTING -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || true
+  done
+}
+
 echo "[2/4] Очистка policy-routing"
 cleanup_ufw_icmp_fix
+cleanup_vpn_excluded_destination_rules
+cleanup_vpn_excluded_source_rules
+cleanup_vpn_excluded_source_marks
 sudo ip rule del pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE" >/dev/null 2>&1 || true
 sudo ip route flush table "$ROUTE_TABLE" >/dev/null 2>&1 || true
 sudo ip route flush cache >/dev/null 2>&1 || true

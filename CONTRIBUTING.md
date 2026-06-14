@@ -17,8 +17,8 @@
 bash -n *.sh
 bash -n libexec/*.sh
 bash -n lib/*.sh
-python3 -m py_compile gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py
-python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_gui_server tests.test_embedded_webview
+python3 -m py_compile gui/tui_app.py gui/gui_server.py gui/subvost_runtime.py gui/subvost_store.py gui/subvost_parser.py gui/embedded_webview.py
+python3 -m pytest tests/ -q
 python3 -m json.tool xray-tun-subvost.json
 ```
 

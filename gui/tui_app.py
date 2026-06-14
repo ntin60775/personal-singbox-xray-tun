@@ -8,6 +8,8 @@ import os
 import subprocess
 import sys
 import threading
+import signal
+import datetime
 import traceback
 from pathlib import Path
 from typing import Any
@@ -255,6 +257,7 @@ class DashboardTab(Container):
 
     status_text = reactive("Неизвестно")
     active_node_text = reactive("—")
+    connection_time_text = reactive("—")
     traffic_rx_text = reactive("—")
     traffic_tx_text = reactive("—")
     routing_badge_text = reactive("—")
@@ -273,6 +276,9 @@ class DashboardTab(Container):
                     yield Static("[b]Трафик[/b]", classes="card-header")
                     yield Label(self.traffic_rx_text, id="traffic-rx-label")
                     yield Label(self.traffic_tx_text, id="traffic-tx-label")
+                with Vertical(classes="dashboard-card"):
+                    yield Static("[b]Время подключения[/b]", classes="card-header")
+                    yield Label(self.connection_time_text, id="conn-time-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Маршрутизация[/b]", classes="card-header")
                     yield Label(self.routing_badge_text, id="routing-badge-label")
@@ -324,6 +330,13 @@ class DashboardTab(Container):
     def watch_routing_badge_text(self, value: str) -> None:
         try:
             label = self.query_one("#routing-badge-label", Label)
+            label.update(value)
+        except Exception:
+            pass
+
+    def watch_connection_time_text(self, value: str) -> None:
+        try:
+            label = self.query_one("#conn-time-label", Label)
             label.update(value)
         except Exception:
             pass
@@ -387,6 +400,19 @@ class NodesTab(Container):
             app._update_nodes()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        table_id = event.data_table.id
+        if table_id == "nodes-table":
+            self.selected_row_key = str(event.row_key.value) if event.row_key else None
+            hint = self.query_one("#nodes-hint", Label)
+            if self.selected_row_key:
+                hint.update(f"Выбран узел: {self.selected_row_key}")
+        elif table_id == "sub-table":
+            self.selected_sub_id = str(event.row_key.value) if event.row_key else None
+            hint = self.query_one("#nodes-hint", Label)
+            if self.selected_sub_id:
+                hint.update(f"Выбрана подписка: {self.selected_sub_id}")
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         table_id = event.data_table.id
         if table_id == "nodes-table":
             self.selected_row_key = str(event.row_key.value) if event.row_key else None
@@ -472,6 +498,12 @@ class RoutingTab(Container):
             app._action_clear_routing_profile()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.selected_profile_id = str(event.row_key.value) if event.row_key else None
+        hint = self.query_one("#routing-hint", Label)
+        if self.selected_profile_id:
+            hint.update(f"Выбран профиль: {self.selected_profile_id}")
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.selected_profile_id = str(event.row_key.value) if event.row_key else None
         hint = self.query_one("#routing-hint", Label)
         if self.selected_profile_id:
@@ -632,6 +664,9 @@ class SubvostTUI(App):
         ("alt+q", "quit", "Выход"),
         ("alt+r", "refresh", "Обновить"),
         ("alt+p", "command_palette", "Команды"),
+        ("alt+й", "quit", ""),
+        ("alt+к", "refresh", ""),
+        ("alt+з", "command_palette", ""),
     ]
 
     def __init__(self, service: SubvostAppService | None = None) -> None:
@@ -646,7 +681,7 @@ class SubvostTUI(App):
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header(show_clock=False)
         with Vertical(id="main-container"):
             with TabbedContent(id="main-tabs"):
                 with TabPane("Подключение", id="tab-dashboard"):
@@ -675,6 +710,8 @@ class SubvostTUI(App):
         self._update_dashboard()
         self._update_nodes()
         self._update_settings()
+        self._start_tray()
+        asyncio.create_task(self._auto_activate_first_node())
 
     def _update_dashboard(self) -> None:
         if self.service is None:
@@ -693,6 +730,30 @@ class SubvostTUI(App):
         dashboard.traffic_rx_text = vm.traffic_rx_text
         dashboard.traffic_tx_text = vm.traffic_tx_text
         dashboard.routing_badge_text = vm.routing_active_profile_name or "Нет профиля"
+
+        connected_since = status.get("runtime", {}).get("connected_since")
+        if connected_since:
+            try:
+                start = datetime.datetime.fromisoformat(connected_since)
+                now = datetime.datetime.now(start.tzinfo) if start.tzinfo else datetime.datetime.now()
+                elapsed = now - start
+                hours, remainder = divmod(int(elapsed.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                dashboard.connection_time_text = f"Время: {hours:02d}:{minutes:02d}:{seconds:02d}"
+            except Exception:
+                dashboard.connection_time_text = "—"
+        else:
+            dashboard.connection_time_text = "—"
+
+        processes = status.get("processes", {})
+        is_live = bool(processes.get("xray_alive"))
+        try:
+            start_btn = dashboard.query_one("#btn-start", Button)
+            stop_btn = dashboard.query_one("#btn-stop", Button)
+            start_btn.disabled = is_live
+            stop_btn.disabled = not is_live
+        except Exception:
+            pass
 
     def _update_nodes(self) -> None:
         if self.service is None:
@@ -830,6 +891,44 @@ class SubvostTUI(App):
         finally:
             self._hide_loading()
 
+    async def _auto_activate_first_node(self) -> None:
+        if self.service is None:
+            return
+        store = self.service.ensure_store_ready()
+        selection = store.get("active_selection", {})
+        if selection.get("profile_id") and selection.get("node_id"):
+            return
+
+        first_profile = None
+        first_node = None
+        for profile in store.get("profiles", []):
+            if not profile.get("enabled", True):
+                continue
+            for node in profile.get("nodes", []):
+                if node.get("enabled", True):
+                    first_profile = profile
+                    first_node = node
+                    break
+            if first_node:
+                break
+
+        if first_node is None:
+            return
+
+        try:
+            repo = JsonNodeRepository(store)
+            repo.activate(first_profile["id"], first_node["id"])
+            self.service.persist_store(store)
+            self.notify(
+                f"Автоматически активирован узел: {first_node.get('name', '—')}",
+                severity="information",
+            )
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
+            self._update_nodes()
+
 
 
     async def _action_start(self) -> None:
@@ -839,8 +938,10 @@ class SubvostTUI(App):
             await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
             self.notify("Подключение запущено", severity="information")
             self._update_dashboard()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
 
     async def _action_stop(self) -> None:
         if self.service is None:
@@ -849,8 +950,10 @@ class SubvostTUI(App):
             await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
             self.notify("Подключение остановлено", severity="information")
             self._update_dashboard()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
 
     async def _action_diag(self) -> None:
         if self.service is None:
@@ -859,8 +962,10 @@ class SubvostTUI(App):
             await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
             self.notify("Диагностика сохранена", severity="information")
             self._update_dashboard()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
 
     async def _do_import_subscription(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
@@ -877,9 +982,6 @@ class SubvostTUI(App):
             self._update_nodes()
             self._update_dashboard()
         except Exception as exc:
-            print(f"ERROR _do_import_subscription: {exc}")
-            import traceback
-            traceback.print_exc()
             self.notify(f"Ошибка: {exc}", severity="error")
 
     def _action_import_subscription(self) -> None:
@@ -894,8 +996,10 @@ class SubvostTUI(App):
             await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
             self.notify("Подписки обновлены", severity="information")
             self._update_nodes()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_nodes()
 
     async def _do_add_manual(self, result: dict[str, Any] | None) -> None:
         if result is None or self.service is None:
@@ -947,8 +1051,11 @@ class SubvostTUI(App):
             self.notify("Узел активирован", severity="information")
             self._update_dashboard()
             self._update_nodes()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
+            self._update_nodes()
 
     async def _action_ping_node(self) -> None:
         if self.service is None:
@@ -1143,18 +1250,41 @@ class SubvostTUI(App):
             removed = result.get("removed", [])
             self.notify(f"Очищено файлов: {len(removed)}", severity="information")
             self._update_dashboard()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+        finally:
+            self._update_dashboard()
 
     def _stop_tray(self) -> None:
         """Остановить tray-процесс, если запущен."""
-        # Tray-интеграция: при необходимости отправить сигнал процессу tui_tray.py
-        pass
+        tray_script = "tui_tray.py"
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", tray_script],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in result.stdout.strip().splitlines():
+                try:
+                    pid = int(line.strip())
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGTERM)
+                except (ValueError, OSError):
+                    continue
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
 
     def _start_tray(self) -> None:
         """Запустить tray-процесс в фоне."""
-        # Tray-интеграция: запуск gui/tui_tray.py через subprocess
-        pass
+        tray_path = SCRIPT_DIR / "tui_tray.py"
+        if tray_path.exists():
+            subprocess.Popen(
+                [sys.executable, str(tray_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id

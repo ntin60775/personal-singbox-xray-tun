@@ -236,12 +236,141 @@ detect_default_ipv4_interface() {
   fi
 }
 
+load_runtime_routing_overrides() {
+  local config_path="$1"
+  [[ -f "$config_path" ]] || return 0
+
+  python3 - "$config_path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    sys.exit(0)
+
+for key in ("excluded_source_ipv4_ranges", "excluded_ipv4_routes", "excluded_hostnames"):
+    value = data.get(key)
+    if isinstance(value, list):
+        print(f"{key}={' '.join(str(v) for v in value)}")
+    elif isinstance(value, str):
+        print(f"{key}={value}")
+PY
+}
+
+detect_libvirt_source_networks() {
+  local networks="" network_name cidr
+  if ! command -v virsh >/dev/null 2>&1; then
+    return 0
+  fi
+  networks="$(
+    virsh -c qemu:///system net-list --all 2>/dev/null | awk 'NR>2 && $3=="yes" {print $1}'
+  )"
+  [[ -n "$networks" ]] || return 0
+  for network_name in $networks; do
+    cidr="$(
+      virsh -c qemu:///system net-dumpxml "$network_name" 2>/dev/null \
+      | python3 -c '
+import sys, xml.etree.ElementTree as ET
+try:
+    root = ET.fromstring(sys.stdin.read())
+    ip = root.find(".//ip")
+    if ip is not None:
+        addr = ip.get("address")
+        netmask = ip.get("netmask", "255.255.255.0")
+        import ipaddress
+        network = ipaddress.IPv4Network((addr, netmask), strict=False)
+        print(str(network))
+except Exception:
+    pass
+    '
+    )"
+    if [[ -n "$cidr" ]]; then
+      if [[ -n "${LIBVIRT_SOURCE_NETWORKS:-}" ]]; then
+        if [[ " ${LIBVIRT_SOURCE_NETWORKS} " != *" ${cidr} "* ]]; then
+          LIBVIRT_SOURCE_NETWORKS="${LIBVIRT_SOURCE_NETWORKS} ${cidr}"
+        fi
+      else
+        LIBVIRT_SOURCE_NETWORKS="${cidr}"
+      fi
+    fi
+  done
+}
+
+apply_vpn_excluded_source_rules() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule add pref "$ROUTE_RULE_PREF_EXCLUDED_SOURCE" from "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_vpn_excluded_source_rules() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule del pref "$ROUTE_RULE_PREF_EXCLUDED_SOURCE" from "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+apply_vpn_excluded_destination_rules() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule add pref "$ROUTE_RULE_PREF_EXCLUDED_DESTINATION" to "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+cleanup_vpn_excluded_destination_rules() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo ip rule del pref "$ROUTE_RULE_PREF_EXCLUDED_DESTINATION" to "$source_range" lookup main >/dev/null 2>&1 || true
+  done
+}
+
+apply_vpn_excluded_source_marks() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    iptables -t mangle -C POSTROUTING -s "$source_range" ! -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || \
+      sudo iptables -t mangle -I POSTROUTING 1 -s "$source_range" ! -d "$source_range" -j MARK --set-mark "$ROUTE_MARK"
+    iptables -t mangle -C PREROUTING -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || \
+      sudo iptables -t mangle -I PREROUTING 1 -d "$source_range" -j MARK --set-mark "$ROUTE_MARK"
+  done
+}
+
+cleanup_vpn_excluded_source_marks() {
+  local source_range
+  [[ -n "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" ]] || return 0
+  if ! command -v iptables >/dev/null 2>&1; then
+    return 0
+  fi
+  for source_range in $VPN_EXCLUDED_SOURCE_IPV4_RANGES; do
+    sudo iptables -t mangle -D POSTROUTING -s "$source_range" ! -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || true
+    sudo iptables -t mangle -D PREROUTING -d "$source_range" -j MARK --set-mark "$ROUTE_MARK" >/dev/null 2>&1 || true
+  done
+}
+
 apply_vpn_excluded_ipv4_routes() {
-  local route_value host address resolved_any
+  local route_value host address resolved_any local_route local_dev
 
   [[ -n "$VPN_EXCLUDED_IPV4_ROUTES" ]] || return 0
 
   for route_value in $VPN_EXCLUDED_IPV4_ROUTES; do
+    local_route="$(ip route show "$route_value" table main 2>/dev/null | head -n 1)"
+    if [[ "$local_route" == *"proto kernel"* && "$local_route" == *"scope link"* ]]; then
+      local_dev="$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}' <<<"$local_route")"
+      if [[ -n "$local_dev" ]]; then
+        sudo ip route replace table "$ROUTE_TABLE" "$route_value" dev "$local_dev"
+        continue
+      fi
+    fi
     sudo ip route replace table "$ROUTE_TABLE" "$route_value" via "$DEFAULT_IPV4_GATEWAY" dev "$DEFAULT_IPV4_INTERFACE"
   done
 
@@ -328,6 +457,10 @@ policy_route_cleanup() {
 }
 
 cleanup_partial_start() {
+  cleanup_vpn_excluded_destination_rules
+  cleanup_vpn_excluded_source_rules
+  cleanup_vpn_excluded_source_marks
+
   policy_route_cleanup
   cleanup_ufw_icmp_fix
 
@@ -415,13 +548,42 @@ DEFAULT_IPV4_INTERFACE=""
 DEFAULT_IPV4_GATEWAY=""
 XRAY_CONFIG_SOURCE="store"
 BUNDLE_INSTALL_ID="$(subvost_ensure_install_id)"
-VPN_EXCLUDED_IPV4_ROUTES="${VPN_EXCLUDED_IPV4_ROUTES:-10.0.0.0/14 10.3.40.33/32 81.29.134.113/32}"
+VPN_EXCLUDED_IPV4_ROUTES="${VPN_EXCLUDED_IPV4_ROUTES:-10.0.0.0/14 10.3.40.33/32 81.29.134.113/32 192.168.122.0/24}"
+
 VPN_EXCLUDED_HOSTNAMES="${VPN_EXCLUDED_HOSTNAMES:-dcp33 dcp40 dcp41 kld33 mb011 mb012 mb013 mb017 sgp001 trm-stolovaya v11 v14 v2 v3 v38 v56 v69 vmscan inv0203 inv0125 mon002}"
+VPN_EXCLUDED_SOURCE_IPV4_RANGES="${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}"
+ROUTE_RULE_PREF_EXCLUDED_SOURCE="${ROUTE_RULE_PREF_EXCLUDED_SOURCE:-$((ROUTE_RULE_PREF - 1))}"
+ROUTE_RULE_PREF_EXCLUDED_DESTINATION="${ROUTE_RULE_PREF_EXCLUDED_DESTINATION:-$((ROUTE_RULE_PREF - 2))}"
 
 ensure_python3_available
 
 if [[ -f "$STORE_FILE_DEFAULT" ]]; then
   sync_generated_runtime_snapshot_from_store
+fi
+STORE_DIR_DEFAULT="$(subvost_resolve_store_dir_for_home "$REAL_HOME")"
+RUNTIME_ROUTING_CONFIG="${RUNTIME_ROUTING_CONFIG:-${STORE_DIR_DEFAULT}/runtime-routing.json}"
+
+while IFS='=' read -r key value; do
+  case "$key" in
+    excluded_source_ipv4_ranges)
+      [[ -n "${VPN_EXCLUDED_SOURCE_IPV4_RANGES:-}" ]] || VPN_EXCLUDED_SOURCE_IPV4_RANGES="$value"
+      ;;
+    excluded_ipv4_routes)
+      [[ -n "${VPN_EXCLUDED_IPV4_ROUTES:-}" ]] || VPN_EXCLUDED_IPV4_ROUTES="$value"
+      ;;
+    excluded_hostnames)
+      [[ -n "${VPN_EXCLUDED_HOSTNAMES:-}" ]] || VPN_EXCLUDED_HOSTNAMES="$value"
+      ;;
+  esac
+done < <(load_runtime_routing_overrides "$RUNTIME_ROUTING_CONFIG")
+
+detect_libvirt_source_networks
+if [[ -n "${LIBVIRT_SOURCE_NETWORKS:-}" ]]; then
+  for cidr in $LIBVIRT_SOURCE_NETWORKS; do
+    if [[ " ${VPN_EXCLUDED_SOURCE_IPV4_RANGES} " != *" ${cidr} "* ]]; then
+      VPN_EXCLUDED_SOURCE_IPV4_RANGES="${VPN_EXCLUDED_SOURCE_IPV4_RANGES} ${cidr}"
+    fi
+  done
 fi
 
 mkdir -p "$LOG_DIR"
@@ -598,6 +760,10 @@ fi
 sudo ip route replace table "$ROUTE_TABLE" default dev "$TUN_INTERFACE_NAME"
 apply_vpn_excluded_ipv4_routes
 apply_ufw_icmp_fix
+apply_vpn_excluded_source_rules
+apply_vpn_excluded_destination_rules
+apply_vpn_excluded_source_marks
+
 sudo ip rule add pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_TABLE"
 sudo ip route flush cache >/dev/null 2>&1 || true
 
@@ -638,6 +804,10 @@ printf 'ROUTE_MARK=%s\n' "$ROUTE_MARK" >>"$STATE_FILE"
 printf 'ROUTE_RULE_PREF=%s\n' "$ROUTE_RULE_PREF" >>"$STATE_FILE"
 printf 'VPN_EXCLUDED_IPV4_ROUTES=%s\n' "$VPN_EXCLUDED_IPV4_ROUTES" >>"$STATE_FILE"
 printf 'VPN_EXCLUDED_HOSTNAMES=%s\n' "$VPN_EXCLUDED_HOSTNAMES" >>"$STATE_FILE"
+printf 'VPN_EXCLUDED_SOURCE_IPV4_RANGES=%s\n' "$VPN_EXCLUDED_SOURCE_IPV4_RANGES" >>"$STATE_FILE"
+printf 'ROUTE_RULE_PREF_EXCLUDED_SOURCE=%s\n' "$ROUTE_RULE_PREF_EXCLUDED_SOURCE" >>"$STATE_FILE"
+printf 'ROUTE_RULE_PREF_EXCLUDED_DESTINATION=%s\n' "$ROUTE_RULE_PREF_EXCLUDED_DESTINATION" >>"$STATE_FILE"
+
 printf 'RUNTIME_DNS_SERVERS=%s\n' "$RUNTIME_DNS_SERVERS" >>"$STATE_FILE"
 printf 'RUNTIME_DNS_SEARCH_DOMAINS=%s\n' "$RUNTIME_DNS_SEARCH_DOMAINS" >>"$STATE_FILE"
 
@@ -653,6 +823,7 @@ echo "DEFAULT_IPV4_INTERFACE=$DEFAULT_IPV4_INTERFACE"
 echo "DEFAULT_IPV4_GATEWAY=$DEFAULT_IPV4_GATEWAY"
 echo "VPN_EXCLUDED_IPV4_ROUTES=$VPN_EXCLUDED_IPV4_ROUTES"
 echo "VPN_EXCLUDED_HOSTNAMES=$VPN_EXCLUDED_HOSTNAMES"
+echo "VPN_EXCLUDED_SOURCE_IPV4_RANGES=$VPN_EXCLUDED_SOURCE_IPV4_RANGES"
 echo "RUNTIME_DNS_SERVERS=$RUNTIME_DNS_SERVERS"
 echo "RUNTIME_DNS_SEARCH_DOMAINS=$RUNTIME_DNS_SEARCH_DOMAINS"
 echo "ROUTE_TABLE=$ROUTE_TABLE"
