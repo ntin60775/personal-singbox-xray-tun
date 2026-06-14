@@ -9,22 +9,38 @@ import (
 )
 
 // CreateTun creates a TUN device using ip tuntap.
+// If the device already exists (e.g. from a crashed previous run),
+// it is deleted first to avoid "name is duplicate" errors.
+// MTU is set separately via ip link after creation (ip tuntap does not support mtu).
 func CreateTun(name string, mtu int) error {
 	// Verify /dev/net/tun exists.
 	if _, err := os.Stat("/dev/net/tun"); err != nil {
 		return fmt.Errorf("/dev/net/tun not found; TUN kernel module may be missing: %w", err)
 	}
 
-	args := []string{"tuntap", "add", "dev", name, "mode", "tun"}
-	if mtu > 0 {
-		args = append(args, "mtu", fmt.Sprintf("%d", mtu))
+	// Clean up stale device from a previous run that wasn't properly torn down.
+	if CheckTunExists(name) {
+		delCmd := exec.Command("ip", "link", "del", name)
+		if out, err := delCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("ip link del %s (stale device): %s: %w", name, strings.TrimSpace(string(out)), err)
+		}
 	}
 
-	cmd := exec.Command("ip", args...)
+	// Create the device (ip tuntap add does NOT support mtu parameter).
+	cmd := exec.Command("ip", "tuntap", "add", "dev", name, "mode", "tun")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ip tuntap add %s: %s: %w", name, strings.TrimSpace(string(out)), err)
 	}
+
+	// Set MTU separately.
+	if mtu > 0 {
+		mtuCmd := exec.Command("ip", "link", "set", "dev", name, "mtu", fmt.Sprintf("%d", mtu))
+		if out, err := mtuCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("ip link set mtu %s: %s: %w", name, strings.TrimSpace(string(out)), err)
+		}
+	}
+
 	return nil
 }
 

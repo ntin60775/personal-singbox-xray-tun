@@ -28,30 +28,35 @@ class RuntimePort:
 
 
 class ShellRuntimeAdapter:
-    """RuntimePort через pkexec + shell-скрипты.
+    """RuntimePort через pkexec + subvostd Go-бэкенд.
 
-    Извлекает shell-оркестрацию из SubvostAppService.
-    Делегирует тяжелые операции shell-скриптам через subprocess.
+    Вызывает subvostd --mode {start|stop|diag} напрямую,
+    без промежуточных shell-скриптов.
     """
 
     def __init__(
         self,
         project_root: Path,
-        libexec_dir: Path,
+        subvostd_path: Path,
         real_uid: int | None = None,
         real_gid: int | None = None,
     ):
         self.project_root = project_root
-        self.libexec_dir = libexec_dir
+        self.subvostd_path = subvostd_path
         self.real_uid = real_uid
         self.real_gid = real_gid
 
-    def run_script(self, name: str, script: Path, extra_env: dict[str, str] | None = None) -> CommandResult:
-        """Запустить shell-скрипт с pkexec или напрямую (если root)."""
+    def _run_subvostd(self, name: str, mode: str, extra_env: dict[str, str] | None = None) -> CommandResult:
+        """Запустить subvostd --mode <mode> с pkexec или напрямую (если root)."""
         env = os.environ.copy()
         action_env = self._build_action_env(extra_env)
         env.update(action_env)
-        command = self._build_command(script, action_env)
+
+        if os.geteuid() == 0:
+            command = [str(self.subvostd_path), "--mode", mode]
+        else:
+            pkexec_env = [f"{key}={value}" for key, value in action_env.items()]
+            command = ["pkexec", "env", *pkexec_env, str(self.subvostd_path), "--mode", mode]
 
         try:
             completed = subprocess.run(
@@ -86,24 +91,26 @@ class ShellRuntimeAdapter:
             env.update(extra)
         return env
 
-    def _build_command(self, script: Path, action_env: dict[str, str]) -> list[str]:
-        if os.geteuid() == 0:
-            return [str(script)]
-        pkexec_env = [f"{key}={value}" for key, value in action_env.items()]
-        return ["pkexec", "env", *pkexec_env, "/usr/bin/env", "bash", str(script)]
-
-
     def start_runtime(self, service):
-        """Делегирует запуск runtime в SubvostAppService."""
-        return service.start_runtime()
+        """Запустить runtime через pkexec + subvostd --mode start."""
+        result = self._run_subvostd("start", "start")
+        if not result.ok:
+            raise RuntimeError(f"Не удалось запустить подключение: {result.output}")
+        return {"ok": True, "output": result.output}
 
     def stop_runtime(self, service):
-        """Делегирует остановку runtime в SubvostAppService."""
-        return service.stop_runtime()
+        """Остановить runtime через pkexec + subvostd --mode stop."""
+        result = self._run_subvostd("stop", "stop")
+        if not result.ok:
+            raise RuntimeError(f"Не удалось остановить подключение: {result.output}")
+        return {"ok": True, "output": result.output}
 
     def diagnose(self, service):
-        """Делегирует снятие диагностики в SubvostAppService."""
-        return service.capture_diagnostics()
+        """Снять диагностику через pkexec + subvostd --mode diag."""
+        result = self._run_subvostd("diagnose", "diag")
+        if not result.ok:
+            raise RuntimeError(f"Не удалось снять диагностику: {result.output}")
+        return {"ok": True, "output": result.output}
 
 class SystemNetworkAdapter:
     """NetworkPort через системные вызовы (/proc, /sys, socket).

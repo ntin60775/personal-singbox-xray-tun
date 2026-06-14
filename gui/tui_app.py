@@ -289,7 +289,7 @@ class DashboardTab(Container):
             asyncio.create_task(app._action_stop())
         elif btn_id == "btn-diag":
             asyncio.create_task(app._action_diag())
-        self.set_focus(None)
+        self.screen.set_focus(None)
 
     def watch_status_text(self, value: str) -> None:
         try:
@@ -638,13 +638,17 @@ class SubvostTUI(App):
         ("alt+p", "command_palette", "Команды"),
     ]
 
-    def __init__(self, service: SubvostAppService | None = None) -> None:
+    def __init__(
+        self,
+        service: SubvostAppService | None = None,
+        runtime_adapter: ShellRuntimeAdapter | None = None,
+    ) -> None:
         self.service = service
         self._status: dict[str, Any] = {}
         self._store: dict[str, Any] = {}
-        self.runtime_adapter = ShellRuntimeAdapter(
+        self.runtime_adapter = runtime_adapter or ShellRuntimeAdapter(
             project_root=PROJECT_ROOT,
-            libexec_dir=PROJECT_ROOT / "libexec",
+            subvostd_path=PROJECT_ROOT / "subvostd",
         )
         self.network_adapter = SystemNetworkAdapter()
         super().__init__()

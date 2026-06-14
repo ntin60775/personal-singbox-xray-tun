@@ -62,7 +62,7 @@ class SubvostAppService:
         # Keep adapters for operations still handled in Python
         self.runtime_adapter = ShellRuntimeAdapter(
             project_root=PROJECT_ROOT,
-            libexec_dir=PROJECT_ROOT / "libexec",
+            subvostd_path=PROJECT_ROOT / "subvostd",
         )
         self.network_adapter = SystemNetworkAdapter()
 
