@@ -4,6 +4,9 @@ set -euo pipefail
 INTERNAL_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${INTERNAL_DIR}/../lib/subvost-common.sh"
 subvost_load_project_layout_from_env
+# Этот скрипт не меняет PROJECT_ROOT (в отличие от install-or-update-bundle-dir.sh),
+# поэтому subvost_sync_desktop_launcher_icon уже вызван в wrapper-е до exec.
+ 
 
 XRAY_INSTALL_REF="${XRAY_INSTALL_REF:-main}"
 XRAY_INSTALL_URL="https://raw.githubusercontent.com/XTLS/Xray-install/${XRAY_INSTALL_REF}/install-release.sh"
@@ -123,22 +126,22 @@ apt_package_exists() {
 }
 
 collect_pkexec_dependency_package() {
-  if apt_package_exists "pkexec"; then
-    printf '%s\n' "pkexec"
-    return 0
-  fi
-
   if apt_package_exists "policykit-1"; then
     printf '%s\n' "policykit-1"
     return 0
   fi
 
-  echo "Не найден apt-пакет для pkexec: ожидается pkexec или policykit-1." >&2
+  echo "Не найден apt-пакет для pkexec: ожидается policykit-1." >&2
   exit 1
 }
 
-collect_tui_dependency_packages() {
-  local packages=("python3-textual")
+
+collect_apt_dependency_packages() {
+  local packages=()
+
+  if apt_package_exists "python3-textual"; then
+    packages+=("python3-textual")
+  fi
 
   if apt_package_exists "gir1.2-ayatanaappindicator3-0.1"; then
     packages+=("gir1.2-ayatanaappindicator3-0.1")
@@ -149,13 +152,17 @@ collect_tui_dependency_packages() {
   printf '%s\n' "${packages[@]}"
 }
 
+
 ensure_real_home_detected
-echo "[1/4] Проверка базовых системных утилит"
+echo "[1/5] Проверка базовых системных утилит"
+
 if command -v apt-get >/dev/null 2>&1; then
   run_root apt-get update
-  mapfile -t TUI_PACKAGES < <(collect_tui_dependency_packages)
+  mapfile -t APT_PACKAGES < <(collect_apt_dependency_packages)
+
   PKEXEC_PACKAGE="$(collect_pkexec_dependency_package)"
-  run_root apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 sudo unzip "${TUI_PACKAGES[@]}"
+  run_root apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 python3-pip sudo unzip "${APT_PACKAGES[@]}"
+
 else
   echo "Скрипт установки пока поддерживает только Debian/Ubuntu с apt-get." >&2
   echo "Установи зависимости вручную: curl, unzip, iproute2, pkexec или policykit-1, python3, sudo, xray." >&2
@@ -171,7 +178,7 @@ echo "[3/5] Очистка лишних артефактов Xray-install"
 cleanup_xray_install_artifacts
 dedupe_xray_binaries
 
-echo "[4/4] Проверка установленных бинарников"
+echo "[4/5] Проверка установленных бинарников"
 XRAY_BIN_INSTALLED="$(preferred_xray_bin)"
 if [[ -n "$XRAY_BIN_INSTALLED" ]] && [[ -x "$XRAY_BIN_INSTALLED" ]]; then
   echo "Xray найден: ${XRAY_BIN_INSTALLED}"

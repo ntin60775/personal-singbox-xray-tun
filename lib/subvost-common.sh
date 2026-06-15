@@ -45,6 +45,7 @@ subvost_load_project_layout_from_env() {
   export SUBVOST_CAPTURE_WRAPPER="${project_root}/capture-xray-tun-state.sh"
   export SUBVOST_UPDATE_XRAY_WRAPPER="${project_root}/update-xray-core-subvost.sh"
   export SUBVOST_OPEN_TUI_WRAPPER="${project_root}/open-subvost-tui.sh"
+  export SUBVOST_LAUNCH_TUI_TERMINAL="${project_root}/launch-tui-in-terminal.sh"
   export SUBVOST_INSTALL_WRAPPER="${project_root}/install-on-new-pc.sh"
   export SUBVOST_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun.desktop"
   export SUBVOST_GTK_DESKTOP_LAUNCHER="${project_root}/subvost-xray-tun-gtk-ui.desktop"

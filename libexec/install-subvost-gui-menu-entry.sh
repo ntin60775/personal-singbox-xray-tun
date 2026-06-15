@@ -12,7 +12,8 @@ APPLICATIONS_DIR=""
 DESKTOP_ENTRY_PATH=""
 ICON_PATH="${SUBVOST_DESKTOP_ICON_PATH}"
 ICON_NAME="${SUBVOST_DESKTOP_ICON_NAME}"
-LAUNCHER_PATH="${SUBVOST_OPEN_TUI_WRAPPER}"
+LAUNCHER_PATH="${SUBVOST_LAUNCH_TUI_TERMINAL}"
+
 
 ensure_real_home_detected() {
   if [[ -z "$REAL_HOME" ]]; then
@@ -40,9 +41,8 @@ Type=Application
 Name=Subvost Xray TUN
 Comment=Универсальный TUI для управления туннелем
 Exec=${LAUNCHER_PATH}
-TryExec=${LAUNCHER_PATH}
 Icon=${ICON_NAME}
-Terminal=true
+Terminal=false
 Categories=Network;
 StartupNotify=true
 EOF_DESKTOP

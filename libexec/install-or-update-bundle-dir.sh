@@ -14,7 +14,7 @@ usage() {
   SUBVOST_BUNDLE_TARGET_DIR=/абсолютный/путь bash ./install-or-update-bundle-dir.sh
 
 Сценарий копирует bundle в целевой каталог без жёстко зашитых путей.
-Локальные repo-артефакты (`.git`, `.codex`, `.playwright-cli`, `.gitignore`) и содержимое `logs/` не переносятся.
+Локальные repo-артефакты (`.git`, `.codex`, `.playwright-cli`, `.gitignore`, `CONTRIBUTING.md`) и содержимое `logs/` не переносятся.
 Локальный идентификатор установки `.subvost/install-id` не копируется из source и сохраняется в целевом каталоге.
 Существующий каталог `logs/` в целевом bundle сохраняется.
 EOF
@@ -79,6 +79,7 @@ copy_bundle_tree() {
       --exclude='./.subvost' \
       --exclude='./.gitignore' \
       --exclude='./AGENTS.md' \
+      --exclude='./CONTRIBUTING.md' \
       --exclude='./logs' \
       --exclude='*/__pycache__' \
       --exclude='*/.pytest_cache' \

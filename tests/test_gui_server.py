@@ -179,11 +179,12 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         installer = (REPO_ROOT / "libexec" / "install-on-new-pc.sh").read_text(encoding="utf-8")
 
         self.assertIn("collect_pkexec_dependency_package()", installer)
-        self.assertIn('apt_package_exists "pkexec"', installer)
         self.assertIn('apt_package_exists "policykit-1"', installer)
+        self.assertNotIn('apt_package_exists "pkexec"', installer)
         self.assertIn('PKEXEC_PACKAGE="$(collect_pkexec_dependency_package)"', installer)
         self.assertIn('"$PKEXEC_PACKAGE"', installer)
-        self.assertNotIn("apt-get install -y ca-certificates curl iproute2 pkexec", installer)
+        self.assertIn("python3-pip", installer)
+        self.assertIn("collect_apt_dependency_packages", installer)
 
     def test_update_xray_core_script_keeps_portable_xray_contract(self) -> None:
         wrapper = (REPO_ROOT / "update-xray-core-subvost.sh").read_text(encoding="utf-8")
@@ -196,6 +197,24 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn("dedupe_xray_binaries", script)
         self.assertIn("systemctl disable --now xray.service", script)
         self.assertNotIn("apt-get install", script)
+
+    def test_install_on_new_pc_checks_textual_apt_package_before_install(self) -> None:
+        installer = (REPO_ROOT / "libexec" / "install-on-new-pc.sh").read_text(encoding="utf-8")
+
+        self.assertIn('apt_package_exists "python3-textual"', installer)
+        self.assertIn("collect_apt_dependency_packages()", installer)
+        self.assertIn("python3-pip", installer)
+        self.assertNotIn('apt-get install -y ca-certificates curl iproute2 "$PKEXEC_PACKAGE" python3 python3-pip sudo unzip "python3-textual"', installer)
+
+    def test_menu_entry_uses_launch_tui_in_terminal(self) -> None:
+        installer = (REPO_ROOT / "libexec" / "install-subvost-gui-menu-entry.sh").read_text(encoding="utf-8")
+        common = (REPO_ROOT / "lib" / "subvost-common.sh").read_text(encoding="utf-8")
+
+        self.assertIn("SUBVOST_LAUNCH_TUI_TERMINAL", installer)
+        self.assertIn("SUBVOST_LAUNCH_TUI_TERMINAL", common)
+        self.assertIn("Terminal=false", installer)
+        self.assertNotIn("Terminal=true", installer)
+        self.assertNotIn("TryExec", installer)
 
     def test_stop_button_is_not_disabled_by_stopped_runtime_state(self) -> None:
         html = self.main_html()
@@ -502,6 +521,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
 
         self.assertIn("--exclude='./.subvost'", installer)
+        self.assertIn("--exclude='./CONTRIBUTING.md'", installer)
         self.assertIn("subvost_ensure_install_id >/dev/null", installer)
         self.assertIn('SUBVOST_INSTALL_ID_FILE="${project_root}/.subvost/install-id"', common_shell)
         self.assertIn("subvost_ensure_install_id()", common_shell)
