@@ -611,6 +611,21 @@ class SubvostTUI(App):
     #nodes-actions Button, #log-actions Button, #routing-actions Button, #settings-actions Button, #xray-update-actions Button {
         margin: 0 1;
     }
+    #sub-actions {
+        height: auto;
+        margin-bottom: 1;
+    }
+    #sub-actions Button {
+        margin: 0 1;
+    }
+    #sub-table {
+        height: auto;
+        max-height: 8;
+        margin-bottom: 1;
+    }
+    #nodes-table {
+        height: 1fr;
+    }
     #main-container {
         height: 1fr;
     }
