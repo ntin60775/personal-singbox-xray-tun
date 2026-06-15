@@ -172,7 +172,7 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
         self.assertIn('"/api/nodes/ping"', do_post_source)
         self.assertIn('"/api/routing/import"', do_post_source)
         self.assertIn('"/api/routing/prepare-geodata"', do_post_source)
-        self.assertIn('"/api/routing/toggle"', do_post_source)
+        self.assertIn('"/api/routing/clear-active"', do_post_source)
         self.assertIn("schedule_server_shutdown(self.server)", do_post_source)
 
     def test_install_on_new_pc_selects_pkexec_package_with_policykit_fallback(self) -> None:

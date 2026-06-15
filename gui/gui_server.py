@@ -42,12 +42,9 @@ from subvost_store import (
     save_gui_settings,
     save_manual_import_results,
     save_store,
-    set_routing_enabled,
     store_payload,
     sync_generated_runtime,
     update_node,
-    update_profile,
-    update_routing_profile_enabled,
     update_subscription,
 )
 
@@ -582,7 +579,7 @@ def describe_runtime_state(
         next_start_source = "blocked"
         next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
 
-    if routing_state.get("enabled") and not routing_state.get("runtime_ready"):
+    if routing_state.get("active_profile_id") and not routing_state.get("runtime_ready"):
         start_ready = False
         next_start_source = "blocked"
         next_start_reason = str(routing_state.get("runtime_error") or "Маршрутизация включена, но не готова.")
@@ -614,7 +611,7 @@ def describe_runtime_state(
         "stop_allowed": not start_blocked,
         "control_message": runtime_control_guard_message(runtime_info, action="stop") if start_blocked else "",
         "generated_path": str(APP_PATHS.generated_xray_config_file),
-        "routing_enabled": bool(routing_state.get("enabled")),
+        "routing_enabled": bool(routing_state.get("active_profile_id")),
         "routing_ready": bool(routing_state.get("runtime_ready")),
         "routing_error": str(routing_state.get("runtime_error") or ""),
         "routing_profile_name": active_routing_profile.get("name") if active_routing_profile else "",
@@ -740,7 +737,7 @@ def handle_start() -> dict[str, Any]:
     store = ensure_store_ready()
     active_profile, active_node = get_active_node(store)
     routing_state = store.get("routing", {})
-    if routing_state.get("enabled") and not routing_state.get("runtime_ready"):
+    if routing_state.get("active_profile_id") and not routing_state.get("runtime_ready"):
         raise ValueError(f"Старт невозможен: {routing_state.get('runtime_error') or 'маршрутизация не готова'}.")
     if not (
         active_profile
@@ -936,19 +933,8 @@ def handle_routing_clear_active() -> dict[str, Any]:
     return build_runtime_service().clear_active_routing_profile()
 
 
-def handle_routing_profile_update(payload: dict[str, Any]) -> dict[str, Any]:
-    profile_id = str(payload.get("profile_id", "")).strip()
-    if not profile_id:
-        raise ValueError("Не передан profile_id routing-профиля.")
-    if "enabled" not in payload:
-        raise ValueError("Не передан флаг enabled для routing-профиля.")
-    return build_runtime_service().update_routing_profile_enabled(profile_id, enabled=bool(payload.get("enabled")))
 
 
-def handle_routing_toggle(payload: dict[str, Any]) -> dict[str, Any]:
-    if "enabled" not in payload:
-        raise ValueError("Не передан флаг enabled для маршрутизации.")
-    return build_runtime_service().set_routing_enabled(bool(payload.get("enabled")))
 
 
 def handle_subscription_add(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1126,8 +1112,6 @@ class Handler(BaseHTTPRequestHandler):
             "/api/routing/activate",
             "/api/routing/prepare-geodata",
             "/api/routing/clear-active",
-            "/api/routing/profile/update",
-            "/api/routing/toggle",
             "/api/subscriptions/add",
             "/api/subscriptions/refresh",
             "/api/subscriptions/refresh-all",
@@ -1181,10 +1165,6 @@ class Handler(BaseHTTPRequestHandler):
                 response = handle_routing_prepare_geodata()
             elif self.path == "/api/routing/clear-active":
                 response = handle_routing_clear_active()
-            elif self.path == "/api/routing/profile/update":
-                response = handle_routing_profile_update(payload)
-            elif self.path == "/api/routing/toggle":
-                response = handle_routing_toggle(payload)
             elif self.path == "/api/subscriptions/add":
                 response = handle_subscription_add(payload)
             elif self.path == "/api/subscriptions/refresh":

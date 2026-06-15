@@ -78,7 +78,6 @@ def default_store() -> dict[str, Any]:
             "source": None,
         },
         "routing": {
-            "enabled": False,
             "active_profile_id": None,
             "profiles": [],
             "runtime_ready": False,
@@ -165,7 +164,6 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
         "active_selection": store.get("active_selection")
         or {"profile_id": None, "node_id": None, "activated_at": None, "source": None},
         "routing": {
-            "enabled": bool(routing.get("enabled", False)),
             "active_profile_id": routing.get("active_profile_id"),
             "profiles": [_normalize_routing_profile(item) for item in routing.get("profiles", []) if isinstance(item, dict)],
             "runtime_ready": bool(routing.get("runtime_ready", False)),
@@ -203,7 +201,6 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
     active_routing_id = store["routing"].get("active_profile_id")
     if active_routing_id not in valid_routing_ids:
         store["routing"]["active_profile_id"] = None
-        store["routing"]["enabled"] = False
     else:
         active_routing_profile = next(
             (profile for profile in store["routing"]["profiles"] if profile["id"] == active_routing_id),
@@ -211,7 +208,6 @@ def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
         )
         if active_routing_profile and not active_routing_profile.get("enabled", True):
             store["routing"]["active_profile_id"] = None
-            store["routing"]["enabled"] = False
 
     for subscription in store["subscriptions"]:
         subscription.setdefault("enabled", True)
@@ -390,7 +386,6 @@ def sync_routing_state(store: dict[str, Any], paths: AppPaths) -> bool:
 
     if not active_profile:
         routing["active_profile_id"] = None
-        routing["enabled"] = False
         routing["runtime_ready"] = False
         routing["runtime_error"] = "Активный routing-профиль не выбран."
         routing["geodata"] = {
@@ -403,7 +398,6 @@ def sync_routing_state(store: dict[str, Any], paths: AppPaths) -> bool:
 
     if not active_profile.get("enabled", True):
         routing["active_profile_id"] = None
-        routing["enabled"] = False
         routing["runtime_ready"] = False
         routing["runtime_error"] = f"Routing-профиль '{active_profile.get('name', 'без имени')}' отключён."
         routing["geodata"] = {
@@ -415,16 +409,12 @@ def sync_routing_state(store: dict[str, Any], paths: AppPaths) -> bool:
         return before != json.dumps(routing, ensure_ascii=False, sort_keys=True)
 
     routing["geodata"] = _routing_geodata_for_profile(paths, routing, active_profile)
-    if routing.get("enabled"):
-        if routing["geodata"].get("ready"):
-            routing["runtime_ready"] = True
-            routing["runtime_error"] = ""
-        else:
-            routing["runtime_ready"] = False
-            routing["runtime_error"] = routing["geodata"].get("error") or "Для маршрутизации не подготовлены geodata-файлы."
+    if routing["geodata"].get("ready"):
+        routing["runtime_ready"] = True
+        routing["runtime_error"] = ""
     else:
-        routing["runtime_ready"] = bool(routing["geodata"].get("ready"))
-        routing["runtime_error"] = str(routing["geodata"].get("error") or "")
+        routing["runtime_ready"] = False
+        routing["runtime_error"] = routing["geodata"].get("error") or "Для маршрутизации не подготовлены geodata-файлы."
 
     return before != json.dumps(routing, ensure_ascii=False, sort_keys=True)
 
@@ -500,7 +490,7 @@ def sync_generated_runtime(
 
     routing_profile = None
     routing = store.get("routing", {})
-    if routing.get("enabled"):
+    if routing.get("active_profile_id"):
         if not routing.get("runtime_ready"):
             remove_file_if_exists(paths.generated_xray_config_file)
             return None
@@ -721,7 +711,6 @@ def _remove_subscription_routing_profiles(
     ]
     if routing.get("active_profile_id") in removed_ids:
         routing["active_profile_id"] = None
-        routing["enabled"] = False
         if paths is not None:
             sync_routing_state(store, paths)
         else:
@@ -797,7 +786,6 @@ def _upsert_subscription_routing_profile(
 
     if removed_ids and routing.get("active_profile_id") in removed_ids:
         routing["active_profile_id"] = None
-        routing["enabled"] = False
 
     should_activate = (
         parsed.get("activation_mode") == "onadd"
@@ -865,7 +853,7 @@ def activate_routing_profile(
 
     routing["active_profile_id"] = profile_id
     geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
-    if routing.get("enabled") and not geodata.get("ready"):
+    if not geodata.get("ready"):
         routing["active_profile_id"] = previous_active_id
         routing["geodata"] = previous_geodata
         routing["runtime_ready"] = previous_runtime_ready
@@ -879,57 +867,11 @@ def activate_routing_profile(
 
 def clear_active_routing_profile(store: dict[str, Any], paths: AppPaths) -> None:
     store["routing"]["active_profile_id"] = None
-    store["routing"]["enabled"] = False
     sync_routing_state(store, paths)
 
 
-def update_routing_profile_enabled(
-    store: dict[str, Any],
-    paths: AppPaths,
-    profile_id: str,
-    *,
-    enabled: bool,
-) -> dict[str, Any]:
-    profile = _find_routing_profile(store, profile_id)
-    if not profile:
-        raise ValueError("Routing-профиль не найден.")
-
-    profile["enabled"] = bool(enabled)
-    profile["updated_at"] = iso_now()
-    if not profile["enabled"] and store["routing"].get("active_profile_id") == profile_id:
-        store["routing"]["active_profile_id"] = None
-        store["routing"]["enabled"] = False
-    sync_routing_state(store, paths)
-    return profile
 
 
-def set_routing_enabled(
-    store: dict[str, Any],
-    paths: AppPaths,
-    enabled: bool,
-    *,
-    uid: int | None = None,
-    gid: int | None = None,
-) -> dict[str, Any]:
-    routing = store["routing"]
-    if not enabled:
-        routing["enabled"] = False
-        sync_routing_state(store, paths)
-        return routing
-
-    active_profile = get_active_routing_profile(store)
-    if not active_profile:
-        raise ValueError("Сначала выбери routing-профиль.")
-    if not active_profile.get("enabled", True):
-        raise ValueError("Активный routing-профиль отключён.")
-
-    geodata = prepare_routing_runtime(store, paths, uid=uid, gid=gid, allow_download=True)
-    if not geodata.get("ready"):
-        raise ValueError(geodata.get("error") or "Не удалось подготовить geodata для маршрутизации.")
-
-    routing["enabled"] = True
-    sync_routing_state(store, paths)
-    return routing
 
 
 def activate_selection(store: dict[str, Any], profile_id: str, node_id: str, source: str = "ui") -> dict[str, Any]:
@@ -1416,7 +1358,6 @@ def delete_subscription(
         ]
         if store["routing"].get("active_profile_id") in removed_routing_ids:
             store["routing"]["active_profile_id"] = None
-            store["routing"]["enabled"] = False
             if paths is not None:
                 sync_routing_state(store, paths)
             else:

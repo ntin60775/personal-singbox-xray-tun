@@ -467,26 +467,29 @@ class RoutingTab(Container):
             yield Static(id="routing-geodata-status")
             # Секция 2: кнопки действий
             with Horizontal(id="routing-actions"):
-                yield Button("🔄 Обновить GeoIP/GeoSite", id="btn-refresh-geodata")
-                yield Button("▶ Включить маршрутизацию", variant="success", id="btn-toggle-routing")
-                yield Button("➕ Импорт профиля", id="btn-import-rp")
-                yield Button("✕ Сбросить профиль", variant="error", id="btn-clear-rp")
-            # Секция 3: таблица профилей
-            yield Static("[b]Профили маршрутизации[/b]", classes="section-header")
-            yield DataTable(id="routing-table")
-            # Секция 4: прямые маршруты
-            yield Static("[b]Прямые маршруты[/b]", classes="section-header")
-            yield DataTable(id="direct-table")
+                yield Button("▶ Активировать", id="btn-activate-rp", variant="success", disabled=True)
+                yield Button("⏸ Деактивировать", id="btn-deactivate-rp", variant="warning", disabled=True)
+                yield Button("➕ Импорт", id="btn-import-rp", variant="default")
+                yield Button("🔄 GeoIP/GeoSite", id="btn-refresh-geodata", variant="default")
+            # Секция 3: двухколоночный layout
+            with Horizontal(id="routing-columns"):
+                with Vertical(id="routing-left"):
+                    yield Static("[b]Профили маршрутизации[/b]", classes="section-header")
+                    yield DataTable(id="routing-table", cursor_type="row")
+                    yield Static("", id="routing-empty-hint")
+                with Vertical(id="routing-right"):
+                    yield Static("[b]Прямые маршруты[/b]", classes="section-header")
+                    yield DataTable(id="routing-direct-table", cursor_type="cell")
 
     def on_mount(self) -> None:
         rt = self.query_one("#routing-table", DataTable)
         rt.add_columns("Имя", "Состояние", "Тип", "Правил")
         rt.cursor_type = "row"
         rt.zebra_stripes = True
-        dt = self.query_one("#direct-table", DataTable)
-        dt.add_columns("Сеть", "Действие", "Источник")
-        dt.cursor_type = "row"
-        dt.zebra_stripes = True
+        dt_direct = self.query_one("#routing-direct-table", DataTable)
+        dt_direct.add_columns("Сеть", "Действие", "Источник")
+        dt_direct.cursor_type = "cell"
+        dt_direct.zebra_stripes = True
         app = self.app
         if isinstance(app, SubvostTUI):
             app._update_routing()
@@ -496,14 +499,14 @@ class RoutingTab(Container):
         if not isinstance(app, SubvostTUI):
             return
         btn_id = event.button.id
-        if btn_id == "btn-refresh-geodata":
-            asyncio.create_task(app._action_refresh_geodata())
+        if btn_id == "btn-activate-rp":
+            asyncio.create_task(app._action_activate_profile())
+        elif btn_id == "btn-deactivate-rp":
+            asyncio.create_task(app._action_deactivate_profile())
         elif btn_id == "btn-import-rp":
             app._action_import_routing_profile()
-        elif btn_id == "btn-toggle-routing":
-            asyncio.create_task(app._action_toggle_routing())
-        elif btn_id == "btn-clear-rp":
-            app._action_clear_routing_profile()
+        elif btn_id == "btn-refresh-geodata":
+            asyncio.create_task(app._action_refresh_geodata())
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.selected_profile_id = str(event.row_key.value) if event.row_key else None
@@ -968,20 +971,18 @@ class SubvostTUI(App):
             profiles = repo.get_all()
             active = repo.get_active()
             routing_state = self._store.get("routing", {})
-            routing_enabled = bool(routing_state.get("enabled", False))
             runtime_ready = bool(routing_state.get("runtime_ready", False))
             runtime_error = str(routing_state.get("runtime_error") or "")
             geodata = routing_state.get("geodata", {})
             geodata_ready = bool(geodata.get("ready", False))
+            routing_tab = self.query_one("#routing-tab", RoutingTab)
 
             # Секция 1: верхний статус
-            active_name = active.name if active else "не выбран"
-            if active and routing_enabled:
-                active_status = f"[bold green]▶ Активный профиль: {active_name}[/bold green]"
-            elif active:
-                active_status = f"[bold yellow]⏸ Активный профиль: {active_name} (выключен)[/bold yellow]"
+            active_name = active.name if active else "—"
+            if active:
+                active_status = f"[bold green]★ Активный профиль: {active_name}[/bold green]"
             else:
-                active_status = "[bold red]✕ Активный профиль не выбран[/bold red]"
+                active_status = "[dim]✕ Активный профиль не выбран[/dim]"
             self.query_one("#routing-active-status", Static).update(active_status)
 
             if geodata_ready:
@@ -992,25 +993,20 @@ class SubvostTUI(App):
                 geodata_status = "[yellow]GeoIP/GeoSite: не подготовлены[/yellow]"
             self.query_one("#routing-geodata-status", Static).update(geodata_status)
 
-            # Кнопка-переключатель (Шаг 3.2)
-            toggle_btn = self.query_one("#btn-toggle-routing", Button)
-            if routing_enabled:
-                toggle_btn.label = "⏸ Выключить маршрутизацию"
-                toggle_btn.variant = "warning"
-            else:
-                toggle_btn.label = "▶ Включить маршрутизацию"
-                toggle_btn.variant = "success"
+            # Чувствительность кнопок
+            activate_btn = self.query_one("#btn-activate-rp", Button)
+            deactivate_btn = self.query_one("#btn-deactivate-rp", Button)
+            selected_profile_id = routing_tab.selected_profile_id
+            activate_btn.disabled = not selected_profile_id or (active is not None and str(selected_profile_id) == str(active.id))
+            deactivate_btn.disabled = active is None
 
-            # Таблица профилей (Шаг 3.3 — подсветка активного)
+            # Таблица профилей
             rt = self.query_one("#routing-table", DataTable)
             rt.clear()
             for rp in profiles:
                 is_active = active is not None and active.id == rp.id
                 name_display = f"★ {rp.name}" if is_active else rp.name
-                status_display = (
-                    "Активен" if is_active and routing_enabled
-                    else ("Вкл" if rp.enabled else "Выкл")
-                )
+                status_display = "★ Активен" if is_active else "—"
                 type_display = "Авто" if rp.auto_managed else "Вручную"
                 rt.add_row(
                     name_display,
@@ -1020,15 +1016,45 @@ class SubvostTUI(App):
                     key=rp.id,
                 )
 
-            # Прямые маршруты
-            dt = self.query_one("#direct-table", DataTable)
+            # Подсказка если нет профилей
+            empty_hint = self.query_one("#routing-empty-hint", Static)
+            if not profiles:
+                empty_hint.update("[dim]Нет профилей маршрутизации. Нажмите «+ Импорт» чтобы добавить.[/dim]")
+            else:
+                empty_hint.update("")
+
+            # Прямые маршруты (человекочитаемые)
+            dt = self.query_one("#routing-direct-table", DataTable)
             dt.clear()
+            action_map = {
+                "direct": "напрямую",
+                "proxy": "через прокси",
+                "block": "блокировать",
+            }
+            source_map = {
+                "Template": "встроенное",
+                "Routing-профиль": "из профиля",
+            }
+
+            def _humanize_network(raw: str) -> str:
+                if raw.startswith("geoip:"):
+                    return f"GeoIP: {raw[6:]}"
+                if raw.startswith("geosite:"):
+                    return f"GeoSite: {raw[8:]}"
+                return raw
+
+            def _humanize_action(raw: str) -> str:
+                return action_map.get(raw, raw)
+
+            def _humanize_source(raw: str) -> str:
+                return source_map.get(raw, raw)
+
             vm = build_view_model(self._status)
             for item in vm.direct_report_entries:
                 dt.add_row(
-                    item.get("network", "—"),
-                    item.get("action", "—"),
-                    item.get("source", "—"),
+                    _humanize_network(item.get("network", "—")),
+                    _humanize_action(item.get("action", "—")),
+                    _humanize_source(item.get("source", "—")),
                 )
         except Exception:
             self.log.exception("Ошибка обновления routing-таба")
@@ -1318,39 +1344,36 @@ class SubvostTUI(App):
             self.notify(f"Ошибка обновления geodata: {exc}", severity="error")
 
 
-    async def _action_toggle_routing(self) -> None:
+    async def _action_activate_profile(self) -> None:
         if self.service is None:
             return
+        routing_tab = self.query_one("#routing-tab", RoutingTab)
+        if not routing_tab.selected_profile_id:
+            self.notify("Выберите профиль в таблице.", severity="warning")
+            return
         try:
-            store = self.service.ensure_store_ready()
-            routing_state = store.get("routing", {})
-            current = bool(routing_state.get("enabled", False))
-            routing_tab = self.query_one("#routing-tab", RoutingTab)
-            rp_id = routing_tab.selected_profile_id
-
-            # Если маршрутизация выключена и нет активного профиля —
-            # активируем выбранный в таблице профиль
-            if not current and not routing_state.get("active_profile_id"):
-                if not rp_id:
-                    self.notify("Сначала выберите профиль в таблице", severity="warning")
-                    return
-                await self._run_service_action(
-                    "Активация профиля...",
-                    self.service.activate_routing_profile,
-                    rp_id,
-                )
-
             await self._run_service_action(
-                "Переключение маршрутизации...",
-                self.service.set_routing_enabled,
-                not current,
+                "Активация профиля маршрутизации...",
+                self.service.activate_routing_profile,
+                routing_tab.selected_profile_id,
             )
-            state = "включена" if not current else "выключена"
-            self.notify(f"Маршрутизация {state}", severity="information")
             self._update_routing()
             self._update_dashboard()
         except Exception as exc:
-            self.notify(f"Ошибка: {exc}", severity="error")
+            self.notify(f"Ошибка активации: {exc}", severity="error")
+
+    async def _action_deactivate_profile(self) -> None:
+        if self.service is None:
+            return
+        try:
+            await self._run_service_action(
+                "Деактивация профиля маршрутизации...",
+                self.service.clear_active_routing_profile,
+            )
+            self._update_routing()
+            self._update_dashboard()
+        except Exception as exc:
+            self.notify(f"Ошибка деактивации: {exc}", severity="error")
 
     async def _do_import_routing_profile(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
@@ -1370,25 +1393,6 @@ class SubvostTUI(App):
         if self.service is None:
             return
         self.push_screen(ImportRoutingProfileModal(), callback=lambda r: asyncio.create_task(self._do_import_routing_profile(r)))
-
-    async def _do_clear_routing_profile(self, confirmed: bool) -> None:
-        if not confirmed or self.service is None:
-            return
-        try:
-            await self._run_service_action(
-                "Сброс профиля...",
-                self.service.clear_active_routing_profile,
-            )
-            self.notify("Профиль сброшен", severity="information")
-            self._update_routing()
-            self._update_dashboard()
-        except Exception as exc:
-            self.notify(f"Ошибка сброса: {exc}", severity="error")
-
-    def _action_clear_routing_profile(self) -> None:
-        if self.service is None:
-            return
-        self.push_screen(ConfirmModal("Сбросить активный routing-профиль?"), callback=lambda c: asyncio.create_task(self._do_clear_routing_profile(c)))
 
     async def _action_save_settings(self) -> None:
         if self.service is None:

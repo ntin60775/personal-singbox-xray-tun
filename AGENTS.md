@@ -49,7 +49,7 @@ Bundle умеет:
 - **Парсер ссылок**: `gui/subvost_parser.py` — VLESS, VMess, Trojan, Shadowsocks (SIP002).
 - **Store**: `gui/subvost_store.py` — JSON-хранилище узлов, подписок, routing-профилей, настроек GUI.
 - **Runtime-генератор**: `gui/subvost_runtime.py` — сборка готового Xray-конфига из шаблона и выбранного узла.
-- **Routing**: `gui/subvost_routing.py` — импорт routing-профилей, скачивание `geoip.dat`/`geosite.dat`.
+- **Routing**: `gui/subvost_routing.py` — управление активным профилем маршрутизации, скачивание `geoip.dat`/`geosite.dat`.
 - **Пути**: `gui/subvost_paths.py` — XDG-совместимое разрешение путей к хранилищу.
 - **App Service**: `gui/subvost_app_service.py` — общая бизнес-логика для Linux-backend.
 
@@ -178,7 +178,7 @@ ip rule show
    - поднимает `tun0`, настраивает policy-routing (`ip rule` + `ip route`);
    - временно переписывает `/etc/resolv.conf`;
    - сохраняет state-файл.
-4. Кнопка **Стоп** → `stop-xray-tun-subvost.sh` откатывает изменения.
+4. Кнопка **Старт** → backend проверяет что routing-профиль активен (`active_profile_id` != None) и geodata готовы. Если активного профиля нет — старт разрешён без маршрутизации.
 
 ### Bundle identity и безопасность state
 

@@ -28,9 +28,7 @@ from subvost_store import (  # noqa: E402
     save_gui_settings,
     save_manual_import_results,
     save_store,
-    set_routing_enabled,
     sync_generated_runtime,
-    update_routing_profile_enabled,
     update_profile,
 )
 
@@ -316,64 +314,15 @@ class SubvostStoreTests(unittest.TestCase):
             ):
                 result = import_routing_profile(store, paths, routing_json)
                 activate_routing_profile(store, paths, result["profile"]["id"])
-                set_routing_enabled(store, paths, True)
 
             sync_generated_runtime(store, paths, project_root)
             rendered = json.loads(paths.generated_xray_config_file.read_text(encoding="utf-8"))
 
-            self.assertTrue(store["routing"]["enabled"])
+            self.assertIsNotNone(store["routing"]["active_profile_id"])
+            self.assertTrue(store["routing"]["runtime_ready"])
             self.assertTrue(store["routing"]["geodata"]["ready"])
             self.assertEqual(rendered["routing"]["domainStrategy"], "IPIfNonMatch")
             self.assertEqual(rendered["routing"]["rules"][-1]["outboundTag"], "direct")
-
-    def test_disabling_active_routing_profile_clears_master_toggle(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            paths = build_app_paths(Path(temp_dir) / "home", str(Path(temp_dir) / "home" / ".config"))
-            (Path(temp_dir) / "home").mkdir()
-            store = ensure_store_structure({})
-            store["routing"]["profiles"].append(
-                {
-                    "id": "routing-1",
-                    "name": "SubVostVPN",
-                    "name_key": "subvostvpn",
-                    "enabled": True,
-                    "source_format": "json",
-                    "raw_payload": {"name": "SubVostVPN"},
-                    "global_proxy": True,
-                    "domain_strategy": "AsIs",
-                    "geoip_url": "https://example.com/geoip.dat",
-                    "geosite_url": "https://example.com/geosite.dat",
-                    "direct_sites": [],
-                    "direct_ip": [],
-                    "proxy_sites": [],
-                    "proxy_ip": [],
-                    "block_sites": [],
-                    "block_ip": [],
-                    "dns_hosts": {},
-                    "domestic_dns_domain": "",
-                    "domestic_dns_ip": "",
-                    "domestic_dns_type": "",
-                    "remote_dns_domain": "",
-                    "remote_dns_ip": "",
-                    "remote_dns_type": "",
-                    "fake_dns": False,
-                    "route_order": ["block", "direct", "proxy"],
-                    "last_updated": "",
-                    "supported_entry_count": 0,
-                    "stored_only_fields": [],
-                    "ignored_fields": [],
-                    "unknown_fields": [],
-                    "created_at": "2026-04-08T00:00:00+00:00",
-                    "updated_at": "2026-04-08T00:00:00+00:00",
-                }
-            )
-            store["routing"]["active_profile_id"] = "routing-1"
-            store["routing"]["enabled"] = True
-
-            update_routing_profile_enabled(store, paths, "routing-1", enabled=False)
-
-            self.assertFalse(store["routing"]["enabled"])
-            self.assertIsNone(store["routing"]["active_profile_id"])
 
     def test_refresh_subscription_preserves_user_renamed_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -714,7 +663,6 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual([profile["id"] for profile in store["profiles"]], [MANUAL_PROFILE_ID])
             self.assertEqual(store["routing"]["profiles"], [])
             self.assertIsNone(store["routing"]["active_profile_id"])
-            self.assertFalse(store["routing"]["enabled"])
             self.assertFalse(store["routing"]["runtime_ready"])
 
     def test_prepare_routing_runtime_redownloads_assets_when_forced(self) -> None:
@@ -839,7 +787,6 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["subscriptions"][0]["last_routing_error"], "")
             self.assertEqual(store["routing"]["profiles"], [])
             self.assertIsNone(store["routing"]["active_profile_id"])
-            self.assertFalse(store["routing"]["enabled"])
 
 
 if __name__ == "__main__":

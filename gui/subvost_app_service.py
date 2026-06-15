@@ -39,12 +39,9 @@ from subvost_store import (
     refresh_subscription as store_refresh_subscription,
     save_gui_settings,
     save_store,
-    set_routing_enabled as store_set_routing_enabled,
     store_payload,
     sync_generated_runtime,
     update_node as store_update_node,
-    update_profile as store_update_profile,
-    update_routing_profile_enabled as store_update_routing_profile_enabled,
     update_subscription as store_update_subscription,
 )
 
@@ -1004,7 +1001,7 @@ class SubvostAppService:
             next_start_source = "blocked"
             next_start_reason = "Старт невозможен, пока не выбран и не подготовлен валидный узел."
 
-        if routing_state.get("enabled") and not routing_state.get("runtime_ready"):
+        if routing_state.get("active_profile_id") and not routing_state.get("runtime_ready"):
             start_ready = False
             next_start_source = "blocked"
             next_start_reason = str(routing_state.get("runtime_error") or "Маршрутизация включена, но не готова.")
@@ -1039,7 +1036,7 @@ class SubvostAppService:
             "stop_allowed": not start_blocked,
             "control_message": self.runtime_control_guard_message(runtime_info, action="stop") if start_blocked else "",
             "generated_path": str(self.context.app_paths.generated_xray_config_file),
-            "routing_enabled": bool(routing_state.get("enabled")),
+            "routing_enabled": bool(routing_state.get("active_profile_id")),
             "routing_ready": bool(routing_state.get("runtime_ready")),
             "routing_error": str(routing_state.get("runtime_error") or ""),
             "routing_profile_name": active_routing_profile.get("name") if active_routing_profile else "",
@@ -1184,12 +1181,10 @@ class SubvostAppService:
             active_profile=active_profile,
             active_node=active_node,
         )
-        if routing_state.get("enabled") and active_routing_profile and routing_state.get("runtime_ready"):
+        if active_routing_profile and routing_state.get("runtime_ready"):
             routing_badge = f"маршрут {active_routing_profile.get('name', 'без имени')}"
-        elif routing_state.get("enabled"):
-            routing_badge = "маршрут с ошибкой"
         elif active_routing_profile:
-            routing_badge = f"маршрут {active_routing_profile.get('name', 'без имени')} выключен"
+            routing_badge = "маршрут с ошибкой"
         else:
             routing_badge = "маршрута нет"
         if active_xray_config_path == self.context.app_paths.active_runtime_xray_config_file:
@@ -1682,35 +1677,7 @@ class SubvostAppService:
             details="routing_active_profile_cleared=1",
         )
 
-    def update_routing_profile_enabled(self, profile_id: str, *, enabled: bool) -> dict[str, Any]:
-        store = self.ensure_store_ready()
-        profile = store_update_routing_profile_enabled(store, self.context.app_paths, profile_id, enabled=enabled)
-        return self.build_store_response(
-            store,
-            name="Настройки маршрутизации",
-            ok=True,
-            message="Состояние профиля маршрутизации сохранено.",
-            details=json.dumps({"routing_profile_id": profile["id"], "enabled": profile["enabled"]}, ensure_ascii=False),
-            extra={"routing_profile": profile},
-        )
 
-    def set_routing_enabled(self, enabled: bool) -> dict[str, Any]:
-        store = self.ensure_store_ready()
-        routing = store_set_routing_enabled(
-            store,
-            self.context.app_paths,
-            enabled,
-            uid=self.context.real_uid,
-            gid=self.context.real_gid,
-        )
-        return self.build_store_response(
-            store,
-            name="Переключение маршрутизации",
-            ok=True,
-            message="Маршрутизация включена." if routing["enabled"] else "Маршрутизация выключена.",
-            details=json.dumps({"enabled": routing["enabled"]}, ensure_ascii=False),
-            extra={"routing": routing},
-        )
 
     def start_runtime(self) -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()
@@ -1722,7 +1689,7 @@ class SubvostAppService:
         store = self.ensure_store_ready()
         active_profile, active_node = get_active_node(store)
         routing_state = store.get("routing", {})
-        if routing_state.get("enabled") and not routing_state.get("runtime_ready"):
+        if routing_state.get("active_profile_id") and not routing_state.get("runtime_ready"):
             raise ValueError(f"Старт невозможен: {routing_state.get('runtime_error') or 'маршрутизация не готова'}.")
         if not (
             active_profile

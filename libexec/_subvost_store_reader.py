@@ -214,8 +214,8 @@ def _main() -> None:
     elif command == "routing-active-profile-id":
         print(store.get("routing", {}).get("active_profile_id", ""))
     elif command == "routing-enabled":
-        enabled = store.get("routing", {}).get("enabled", False)
-        print("true" if enabled else "false")
+        active_id = store.get("routing", {}).get("active_profile_id")
+        print("true" if active_id else "false")
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         sys.exit(1)

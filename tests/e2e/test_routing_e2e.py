@@ -17,10 +17,10 @@ from subvost_store import (  # noqa: E402
     MANUAL_PROFILE_ID,
     activate_routing_profile,
     add_subscription,
+    clear_active_routing_profile,
     ensure_store_initialized,
     import_routing_profile,
     refresh_subscription,
-    set_routing_enabled,
     sync_generated_runtime,
 )
 
@@ -241,11 +241,7 @@ class TestSubscriptionRoutingFlow(unittest.TestCase):
             )
             self.assertTrue(store["routing"]["geodata"]["ready"])
 
-            # --- Enable routing ---
-            # Geodata was already prepared during activation; no extra HTTP needed.
-            set_routing_enabled(store, paths, True)
-
-            self.assertTrue(store["routing"]["enabled"])
+            self.assertTrue(store["routing"]["active_profile_id"])
             self.assertTrue(store["routing"]["runtime_ready"])
             self.assertFalse(store["routing"]["runtime_error"])
 
@@ -263,95 +259,6 @@ class TestSubscriptionRoutingFlow(unittest.TestCase):
             rules = rendered["routing"]["rules"]
             self.assertGreater(len(rules), 0)
 
-
-class TestManualImportAndToggle(unittest.TestCase):
-    """E2E 5.2: Ручной импорт и переключение маршрутизации."""
-
-    def test_manual_import_and_toggle(self) -> None:
-        """Manual import produces non-auto-managed profile;
-        enable, disable, re-enable work correctly."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            store, paths, project_root = _setup_environment(temp_dir)
-
-            # Valid JSON routing profile for manual import
-            routing_json = json.dumps(
-                {
-                    "name": "Manual Route",
-                    "globalproxy": True,
-                    "directsites": ["geosite:private"],
-                    "directip": ["geoip:private"],
-                    "blocksites": ["geosite:category-ads"],
-                }
-            )
-
-            # Mock geoip + geosite downloads during import
-            with patch(
-                "urllib.request.urlopen",
-                side_effect=[
-                    FakeResponse(b"geoip-bytes"),
-                    FakeResponse(b"geosite-bytes"),
-                ],
-            ):
-                result = import_routing_profile(store, paths, routing_json)
-
-            self.assertTrue(result["created"])
-            profile = result["profile"]
-            self.assertFalse(profile["auto_managed"])
-            self.assertEqual(profile["name"], "Manual Route")
-            self.assertEqual(
-                profile["source_kind"], "manual_import"
-            )
-            self.assertTrue(profile["enabled"])
-            self.assertTrue(profile.get("global_proxy", False))
-            self.assertEqual(
-                profile["direct_sites"], ["geosite:private"]
-            )
-            self.assertEqual(
-                profile["direct_ip"], ["geoip:private"]
-            )
-            self.assertEqual(
-                profile["block_sites"], ["geosite:category-ads"]
-            )
-            self.assertEqual(
-                store["routing"]["active_profile_id"], profile["id"]
-            )
-
-            # --- Activate (should already be active, but calling again is idempotent) ---
-            with patch(
-                "urllib.request.urlopen",
-                side_effect=[
-                    FakeResponse(b"geoip-bytes"),
-                    FakeResponse(b"geosite-bytes"),
-                ],
-            ):
-                activate_routing_profile(
-                    store, paths, profile["id"]
-                )
-
-            # --- Enable ---
-            with patch(
-                "urllib.request.urlopen",
-                side_effect=[
-                    FakeResponse(b"geoip-bytes"),
-                    FakeResponse(b"geosite-bytes"),
-                ],
-            ):
-                set_routing_enabled(store, paths, True)
-            self.assertTrue(store["routing"]["enabled"])
-            self.assertTrue(store["routing"]["runtime_ready"])
-
-            # --- Disable ---
-            set_routing_enabled(store, paths, False)
-            self.assertFalse(store["routing"]["enabled"])
-            # runtime_ready may still be true if geodata is ready
-            # (disabling doesn't delete assets)
-
-            # --- Re-enable (should NOT re-download geodata since ready) ---
-            # Patch will NOT be consumed because geodata is already ready;
-            # prepare_routing_runtime returns early.
-            set_routing_enabled(store, paths, True)
-            self.assertTrue(store["routing"]["enabled"])
-            self.assertTrue(store["routing"]["runtime_ready"])
 
 
 class TestStartRejectedWhenRoutingNotReady(unittest.TestCase):
@@ -390,27 +297,22 @@ class TestStartRejectedWhenRoutingNotReady(unittest.TestCase):
                 self.assertFalse(
                     store["routing"]["geodata"]["ready"]
                 )
-                # Routing not yet enabled
-                self.assertFalse(store["routing"]["enabled"])
-
-                # Try to enable -- should fail with ValueError
-                with self.assertRaises(ValueError) as ctx:
-                    set_routing_enabled(store, paths, True)
-                error_msg = str(ctx.exception)
-                self.assertIn("geodata", error_msg.lower() or error_msg)
-
-                # Routing remains disabled
-                self.assertFalse(store["routing"]["enabled"])
+                # Routing is active (active_profile_id set) but runtime_ready is False
+                # because geodata download failed.
                 self.assertFalse(store["routing"]["runtime_ready"])
 
-                # sync_generated_runtime -- routing disabled, so generates
-                # config without routing profile and returns the path
+                # sync_generated_runtime should reject config generation when
+                # routing is active but not runtime_ready
                 config_path = sync_generated_runtime(
                     store, paths, project_root
                 )
-                # When routing is disabled, sync_generated_runtime still
-                # generates a config (without routing rules from profile),
-                # returning the path.
+                self.assertIsNone(config_path)
+
+                # Clear routing profile so config can be generated for testing
+                store["routing"]["active_profile_id"] = None
+                config_path = sync_generated_runtime(
+                    store, paths, project_root
+                )
                 self.assertIsNotNone(config_path)
                 self.assertTrue(config_path.exists())
 
@@ -418,9 +320,53 @@ class TestStartRejectedWhenRoutingNotReady(unittest.TestCase):
                     config_path.read_text(encoding="utf-8")
                 )
                 # Config should NOT have routing rules from our profile
-                # (global_proxy=True would set catchall to proxy)
                 self.assertIn("routing", rendered)
 
+
+class TestActivateAndDeactivateProfile(unittest.TestCase):
+    """E2E 5.4: Активация и деактивация профиля."""
+
+    def test_activate_profile_sets_active_and_ready(self) -> None:
+        """activate_routing_profile при наличии geodata выставляет active_profile_id и runtime_ready."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store, paths, project_root = _setup_environment(temp_dir)
+            routing_json = json.dumps({
+                "name": "Test Route",
+                "globalproxy": True,
+            })
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[FakeResponse(b"geoip-bytes"), FakeResponse(b"geosite-bytes")],
+            ):
+                result = import_routing_profile(store, paths, routing_json)
+                profile_id = result["profile"]["id"]
+                # activate again to ensure idempotent
+                activate_routing_profile(store, paths, profile_id)
+            self.assertEqual(store["routing"]["active_profile_id"], profile_id)
+            self.assertTrue(store["routing"]["runtime_ready"])
+            self.assertFalse(store["routing"]["runtime_error"])
+
+    def test_deactivate_profile_clears_active(self) -> None:
+        """clear_active_routing_profile сбрасывает active_profile_id в None."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store, paths, project_root = _setup_environment(temp_dir)
+            routing_json = json.dumps({
+                "name": "Test Route",
+                "globalproxy": True,
+            })
+            with patch(
+                "urllib.request.urlopen",
+                side_effect=[FakeResponse(b"geoip-bytes"), FakeResponse(b"geosite-bytes")],
+            ):
+                result = import_routing_profile(store, paths, routing_json)
+                profile_id = result["profile"]["id"]
+                activate_routing_profile(store, paths, profile_id)
+            self.assertEqual(store["routing"]["active_profile_id"], profile_id)
+            self.assertTrue(store["routing"]["runtime_ready"])
+            # Deactivate
+            clear_active_routing_profile(store, paths)
+            self.assertIsNone(store["routing"]["active_profile_id"])
+            self.assertFalse(store["routing"]["runtime_ready"])
 
 if __name__ == "__main__":
     unittest.main()
