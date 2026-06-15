@@ -274,8 +274,9 @@ class DashboardTab(Container):
                     yield Label(self.active_node_text, id="active-node-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Трафик[/b]", classes="card-header")
-                    yield Label(self.traffic_rx_text, id="traffic-rx-label")
-                    yield Label(self.traffic_tx_text, id="traffic-tx-label")
+                    with Horizontal(id="traffic-row"):
+                        yield Label(self.traffic_rx_text, id="traffic-rx-label")
+                        yield Label(self.traffic_tx_text, id="traffic-tx-label")
                 with Vertical(classes="dashboard-card"):
                     yield Static("[b]Время подключения[/b]", classes="card-header")
                     yield Label(self.connection_time_text, id="conn-time-label")
@@ -573,6 +574,12 @@ class SubvostTUI(App):
     }
     #dashboard-actions Button {
         margin: 0 1;
+    }
+    #traffic-row {
+        height: auto;
+    }
+    #traffic-row Label {
+        margin-right: 2;
     }
     #nodes-actions, #log-actions, #routing-actions, #settings-actions {
         height: auto;

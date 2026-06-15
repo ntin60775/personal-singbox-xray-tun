@@ -79,22 +79,22 @@ class StatusViewModel:
     @property
     def traffic_rx_text(self) -> str:
         traffic = self._raw.get("traffic", {})
-        return f"↓ {humanize_bytes(traffic.get('rx_total'))}"
+        return f"↓ {traffic.get('rx_rate_label') or '—'}"
 
     @property
     def traffic_tx_text(self) -> str:
         traffic = self._raw.get("traffic", {})
-        return f"↑ {humanize_bytes(traffic.get('tx_total'))}"
+        return f"↑ {traffic.get('tx_rate_label') or '—'}"
 
     @property
     def traffic_rx_rate(self) -> str:
         traffic = self._raw.get("traffic", {})
-        return humanize_rate(traffic.get("rx_rate"))
+        return traffic.get("rx_rate_label") or "—"
 
     @property
     def traffic_tx_rate(self) -> str:
         traffic = self._raw.get("traffic", {})
-        return humanize_rate(traffic.get("tx_rate"))
+        return traffic.get("tx_rate_label") or "—"
 
     # ── Маршрутизация ───────────────────────────────────────────
 
