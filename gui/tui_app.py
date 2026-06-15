@@ -1141,8 +1141,12 @@ class SubvostTUI(App):
             return
         self._action_in_progress = True
         try:
-            await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
-            self.notify("Подключение запущено", severity="information")
+            result = await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
+            last = result.get("last_action", {})
+            if last.get("ok"):
+                self.notify("Подключение запущено", severity="information")
+            elif last.get("ok") is False:
+                self.notify(last.get("message", "Запуск не выполнен"), severity="warning")
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -1158,8 +1162,12 @@ class SubvostTUI(App):
             return
         self._action_in_progress = True
         try:
-            await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
-            self.notify("Подключение остановлено", severity="information")
+            result = await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
+            last = result.get("last_action", {})
+            if last.get("ok"):
+                self.notify("Подключение остановлено", severity="information")
+            elif last.get("ok") is False:
+                self.notify(last.get("message", "Остановка не выполнена"), severity="warning")
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")

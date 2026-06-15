@@ -415,6 +415,52 @@ class SubvostTUITests(unittest.TestCase):
         asyncio.run(self.app._action_refresh_all())
         self.app.notify.assert_any_call("refresh failed", severity="error")
 
+    # ─── 10k: Проверка результата pkexec в _action_start / _action_stop ──
+
+
+    def test_action_start_notifies_success_when_last_action_ok(self) -> None:
+        """_action_start с ok=True показывает 'Подключение запущено'."""
+        from unittest.mock import AsyncMock
+        self.app._run_service_action = AsyncMock(
+            return_value={"last_action": {"ok": True}}
+        )
+        asyncio.run(self.app._action_start())
+        self.app.notify.assert_called_with(
+            "Подключение запущено", severity="information"
+        )
+
+    def test_action_start_notifies_warning_when_last_action_not_ok(self) -> None:
+        """_action_start с ok=False показывает предупреждение с message."""
+        from unittest.mock import AsyncMock
+        self.app._run_service_action = AsyncMock(
+            return_value={"last_action": {"ok": False, "message": "Запуск завершился ошибкой, код 126."}}
+        )
+        asyncio.run(self.app._action_start())
+        self.app.notify.assert_called_with(
+            "Запуск завершился ошибкой, код 126.", severity="warning"
+        )
+
+    def test_action_stop_notifies_success_when_last_action_ok(self) -> None:
+        """_action_stop с ok=True показывает 'Подключение остановлено'."""
+        from unittest.mock import AsyncMock
+        self.app._run_service_action = AsyncMock(
+            return_value={"last_action": {"ok": True}}
+        )
+        asyncio.run(self.app._action_stop())
+        self.app.notify.assert_called_with(
+            "Подключение остановлено", severity="information"
+        )
+
+    def test_action_stop_notifies_warning_when_last_action_not_ok(self) -> None:
+        """_action_stop с ok=False показывает предупреждение с message."""
+        from unittest.mock import AsyncMock
+        self.app._run_service_action = AsyncMock(
+            return_value={"last_action": {"ok": False, "message": "Остановка завершилась ошибкой, код 126."}}
+        )
+        asyncio.run(self.app._action_stop())
+        self.app.notify.assert_called_with(
+            "Остановка завершилась ошибкой, код 126.", severity="warning"
+        )
 
 
 if __name__ == "__main__":
