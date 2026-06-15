@@ -436,6 +436,128 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(service.state.last_action["name"], "Обновление ядра Xray")
             self.assertEqual(service.state.last_action["message"], "Ядро Xray обновлено.")
 
+    # ── get_xray_version ───────────────────────────────────────────
+
+    def test_get_xray_version_parses_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["xray", "version"], returncode=0, stdout="Xray 25.5.21 (Xray, Penetrates Everything.) linux/amd64\n")
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_xray_version()
+            self.assertEqual(version, "25.5.21")
+
+    def test_get_xray_version_returns_none_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            with patch("subvost_app_service.subprocess.run", side_effect=FileNotFoundError()):
+                version = service.get_xray_version()
+            self.assertIsNone(version)
+
+    def test_get_xray_version_returns_none_on_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import TimeoutExpired
+            with patch("subvost_app_service.subprocess.run", side_effect=TimeoutExpired(cmd=["xray", "version"], timeout=10)):
+                version = service.get_xray_version()
+            self.assertIsNone(version)
+
+    def test_get_xray_version_returns_none_on_oserror(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            with patch("subvost_app_service.subprocess.run", side_effect=OSError("broken")):
+                version = service.get_xray_version()
+            self.assertIsNone(version)
+
+
+    def test_get_xray_version_returns_none_on_bad_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["xray", "version"], returncode=0, stdout="usage: xray <command>\n")
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_xray_version()
+            self.assertIsNone(version)
+
+    def test_get_xray_version_returns_none_on_nonzero_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["xray", "version"], returncode=1, stdout="")
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_xray_version()
+            self.assertIsNone(version)
+
+    # ── get_latest_xray_version ────────────────────────────────────
+
+    def test_get_latest_xray_version_parses_github_response(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_output = '{"tag_name": "v25.5.21"}\n'
+            fake_result = CompletedProcess(args=["curl", ...], returncode=0, stdout=fake_output)
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_latest_xray_version()
+            self.assertEqual(version, "25.5.21")
+
+    def test_get_latest_xray_version_returns_none_on_network_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["curl", ...], returncode=22, stdout="")
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_latest_xray_version()
+            self.assertIsNone(version)
+
+    def test_get_latest_xray_version_returns_none_on_json_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["curl", ...], returncode=0, stdout="not json\n")
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_latest_xray_version()
+            self.assertIsNone(version)
+
+    def test_get_latest_xray_version_returns_none_on_empty_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            service = self.make_service(root, real_home)
+            from subprocess import CompletedProcess
+            fake_result = CompletedProcess(args=["curl", ...], returncode=0, stdout='{"tag_name": ""}\n')
+            with patch("subvost_app_service.subprocess.run", return_value=fake_result):
+                version = service.get_latest_xray_version()
+            self.assertIsNone(version)
+
+
     def test_shutdown_gui_returns_status_without_runtime_stop(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

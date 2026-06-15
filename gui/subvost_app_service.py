@@ -1803,6 +1803,39 @@ class SubvostAppService:
         retention_cleanup = self.cleanup_retained_log_artifacts_from_settings()
         return self.collect_status(retention_cleanup=retention_cleanup)
 
+    def get_xray_version(self) -> str | None:
+        """Возвращает текущую версию xray или None, если xray не найден."""
+        try:
+            result = subprocess.run(
+                ["xray", "version"],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            first_line = result.stdout.strip().split("\n")[0]
+            match = re.match(r"^Xray\s+(\S+)", first_line)
+            return match.group(1) if match else None
+        except (OSError, FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+
+    def get_latest_xray_version(self) -> str | None:
+        """Возвращает последнюю доступную версию xray с GitHub или None при ошибке."""
+        url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+        try:
+            result = subprocess.run(
+                ["curl", "-fsSL", "--max-time", "15", url],
+                capture_output=True, text=True, check=False, timeout=20,
+            )
+            if result.returncode != 0:
+                return None
+            data = json.loads(result.stdout)
+            tag = str(data.get("tag_name", "")).strip()
+            if tag.startswith("v"):
+                tag = tag[1:]
+            return tag or None
+        except Exception:
+            return None
+
     def terminate_app(self, source: str = "window-close") -> dict[str, Any]:
         runtime_info = self.inspect_runtime_state()
 

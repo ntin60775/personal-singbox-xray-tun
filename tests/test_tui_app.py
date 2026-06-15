@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import unittest
+import inspect
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -266,3 +267,52 @@ class SubvostTUITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingsTabTests(unittest.TestCase):
+    """Структурные тесты SettingsTab (виджеты обновления xray)."""
+
+    def test_settings_tab_compose_contains_xray_section(self) -> None:
+        """Проверка, что compose содержит версионные метки и кнопки xray."""
+        from tui_app import SettingsTab
+        tab_source = inspect.getsource(SettingsTab.compose)
+        self.assertIn("lbl-xray-version", tab_source)
+        self.assertIn("lbl-xray-latest", tab_source)
+        self.assertIn("btn-check-updates", tab_source)
+        self.assertIn("btn-update-xray", tab_source)
+        self.assertIn("Ядро Xray", tab_source)
+
+    def test_settings_tab_css_contains_xray_actions_selector(self) -> None:
+        """Проверка, что CSS содержит селектор #xray-update-actions."""
+        from tui_app import SubvostTUI
+        self.assertIn("#xray-update-actions", SubvostTUI.CSS)
+
+    def test_settings_tab_compose_contains_xray_buttons_in_handler(self) -> None:
+        """Проверка, что on_button_pressed обрабатывает кнопки xray."""
+        from tui_app import SettingsTab
+        handler_source = inspect.getsource(SettingsTab.on_button_pressed)
+        self.assertIn("btn-check-updates", handler_source)
+        self.assertIn("_action_check_xray_updates", handler_source)
+        self.assertIn("btn-update-xray", handler_source)
+        self.assertIn("_action_update_xray", handler_source)
+
+
+class TuiLockTests(unittest.TestCase):
+    """Тесты per-bundle lock механизма TUI."""
+
+    def test_lock_path_is_per_bundle(self) -> None:
+        from tui_app import TUI_LOCK_PATH, PROJECT_ROOT
+        self.assertTrue(
+            str(TUI_LOCK_PATH).startswith(str(PROJECT_ROOT)),
+            f"Lock должен быть внутри bundle: {TUI_LOCK_PATH}",
+        )
+
+    def test_old_lock_path_is_in_config_home(self) -> None:
+        from tui_app import OLD_TUI_LOCK_PATH
+        self.assertIn(".config", str(OLD_TUI_LOCK_PATH))
+
+    def test_lock_conflict_modal_contains_expected_widgets(self) -> None:
+        from tui_app import TuiLockConflictModal
+        source = inspect.getsource(TuiLockConflictModal.compose)
+        self.assertIn("btn-lock-replace", source)
+        self.assertIn("btn-lock-cancel", source)

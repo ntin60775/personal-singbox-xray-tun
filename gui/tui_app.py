@@ -53,7 +53,7 @@ from gui.presentation.view_models import build_view_model, humanize_bytes as _hu
 from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
 from infrastructure.json_repositories import JsonNodeRepository, JsonRoutingRepository, JsonSubscriptionRepository
 
-TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
+TUI_LOCK_PATH = PROJECT_ROOT / ".subvost" / "tui.lock"
 
 
 def _cleanup_tui_lock() -> None:
@@ -69,60 +69,23 @@ def _cleanup_tui_lock() -> None:
         pass
 
 
+OLD_TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
+
+
+def _migrate_old_lock() -> None:
+    """Удаляет старый общий lock-файл из ~/.config (миграция на per-bundle lock)."""
+    try:
+        OLD_TUI_LOCK_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _write_tui_lock() -> None:
     """Записывает lock-файл с PID и PROJECT_ROOT текущего процесса."""
     TUI_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     TUI_LOCK_PATH.write_text(f"{os.getpid()}\n{PROJECT_ROOT}")
 
 
-def _acquire_tui_lock(force: bool = False) -> bool:
-    """Пытается захватить lock для одного экземпляра TUI.
-
-    Возвращает True, если lock успешно захвачен (можно продолжать запуск).
-    Возвращает False и выводит сообщение, если другой экземпляр уже работает.
-    При force=True принудительно перезаписывает существующий lock.
-    """
-    if force:
-        _write_tui_lock()
-        return True
-
-    if not TUI_LOCK_PATH.exists():
-        _write_tui_lock()
-        return True
-
-    # Читаем существующий lock
-    try:
-        content = TUI_LOCK_PATH.read_text().strip()
-        lines = content.split("\n")
-        if len(lines) < 1:
-            raise ValueError("повреждённый lock-файл")
-        lock_pid_str = lines[0].strip()
-        if not lock_pid_str:
-            raise ValueError("пустой PID в lock-файле")
-        lock_pid = int(lock_pid_str)
-        lock_root = lines[1].strip() if len(lines) >= 2 else "неизвестно"
-    except Exception:
-        print("Предупреждение: повреждённый lock-файл TUI, перезаписываю.", file=sys.stderr)
-        _write_tui_lock()
-        return True
-
-    # Проверяем, жив ли процесс
-    try:
-        os.kill(lock_pid, 0)
-    except ProcessLookupError:
-        print("Предупреждение: обнаружен stale lock (PID не существует), перезаписываю.", file=sys.stderr)
-        _write_tui_lock()
-        return True
-    except PermissionError:
-        pass  # Чужой процесс — считаем живым
-
-    # Процесс жив — отказываем
-    print(
-        f"TUI уже запущен (pid {lock_pid}) из {lock_root}. "
-        f"Используйте --force для принудительного перезапуска.",
-        file=sys.stderr,
-    )
-    return False
 TUI_APP_ID = "io.subvost.XrayTun.TUI"
 TUI_TITLE = "Subvost Xray TUN"
 
@@ -170,6 +133,49 @@ class ConfirmModal(ModalScreen):
 
     def action_confirm(self) -> None:
         self.dismiss(True)
+
+class TuiLockConflictModal(ModalScreen):
+    """Диалог при конфликте lock: другой TUI уже запущен из этого bundle."""
+
+    BINDINGS = [
+        ("r", "replace", "Заменить"),
+        ("escape", "dismiss", "Отмена"),
+        ("к", "replace", ""),
+    ]
+
+    def __init__(self, lock_pid: int, lock_root: str) -> None:
+        self.lock_pid = lock_pid
+        self.lock_root = lock_root
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        with Container(id="lock-conflict-container"):
+            yield Static("[b]TUI уже запущен[/b]", classes="title")
+            yield Static(f"Процесс PID {self.lock_pid} из")
+            yield Static(f"{self.lock_root}")
+            yield Static("")
+            yield Static("Выберите действие:")
+            with Horizontal(id="lock-conflict-buttons"):
+                yield Button(
+                    "Заменить (закрыть старый, открыть новый)",
+                    variant="warning",
+                    id="btn-lock-replace",
+                )
+                yield Button(
+                    "Отмена (работать в старом окне)",
+                    variant="primary",
+                    id="btn-lock-cancel",
+                )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-lock-replace":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def action_replace(self) -> None:
+        self.dismiss(True)
+
 
 
 class ImportSubscriptionModal(ModalScreen):
@@ -521,6 +527,16 @@ class SettingsTab(Container):
             with Horizontal(id="settings-actions"):
                 yield Button("💾 Сохранить", variant="success", id="btn-save-settings")
                 yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup")
+            yield Static("[b]Ядро Xray[/b]", classes="section-header")
+            with Horizontal(classes="setting-row"):
+                yield Label("Текущая версия:", classes="setting-label")
+                yield Static("...", id="lbl-xray-version")
+            with Horizontal(classes="setting-row"):
+                yield Label("Последняя версия:", classes="setting-label")
+                yield Static("...", id="lbl-xray-latest")
+            with Horizontal(id="xray-update-actions"):
+                yield Button("🔍 Проверить обновления", id="btn-check-updates")
+                yield Button("⬆ Обновить ядро Xray", variant="warning", id="btn-update-xray")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -531,6 +547,10 @@ class SettingsTab(Container):
             asyncio.create_task(app._action_save_settings())
         elif btn_id == "btn-cleanup":
             asyncio.create_task(app._action_cleanup())
+        elif btn_id == "btn-check-updates":
+            app._action_check_xray_updates()
+        elif btn_id == "btn-update-xray":
+            app._action_update_xray()
 
 
 class SubvostTUI(App):
@@ -576,11 +596,11 @@ class SubvostTUI(App):
     #traffic-row Label {
         margin-right: 2;
     }
-    #nodes-actions, #log-actions, #routing-actions, #settings-actions {
+    #nodes-actions, #log-actions, #routing-actions, #settings-actions, #xray-update-actions {
         height: auto;
         margin-bottom: 1;
     }
-    #nodes-actions Button, #log-actions Button, #routing-actions Button, #settings-actions Button {
+    #nodes-actions Button, #log-actions Button, #routing-actions Button, #settings-actions Button, #xray-update-actions Button {
         margin: 0 1;
     }
     #main-container {
@@ -660,6 +680,21 @@ class SubvostTUI(App):
     #confirm-buttons Button {
         margin: 0 1;
     }
+    #lock-conflict-container {
+        width: 55;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #lock-conflict-buttons {
+        height: auto;
+        margin-top: 1;
+        align: center middle;
+    }
+    #lock-conflict-buttons Button {
+        margin: 0 1;
+    }
     """
 
     BINDINGS = [
@@ -682,6 +717,59 @@ class SubvostTUI(App):
         self.network_adapter = SystemNetworkAdapter()
         super().__init__()
 
+    def _check_lock_conflict(self) -> tuple[int, str] | None:
+        """Проверяет per-bundle lock на конфликт.
+
+        Возвращает None если конфликта нет (lock захвачен).
+        Возвращает (pid, project_root) если другой TUI из этого же bundle уже запущен.
+        """
+        if not TUI_LOCK_PATH.exists():
+            return None
+
+        try:
+            content = TUI_LOCK_PATH.read_text().strip()
+            lines = content.split("\n")
+            if len(lines) < 1:
+                raise ValueError("повреждённый lock-файл")
+            lock_pid = int(lines[0].strip())
+            lock_root = lines[1].strip() if len(lines) >= 2 else "неизвестно"
+        except Exception:
+            # Повреждённый lock → перезаписываем
+            return None
+
+        # Проверяем, жив ли процесс
+        try:
+            os.kill(lock_pid, 0)
+        except ProcessLookupError:
+            # PID мёртв → stale lock, очистим
+            return None
+        except PermissionError:
+            pass  # Чужой процесс — считаем живым
+
+        # Процесс жив — конфликт
+        return (lock_pid, lock_root)
+
+    async def _kill_old_instance(self, pid: int) -> None:
+        """Мягко убивает старый TUI процесс: SIGTERM, ждёт 2 сек, SIGKILL."""
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+
+        for _ in range(4):
+            await asyncio.sleep(0.5)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return  # Процесс завершился
+
+        # Принудительно
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         with Vertical(id="main-container"):
@@ -701,19 +789,45 @@ class SubvostTUI(App):
                 yield Button("Команды   Alt+P", id="btn-footer-palette")
                 yield Button("Выход     Alt+Q", id="btn-footer-quit")
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
+        # 1. Lock check — самый первый шаг
+        force = "--force" in sys.argv
+        conflict = self._check_lock_conflict()
+        if conflict:
+            lock_pid, lock_root = conflict
+            if force:
+                await self._kill_old_instance(lock_pid)
+            else:
+                future: asyncio.Future[bool] = asyncio.Future()
+                self.push_screen(
+                    TuiLockConflictModal(lock_pid, lock_root),
+                    callback=lambda result: future.set_result(result),
+                )
+                proceed = await future
+                if not proceed:
+                    self.exit()
+                    return
+                await self._kill_old_instance(lock_pid)
+
+        # Блокировка захвачена — пишем lock
+        _write_tui_lock()
+
+        # 2. Инициализация сервиса
         if self.service is None:
             try:
                 self.service = build_default_service(SCRIPT_DIR)
             except Exception as exc:
                 self.notify(f"Ошибка инициализации сервиса: {exc}", severity="error")
                 return
+
+        # 3. Стартовая логика (без изменений)
         self.set_interval(2.0, self._update_dashboard)
         self._update_dashboard()
         self._update_nodes()
         self._update_settings()
         self._start_tray()
-        asyncio.create_task(self._auto_activate_first_node())
+        await self._auto_activate_first_node()
+        asyncio.create_task(self._refresh_xray_version_label())
 
     def _update_dashboard(self) -> None:
         if self.service is None:
@@ -1299,6 +1413,69 @@ class SubvostTUI(App):
         finally:
             self._update_dashboard()
 
+    def _action_check_xray_updates(self) -> None:
+        """Проверить последнюю доступную версию xray через GitHub API."""
+        if self.service is None:
+            return
+        async def _run():
+            def do_check():
+                return self.service.get_latest_xray_version()
+            try:
+                latest = await self._run_service_action("Проверка обновлений Xray...", do_check)
+                tab = self.query_one("#settings-tab", SettingsTab)
+                lbl = tab.query_one("#lbl-xray-latest", Static)
+                lbl.update(latest or "ошибка запроса")
+                if latest:
+                    current = await asyncio.to_thread(self.service.get_xray_version)
+                    if current and current != latest:
+                        self.notify(f"Доступна новая версия Xray: {latest}", severity="warning")
+                    else:
+                        self.notify("У вас последняя версия Xray", severity="information")
+            except Exception as exc:
+                self.notify(f"Ошибка проверки: {exc}", severity="error")
+        asyncio.create_task(_run())
+
+    def _action_update_xray(self) -> None:
+        """Запустить обновление ядра Xray (с подтверждением)."""
+        if self.service is None:
+            return
+        self.push_screen(
+            ConfirmModal("Обновить ядро Xray? Потребуется пароль (pkexec) и интернет."),
+            callback=lambda c: asyncio.create_task(self._do_update_xray(c)),
+        )
+
+    async def _do_update_xray(self, confirmed: bool) -> None:
+        if not confirmed or self.service is None:
+            return
+        def do_update():
+            return self.service.update_xray_core()
+        try:
+            result = await self._run_service_action("Обновление ядра Xray...", do_update)
+            last_action = result.get("last_action", {})
+            if last_action.get("ok"):
+                self.notify("Ядро Xray обновлено", severity="information")
+            else:
+                self.notify(f"Ошибка обновления: {last_action.get('message', '?')}", severity="error")
+            self._update_settings()
+            asyncio.create_task(self._refresh_xray_version_label())
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+        except Exception as exc:
+            self.notify(f"Ошибка: {exc}", severity="error")
+
+
+    async def _refresh_xray_version_label(self) -> None:
+        """Асинхронно обновляет метку текущей версии xray в настройках."""
+        if self.service is None:
+            return
+        try:
+            version = await asyncio.to_thread(self.service.get_xray_version)
+            tab = self.query_one("#settings-tab", SettingsTab)
+            lbl = tab.query_one("#lbl-xray-version", Static)
+            lbl.update(version or "не найден")
+        except Exception:
+            pass
+
     def _stop_tray(self) -> None:
         """Остановить tray-процесс, если запущен."""
         tray_script = "tui_tray.py"
@@ -1388,9 +1565,8 @@ class SubvostTUI(App):
 
 
 def main() -> None:
-    force = "--force" in sys.argv
-    if not _acquire_tui_lock(force=force):
-        sys.exit(1)
+    # Миграция: удалить старый общий lock из ~/.config
+    _migrate_old_lock()
     atexit.register(_cleanup_tui_lock)
     app = SubvostTUI()
     app.run()
