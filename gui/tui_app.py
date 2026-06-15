@@ -723,7 +723,6 @@ class SubvostTUI(App):
             libexec_dir=PROJECT_ROOT / "libexec",
         )
         self.network_adapter = SystemNetworkAdapter()
-        self._loading_modal: LoadingModal | None = None
         self._action_in_progress: bool = False
         super().__init__()
 
@@ -1069,13 +1068,13 @@ class SubvostTUI(App):
         inp = tab.query_one("#inp-retention", Input)
         inp.value = str(settings.get("artifact_retention_days", 7))
 
-    async def _show_loading(self, message: str = "Выполнение...") -> None:
-        self._loading_modal = LoadingModal(message)
-        await self.push_screen(self._loading_modal)
 
-    def _hide_loading(self) -> None:
-        modal = self._loading_modal
-        self._loading_modal = None
+    async def _show_loading(self, message: str = "Выполнение...") -> LoadingModal:
+        modal = LoadingModal(message)
+        await self.push_screen(modal)
+        return modal
+
+    def _hide_loading(self, modal: LoadingModal | None) -> None:
         if modal is not None and self.is_screen_installed(modal):
             try:
                 self.pop_screen()
@@ -1083,7 +1082,7 @@ class SubvostTUI(App):
                 pass
 
     async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
-        await self._show_loading(action_name)
+        modal = await self._show_loading(action_name)
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
@@ -1092,7 +1091,7 @@ class SubvostTUI(App):
             self.notify(str(exc), severity="error")
             raise
         finally:
-            self._hide_loading()
+            self._hide_loading(modal)
 
     async def _auto_activate_first_node(self) -> None:
         if self.service is None:
@@ -1154,6 +1153,10 @@ class SubvostTUI(App):
     async def _action_stop(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
             self.notify("Подключение остановлено", severity="information")
@@ -1161,6 +1164,7 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_dashboard()
 
     async def _action_diag(self) -> None:
