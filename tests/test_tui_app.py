@@ -46,7 +46,7 @@ class SubvostTUITests(unittest.TestCase):
             Screen=MagicMock(),
             ShellRuntimeAdapter=MagicMock(),
             SystemNetworkAdapter=MagicMock(),
-            LoadingModal=MagicMock(),
+            LoadingModal=MagicMock(side_effect=lambda msg="": MagicMock(message=msg)),
             ConfirmModal=MagicMock(),
             ImportSubscriptionModal=MagicMock(),
             ImportLinkModal=MagicMock(),
@@ -65,6 +65,11 @@ class SubvostTUITests(unittest.TestCase):
         self.app._update_nodes = MagicMock()
         # Патчим notify, так как это родительский метод из App
         self.app.notify = MagicMock()
+        # Настраиваем push_screen / pop_screen / is_screen_installed для тестов модальных окон
+        from unittest.mock import AsyncMock
+        self.app.push_screen = AsyncMock()
+        self.app.pop_screen = MagicMock()
+        self.app.is_screen_installed = MagicMock(return_value=True)
 
     def tearDown(self) -> None:
         self.textual_patcher.stop()
@@ -258,11 +263,158 @@ class SubvostTUITests(unittest.TestCase):
         asyncio.run(self.app._action_cleanup())
         self.app.notify.assert_any_call("cleanup failed", severity="error")
 
+    # ─── 10i: Модальное окно загрузки ───────────────────────────────
+
+    def test_show_loading_pushes_modal_and_returns_it(self) -> None:
+        """_show_loading пушит LoadingModal и возвращает его."""
+        async def run():
+            return await self.app._show_loading("Тестовое сообщение")
+
+        modal = asyncio.run(run())
+
+        from tui_app import LoadingModal
+        # LoadingModal создан с правильным сообщением
+        LoadingModal.assert_called_once_with("Тестовое сообщение")
+        # push_screen вызван ровно один раз — с тем же объектом, что вернул LoadingModal
+        self.app.push_screen.assert_awaited_once()
+        pushed_arg = self.app.push_screen.await_args[0][0]
+        # возвращаемое значение _show_loading — то же модальное окно, что передано в push_screen
+        self.assertIs(modal, pushed_arg)
+    def test_hide_loading_pops_when_screen_installed(self) -> None:
+        """_hide_loading вызывает pop_screen когда экран установлен."""
+        modal = MagicMock()
+        self.app.is_screen_installed.return_value = True
+
+        self.app._hide_loading(modal)
+
+        self.app.is_screen_installed.assert_called_once_with(modal)
+        self.app.pop_screen.assert_called_once()
+
+    def test_hide_loading_skips_when_screen_not_installed(self) -> None:
+        """_hide_loading не вызывает pop_screen когда экран не установлен."""
+        modal = MagicMock()
+        self.app.is_screen_installed.return_value = False
+
+        self.app._hide_loading(modal)
+
+        self.app.is_screen_installed.assert_called_once_with(modal)
+        self.app.pop_screen.assert_not_called()
+
+    def test_hide_loading_none_is_noop(self) -> None:
+        """_hide_loading(None) не падает и ничего не делает."""
+        self.app._hide_loading(None)
+        self.app.is_screen_installed.assert_not_called()
+        self.app.pop_screen.assert_not_called()
+
+    def test_hide_loading_swallows_pop_exception(self) -> None:
+        """_hide_loading глотает исключение из pop_screen."""
+        modal = MagicMock()
+        self.app.is_screen_installed.return_value = True
+        self.app.pop_screen.side_effect = RuntimeError("stack error")
+
+        # Не должно быть исключения
+        self.app._hide_loading(modal)
+
+        self.app.pop_screen.assert_called_once()
+
+    def test_run_service_action_opens_and_closes_modal(self) -> None:
+        """_run_service_action показывает окно до действия и скрывает после."""
+        action = MagicMock(return_value="result")
+
+        async def run():
+            return await self.app._run_service_action("Тест...", action, "arg1", kw="val")
+
+        result = asyncio.run(run())
+
+        self.assertEqual(result, "result")
+        # push_screen был вызван (через _show_loading)
+        self.app.push_screen.assert_awaited_once()
+        # pop_screen был вызван (через _hide_loading)
+        self.app.pop_screen.assert_called_once()
+        # Действие выполнено с правильными аргументами
+        action.assert_called_once_with("arg1", kw="val")
+
+    def test_run_service_action_closes_modal_on_exception(self) -> None:
+        """_hide_loading вызывается даже если действие упало с исключением."""
+        action = MagicMock(side_effect=ValueError("boom"))
+
+        async def run():
+            await self.app._run_service_action("Тест...", action)
+
+        with self.assertRaises(ValueError):
+            asyncio.run(run())
+
+        # pop_screen всё равно вызван (finally)
+        self.app.pop_screen.assert_called_once()
+        self.app.notify.assert_called_with("boom", severity="error")
+
+    def test_two_parallel_actions_use_separate_modals(self) -> None:
+        """Два параллельных _run_service_action не перезаписывают модальные окна."""
+        action1 = MagicMock(return_value="r1")
+        action2 = MagicMock(return_value="r2")
+
+        async def run_both():
+            return await asyncio.gather(
+                self.app._run_service_action("A", action1),
+                self.app._run_service_action("B", action2),
+            )
+
+        results = asyncio.run(run_both())
+
+        self.assertEqual(results, ["r1", "r2"])
+        # push_screen вызван дважды (по одному на каждое действие)
+        self.assertEqual(self.app.push_screen.await_count, 2)
+        # pop_screen вызван дважды
+        self.assertEqual(self.app.pop_screen.call_count, 2)
+
+    # ─── 10j: Guard _action_in_progress ───────────────────────────────
+
+    def test_action_start_blocked_when_action_in_progress(self) -> None:
+        """_action_start с _action_in_progress=True показывает предупреждение."""
+        self.app._action_in_progress = True
+        self.app._run_service_action = MagicMock()
+
+        asyncio.run(self.app._action_start())
+
+        self.app._run_service_action.assert_not_called()
+        self.app.notify.assert_called_with(
+            "Действие уже выполняется, подождите...", severity="warning"
+        )
+
+    def test_action_stop_blocked_when_action_in_progress(self) -> None:
+        """_action_stop с _action_in_progress=True показывает предупреждение."""
+        self.app._action_in_progress = True
+        self.app._run_service_action = MagicMock()
+
+        asyncio.run(self.app._action_stop())
+
+        self.app._run_service_action.assert_not_called()
+        self.app.notify.assert_called_with(
+            "Действие уже выполняется, подождите...", severity="warning"
+        )
+
+    def test_action_start_resets_flag_in_finally(self) -> None:
+        """_action_start сбрасывает _action_in_progress даже при ошибке."""
+        self.app._run_service_action = MagicMock(side_effect=Exception("fail"))
+
+        asyncio.run(self.app._action_start())
+
+        self.assertFalse(self.app._action_in_progress)
+
+    def test_action_stop_resets_flag_in_finally(self) -> None:
+        """_action_stop сбрасывает _action_in_progress даже при ошибке."""
+        self.app._run_service_action = MagicMock(side_effect=Exception("fail"))
+
+        asyncio.run(self.app._action_stop())
+
+        self.assertFalse(self.app._action_in_progress)
+
     def test_action_refresh_all_shows_error(self) -> None:
         """_action_refresh_all показывает ошибку при исключении."""
         self.app._run_service_action = MagicMock(side_effect=Exception("refresh failed"))
         asyncio.run(self.app._action_refresh_all())
         self.app.notify.assert_any_call("refresh failed", severity="error")
+
 
 
 if __name__ == "__main__":
