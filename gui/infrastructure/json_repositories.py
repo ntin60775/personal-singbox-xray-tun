@@ -181,22 +181,6 @@ class JsonRoutingRepository:
                 return routing_profile_from_store_dict(rd)
         return None
 
-    def save(self, rp: RoutingProfile) -> None:
-        # Routing profiles don't have a direct save function — mutate the list
-        routing = self._store.setdefault("routing", {})
-        profiles: list[dict[str, Any]] = routing.setdefault("profiles", [])
-        record = _routing_profile_to_store_dict(rp)
-        for i, existing in enumerate(profiles):
-            if existing.get("id") == rp.id:
-                profiles[i] = record
-                return
-        profiles.append(record)
-
-    def activate(self, profile_id: str) -> None:
-        self._store.setdefault("routing", {})["active_profile_id"] = profile_id
-
-    def deactivate(self) -> None:
-        self._store.setdefault("routing", {})["active_profile_id"] = None
 
 
 # ── Вспомогательные ─────────────────────────────────────────────────

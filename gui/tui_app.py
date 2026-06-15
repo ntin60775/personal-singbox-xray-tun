@@ -950,18 +950,24 @@ class SubvostTUI(App):
             viewer.write(f"[{color}]{line}[/{color}]")
 
     def _update_routing(self) -> None:
-        if not self._store:
+        if self.service is None:
             return
+        try:
+            snapshot = self.service.collect_store_snapshot()
+            store_payload = snapshot.get("store", {})
+            store = store_payload.get("store", {})
+            if not store:
+                return
+            self._store = store
+        except Exception as exc:
+            self.notify(f"Ошибка обновления store: {exc}", severity="error")
+            return
+
         try:
             repo = JsonRoutingRepository(self._store)
             profiles = repo.get_all()
             active = repo.get_active()
             routing_state = self._store.get("routing", {})
-            routing_enabled = bool(routing_state.get("enabled", False))
-            runtime_ready = bool(routing_state.get("runtime_ready", False))
-            runtime_error = str(routing_state.get("runtime_error") or "")
-            geodata = routing_state.get("geodata", {})
-            geodata_ready = bool(geodata.get("ready", False))
 
             # Секция 1: верхний статус
             active_name = active.name if active else "не выбран"
@@ -1020,7 +1026,7 @@ class SubvostTUI(App):
                     item.get("source", "—"),
                 )
         except Exception:
-            pass
+            self.log.exception("Ошибка обновления routing-таба")
 
     def _update_settings(self) -> None:
         if self.service is None:

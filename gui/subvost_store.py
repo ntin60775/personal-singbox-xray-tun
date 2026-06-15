@@ -643,7 +643,7 @@ def import_routing_profile(
                 **parsed,
                 "id": existing["id"],
                 "enabled": existing.get("enabled", True),
-                "created_at": existing.get("created_at") or now,
+                "created_at": existing.get("created_at"),
                 "updated_at": now,
             }
         )
