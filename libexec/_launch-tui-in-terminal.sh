@@ -13,7 +13,7 @@ HOLD_WRAPPER="${INTERNAL_DIR}/_tui-error-holder.sh"
 
 # Приоритет: kitty
 if command -v kitty >/dev/null 2>&1; then
-  exec kitty --single-instance --directory="${SUBVOST_PROJECT_ROOT}" "$HOLD_WRAPPER" "${SUBVOST_OPEN_TUI_WRAPPER}"
+  exec kitty --title "Subvost Xray TUN" --single-instance --directory="${SUBVOST_PROJECT_ROOT}" "$HOLD_WRAPPER" "${SUBVOST_OPEN_TUI_WRAPPER}"
 fi
 
 # Fallback: Debian-альтернатива (Cinnamon/Mint/Ubuntu)
