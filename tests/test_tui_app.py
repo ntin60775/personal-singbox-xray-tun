@@ -367,6 +367,28 @@ class SubvostTUITests(unittest.TestCase):
         # pop_screen вызван дважды
         self.assertEqual(self.app.pop_screen.call_count, 2)
 
+    def test_run_service_action_timeout_closes_modal(self) -> None:
+        """_hide_loading вызывается после таймаута _run_service_action."""
+        async def run():
+            await self.app._run_service_action("Тест...", MagicMock())
+
+        with patch("tui_app.asyncio.wait_for", side_effect=TimeoutError()):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(run())
+
+        # pop_screen всё равно вызван (finally)
+        self.app.pop_screen.assert_called_once()
+        self.app.notify.assert_called_with(
+            "Действие 'Тест...' превысило таймаут (120 с).",
+            severity="error",
+        )
+
+    def test_action_start_resets_flag_on_timeout_error(self) -> None:
+        """_action_start сбрасывает _action_in_progress при TimeoutError."""
+        self.app._run_service_action = MagicMock(side_effect=TimeoutError())
+        asyncio.run(self.app._action_start())
+        self.assertFalse(self.app._action_in_progress)
+
     # ─── 10j: Guard _action_in_progress ───────────────────────────────
 
     def test_action_start_blocked_when_action_in_progress(self) -> None:

@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 import unittest
+import subprocess
+from unittest.mock import patch, MagicMock
+from pathlib import Path
+from gui.infrastructure.adapters import ShellRuntimeAdapter, CommandResult
+
 
 from gui.domain import (
     Node,
@@ -215,6 +220,23 @@ class TestJsonRoutingRepository(unittest.TestCase):
     def test_get_active_none(self):
         rp = self.repo.get_active()
         self.assertIsNone(rp)
+
+
+class TestShellRuntimeAdapter(unittest.TestCase):
+    """Тесты ShellRuntimeAdapter."""
+
+    def test_run_script_timeout_returns_command_result(self) -> None:
+        """run_script возвращает CommandResult с ошибкой при таймауте subprocess."""
+        adapter = ShellRuntimeAdapter(
+            project_root=Path("/tmp"),
+            libexec_dir=Path("/tmp"),
+        )
+        with patch("gui.infrastructure.adapters.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="test", timeout=180)):
+            result = adapter.run_script("Тест", Path("script.sh"))
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.returncode, -1)
+        self.assertIn("превысило таймаут", result.output)
 
 if __name__ == "__main__":
     unittest.main()

@@ -924,6 +924,7 @@ class SubvostAppService:
                 capture_output=True,
                 env=env,
                 check=False,
+                timeout=180,
             )
         except OSError as exc:
             return CommandResult(
@@ -931,6 +932,13 @@ class SubvostAppService:
                 ok=False,
                 returncode=127,
                 output=f"Не удалось выполнить действие '{name}': {exc}",
+            )
+        except subprocess.TimeoutExpired as exc:
+            return CommandResult(
+                name=name,
+                ok=False,
+                returncode=-1,
+                output=f"Действие '{name}' превысило таймаут (180 с) и было остановлено.",
             )
 
         output = "\n".join(part for part in [completed.stdout.strip(), completed.stderr.strip()] if part).strip()

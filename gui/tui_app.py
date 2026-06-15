@@ -563,6 +563,7 @@ class SettingsTab(Container):
 
 class SubvostTUI(App):
     """Главное TUI-приложение."""
+    _SERVICE_ACTION_TIMEOUT: float = 120
 
     CSS = """
     Screen {
@@ -1100,8 +1101,15 @@ class SubvostTUI(App):
         modal = await self._show_loading(action_name)
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: func(*args, **kwargs)),
+                timeout=self._SERVICE_ACTION_TIMEOUT,
+            )
             return result
+        except TimeoutError:
+            msg = f"Действие '{action_name}' превысило таймаут ({self._SERVICE_ACTION_TIMEOUT} с)."
+            self.notify(msg, severity="error")
+            raise TimeoutError(msg)
         except Exception as exc:
             self.notify(str(exc), severity="error")
             raise
