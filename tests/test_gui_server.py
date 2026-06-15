@@ -705,8 +705,8 @@ class GuiServerRuntimeSelectionTests(unittest.TestCase):
             self.assertEqual(cache["manual:node-1"]["latency_ms"], 42.5)
 
 
-class GuiServerSubscriptionRollbackTests(unittest.TestCase):
-    def test_handle_subscription_refresh_persists_last_error_without_switching_runtime_mode(self) -> None:
+class GuiServerSubscriptionPartialInvalidTests(unittest.TestCase):
+    def test_handle_subscription_refresh_applies_valid_nodes_with_invalid_count(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             real_home = root / "home"
@@ -734,14 +734,17 @@ class GuiServerSubscriptionRollbackTests(unittest.TestCase):
                 patch.object(gui_server, "XRAY_TEMPLATE_PATH", template),
                 patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(invalid_payload, {"ETag": "etag-2"})),
             ):
-                with self.assertRaisesRegex(ValueError, "Сохранена предыдущая версия"):
-                    gui_server.handle_subscription_refresh({"subscription_id": subscription["id"]})
+                result = gui_server.handle_subscription_refresh({"subscription_id": subscription["id"]})
+
+            self.assertTrue(result["ok"])
+            refresh_data = result.get("refresh", {})
+            self.assertEqual(refresh_data.get("invalid"), 1)
+            self.assertEqual(refresh_data.get("valid"), 1)
+            self.assertEqual(refresh_data.get("unique_nodes"), 1)
 
             persisted = json.loads(paths.store_file.read_text(encoding="utf-8"))
-            self.assertEqual(persisted["subscriptions"][0]["last_status"], "error")
-            self.assertIn("невалидных строк 1", persisted["subscriptions"][0]["last_error"])
             self.assertEqual(len(persisted["profiles"][1]["nodes"]), 1)
-            self.assertIn("#Stable", persisted["profiles"][1]["nodes"][0]["raw_uri"])
+            self.assertIn("#Changed", persisted["profiles"][1]["nodes"][0]["raw_uri"])
 
     def test_handle_subscription_add_rolls_back_failed_creation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

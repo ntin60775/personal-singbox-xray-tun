@@ -281,14 +281,14 @@ sudo ip rule del pref "$ROUTE_RULE_PREF" not fwmark "$ROUTE_MARK" table "$ROUTE_
 sudo ip route flush table "$ROUTE_TABLE" >/dev/null 2>&1 || true
 sudo ip route flush cache >/dev/null 2>&1 || true
 
-echo "[3/4] Очистка TUN-интерфейса"
-if [[ -n "$TUN_INTERFACE" ]]; then
-  sudo ip link delete "$TUN_INTERFACE" >/dev/null 2>&1 || true
-fi
-
-echo "[4/4] Восстановление системного DNS"
+echo "[3/4] Восстановление системного DNS"
 if [[ -f "$RESOLV_BACKUP" ]]; then
   sudo cp -f "$RESOLV_BACKUP" /etc/resolv.conf
+fi
+
+echo "[4/4] Очистка TUN-интерфейса"
+if [[ -n "$TUN_INTERFACE" ]]; then
+  sudo ip link delete "$TUN_INTERFACE" >/dev/null 2>&1 || true
 fi
 
 rm -f "$STATE_FILE"

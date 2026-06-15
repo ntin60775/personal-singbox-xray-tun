@@ -81,9 +81,10 @@ def _migrate_old_lock() -> None:
 
 
 def _write_tui_lock() -> None:
-    """Записывает lock-файл с PID и PROJECT_ROOT текущего процесса."""
+    """Записывает lock-файл с PID и PROJECT_ROOT текущего процесса (атомарно)."""
+    from subvost_paths import atomic_write_text
     TUI_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TUI_LOCK_PATH.write_text(f"{os.getpid()}\n{PROJECT_ROOT}")
+    atomic_write_text(TUI_LOCK_PATH, f"{os.getpid()}\n{PROJECT_ROOT}", mode=0o644)
 
 
 TUI_APP_ID = "io.subvost.XrayTun.TUI"

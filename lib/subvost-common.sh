@@ -131,7 +131,21 @@ subvost_ensure_install_id() {
   tmp_file="$(mktemp "${install_id_dir}/install-id.tmp.XXXXXX")"
   printf '%s\n' "$install_id" >"$tmp_file"
   chmod 0600 "$tmp_file" 2>/dev/null || true
-  mv -- "$tmp_file" "$install_id_file"
+  if mv -n -- "$tmp_file" "$install_id_file" 2>/dev/null; then
+    : # Мы создали install-id первыми
+  else
+    rm -f "$tmp_file"
+    if [[ -f "$install_id_file" ]]; then
+      # Кто-то опередил — используем его значение
+      subvost_read_install_id_file "$install_id_file" || subvost_die "Не удалось прочитать install-id."
+      return 0
+    fi
+    # mv -n отказал по другой причине — пробуем обычный mv
+    tmp_file="$(mktemp "${install_id_dir}/install-id.tmp.XXXXXX")"
+    printf '%s\n' "$install_id" >"$tmp_file"
+    chmod 0600 "$tmp_file" 2>/dev/null || true
+    mv -- "$tmp_file" "$install_id_file"
+  fi
 
   local real_user
   real_user="$(subvost_resolve_real_user_name)"

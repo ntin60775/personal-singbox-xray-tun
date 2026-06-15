@@ -451,7 +451,7 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertFalse(profile["enabled"])
             self.assertEqual(store["subscriptions"][0]["etag"], "etag-2")
 
-    def test_refresh_subscription_is_atomic_when_payload_contains_invalid_line(self) -> None:
+    def test_refresh_subscription_applies_valid_nodes_when_payload_contains_invalid_line(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
             real_home = project_root / "home"
@@ -468,7 +468,6 @@ class SubvostStoreTests(unittest.TestCase):
                 refresh_subscription(store, subscription["id"])
 
             profile = next(profile for profile in store["profiles"] if profile["id"] == subscription["profile_id"])
-            original_node = json.loads(json.dumps(profile["nodes"][0], ensure_ascii=False))
 
             invalid_payload = base64.urlsafe_b64encode(
                 (
@@ -477,14 +476,14 @@ class SubvostStoreTests(unittest.TestCase):
                 ).encode("utf-8")
             )
             with patch("subvost_store.urllib.request.urlopen", return_value=FakeResponse(invalid_payload, {"ETag": "etag-2"})):
-                with self.assertRaisesRegex(ValueError, "Обновление подписки не применено"):
-                    refresh_subscription(store, subscription["id"])
+                result = refresh_subscription(store, subscription["id"])
 
-            self.assertEqual(profile["nodes"][0]["name"], original_node["name"])
-            self.assertEqual(profile["nodes"][0]["raw_uri"], original_node["raw_uri"])
-            self.assertEqual(store["subscriptions"][0]["etag"], "etag-1")
-            self.assertEqual(store["subscriptions"][0]["last_status"], "error")
-            self.assertIn("невалидных строк 1", store["subscriptions"][0]["last_error"])
+            # Valid node applied, invalid reported in result
+            self.assertEqual(result["invalid"], 1)
+            self.assertEqual(result["valid"], 1)
+            self.assertIn("#Updated", profile["nodes"][0]["raw_uri"])
+            self.assertEqual(store["subscriptions"][0]["etag"], "etag-2")
+            self.assertEqual(store["subscriptions"][0]["last_status"], "ok")
 
     def test_refresh_subscription_auto_imports_routing_profile_from_response_headers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

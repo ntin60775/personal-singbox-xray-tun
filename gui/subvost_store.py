@@ -105,6 +105,27 @@ def default_routing_geodata_state() -> dict[str, Any]:
     }
 
 
+def _apply_store_migrations(store: dict[str, Any], from_version: int) -> None:
+    if from_version < 2:
+        _migrate_v1_to_v2(store)
+    if from_version < 3:
+        _migrate_v2_to_v3(store)
+
+
+def _migrate_v1_to_v2(store: dict[str, Any]) -> None:
+    if "routing" not in store:
+        store["routing"] = {}
+    store["version"] = 2
+
+
+def _migrate_v2_to_v3(store: dict[str, Any]) -> None:
+    routing = store.setdefault("routing", {})
+    routing.setdefault("geodata", default_routing_geodata_state())
+    routing.setdefault("runtime_ready", False)
+    routing.setdefault("runtime_error", "")
+    store["version"] = 3
+
+
 def _normalize_routing_profile(profile: dict[str, Any]) -> dict[str, Any]:
     now = iso_now()
     name = str(profile.get("name") or "").strip()
@@ -154,6 +175,7 @@ def _normalize_routing_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def ensure_store_structure(store: dict[str, Any]) -> dict[str, Any]:
+    _apply_store_migrations(store, store.get("version", 1))
     if not store:
         store = default_store()
     routing = store.get("routing") or {}
@@ -1076,11 +1098,6 @@ def _apply_subscription_refresh(
         if invalid_messages:
             raise ParseError(invalid_messages[0])
         raise ParseError("В подписке не найдено ни одной валидной ссылки.")
-    if invalid_count > 0:
-        error_suffix = f" Первая ошибка: {invalid_messages[0]}" if invalid_messages else ""
-        raise ParseError(
-            f"Обновление подписки не применено: невалидных строк {invalid_count}.{error_suffix}"
-        )
 
     profile["nodes"] = new_nodes
     ensure_active_selection(store)
@@ -1248,27 +1265,15 @@ def refresh_subscription(
                 "routing": routing_result,
             }
     except urllib.error.HTTPError as exc:
-        if exc.code == 304:
-            subscription["last_status"] = "ok"
-            subscription["last_error"] = ""
-            subscription["last_success_at"] = iso_now()
-            return {
-                "status": "ok",
-                "valid": 0,
-                "invalid": 0,
-                "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
-                "duplicate_lines": 0,
-                "format": "not_modified",
-                "provider_id": str(subscription.get("provider_id") or ""),
-                "routing": {
-                    "status": str(subscription.get("last_routing_status") or "never"),
-                    "provider_id": str(subscription.get("provider_id") or ""),
-                    "profile_id": subscription.get("routing_profile_id"),
-                },
-            }
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
         subscription["last_status"] = "error"
         subscription["last_error"] = f"HTTP {exc.code}"
-        raise ValueError(f"Подписка вернула HTTP {exc.code}.") from exc
+        detail = f": {body}" if body else ""
+        raise ValueError(f"Подписка вернула HTTP {exc.code}{detail}.") from exc
     except urllib.error.URLError as exc:
         subscription["last_status"] = "error"
         subscription["last_error"] = str(exc.reason)

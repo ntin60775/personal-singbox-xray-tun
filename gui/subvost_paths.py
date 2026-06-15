@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -95,19 +96,18 @@ def atomic_write_text(path: Path, text: str, mode: int = 0o600, uid: int | None 
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
         handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
         temp_path = Path(handle.name)
-
     try:
         os.chmod(temp_path, mode)
     except OSError:
         pass
-
     if uid is not None and gid is not None and current_euid() == 0:
         try:
             os.chown(temp_path, uid, gid)
         except OSError:
             pass
-
     os.replace(temp_path, path)
 
 
@@ -115,19 +115,18 @@ def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600, uid: int | No
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
         handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
         temp_path = Path(handle.name)
-
     try:
         os.chmod(temp_path, mode)
     except OSError:
         pass
-
     if uid is not None and gid is not None and current_euid() == 0:
         try:
             os.chown(temp_path, uid, gid)
         except OSError:
             pass
-
     os.replace(temp_path, path)
 
 
@@ -147,8 +146,12 @@ def read_json_file(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        backup = path.with_suffix(f"{path.suffix}.corrupted.{datetime.now().strftime('%Y%m%d-%H%M%S')}")
+        try:
+            path.rename(backup)
+        except OSError:
+            pass
         return {}
-
 
 def remove_file_if_exists(path: Path) -> None:
     try:
