@@ -169,6 +169,19 @@ class RoutingProfile:
     provider_id: str = ""
     created_at: str = ""
     updated_at: str = ""
+    raw_payload: dict[str, Any] = field(default_factory=dict)
+    domestic_dns_domain: str = ""
+    domestic_dns_ip: str = ""
+    domestic_dns_type: str = ""
+    remote_dns_domain: str = ""
+    remote_dns_ip: str = ""
+    remote_dns_type: str = ""
+    fake_dns: bool = False
+    last_updated: str = ""
+    supported_entry_count: int = 0
+    stored_only_fields: list[str] = field(default_factory=list)
+    ignored_fields: list[str] = field(default_factory=list)
+    unknown_fields: list[str] = field(default_factory=list)
 
     @property
     def has_geodata_urls(self) -> bool:

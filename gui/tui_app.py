@@ -51,7 +51,7 @@ from subvost_store import save_manual_import_results, store_payload
 from subvost_paths import APP_DIRNAME, resolve_config_home
 from gui.presentation.view_models import build_view_model, humanize_bytes as _humanize_bytes, humanize_rate as _humanize_rate
 from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
-from infrastructure.json_repositories import JsonNodeRepository, JsonSubscriptionRepository
+from infrastructure.json_repositories import JsonNodeRepository, JsonRoutingRepository, JsonSubscriptionRepository
 
 TUI_LOCK_PATH = resolve_config_home(Path.home()) / APP_DIRNAME / "tui.lock"
 
@@ -456,28 +456,31 @@ class RoutingTab(Container):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="routing-vertical"):
+            # Секция 1: активный профиль (всегда видна)
+            yield Static(id="routing-active-status")
+            yield Static(id="routing-geodata-status")
+            # Секция 2: кнопки действий
             with Horizontal(id="routing-actions"):
-                yield Button("🔄 Обновить geodata", id="btn-refresh-geodata")
+                yield Button("🔄 Обновить GeoIP/GeoSite", id="btn-refresh-geodata")
+                yield Button("▶ Включить маршрутизацию", variant="success", id="btn-toggle-routing")
                 yield Button("➕ Импорт профиля", id="btn-import-rp")
-                yield Button("▶ Активировать профиль", variant="success", id="btn-activate-rp")
-                yield Button("Вкл/Выкл маршрутизацию", id="btn-toggle-routing")
-                yield Button("❌ Сбросить профиль", variant="error", id="btn-clear-rp")
-            yield Static("[b]Routing-профили[/b]", classes="section-header")
+                yield Button("✕ Сбросить профиль", variant="error", id="btn-clear-rp")
+            # Секция 3: таблица профилей
+            yield Static("[b]Профили маршрутизации[/b]", classes="section-header")
             yield DataTable(id="routing-table")
-            yield Label("Выберите профиль и нажмите действие", id="routing-hint")
+            # Секция 4: прямые маршруты
             yield Static("[b]Прямые маршруты[/b]", classes="section-header")
             yield DataTable(id="direct-table")
 
     def on_mount(self) -> None:
         rt = self.query_one("#routing-table", DataTable)
-        rt.add_columns("Имя", "Состояние", "Тип")
+        rt.add_columns("Имя", "Состояние", "Тип", "Правил")
         rt.cursor_type = "row"
         rt.zebra_stripes = True
         dt = self.query_one("#direct-table", DataTable)
         dt.add_columns("Сеть", "Действие", "Источник")
         dt.cursor_type = "row"
         dt.zebra_stripes = True
-        # Заполняем данные при первом открытии
         app = self.app
         if isinstance(app, SubvostTUI):
             app._update_routing()
@@ -491,8 +494,6 @@ class RoutingTab(Container):
             asyncio.create_task(app._action_refresh_geodata())
         elif btn_id == "btn-import-rp":
             app._action_import_routing_profile()
-        elif btn_id == "btn-activate-rp":
-            asyncio.create_task(app._action_activate_routing_profile())
         elif btn_id == "btn-toggle-routing":
             asyncio.create_task(app._action_toggle_routing())
         elif btn_id == "btn-clear-rp":
@@ -500,15 +501,9 @@ class RoutingTab(Container):
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.selected_profile_id = str(event.row_key.value) if event.row_key else None
-        hint = self.query_one("#routing-hint", Label)
-        if self.selected_profile_id:
-            hint.update(f"Выбран профиль: {self.selected_profile_id}")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.selected_profile_id = str(event.row_key.value) if event.row_key else None
-        hint = self.query_one("#routing-hint", Label)
-        if self.selected_profile_id:
-            hint.update(f"Выбран профиль: {self.selected_profile_id}")
 
 
 class SettingsTab(Container):
@@ -844,17 +839,63 @@ class SubvostTUI(App):
         if not self._store:
             return
         try:
+            repo = JsonRoutingRepository(self._store)
+            profiles = repo.get_all()
+            active = repo.get_active()
+            routing_state = self._store.get("routing", {})
+            routing_enabled = bool(routing_state.get("enabled", False))
+            runtime_ready = bool(routing_state.get("runtime_ready", False))
+            runtime_error = str(routing_state.get("runtime_error") or "")
+            geodata = routing_state.get("geodata", {})
+            geodata_ready = bool(geodata.get("ready", False))
+
+            # Секция 1: верхний статус
+            active_name = active.name if active else "не выбран"
+            if active and routing_enabled:
+                active_status = f"[bold green]▶ Активный профиль: {active_name}[/bold green]"
+            elif active:
+                active_status = f"[bold yellow]⏸ Активный профиль: {active_name} (выключен)[/bold yellow]"
+            else:
+                active_status = "[bold red]✕ Активный профиль не выбран[/bold red]"
+            self.query_one("#routing-active-status", Static).update(active_status)
+
+            if geodata_ready:
+                geodata_status = "[green]GeoIP/GeoSite: готовы[/green]"
+            elif runtime_error:
+                geodata_status = f"[red]GeoIP/GeoSite: ошибка — {runtime_error}[/red]"
+            else:
+                geodata_status = "[yellow]GeoIP/GeoSite: не подготовлены[/yellow]"
+            self.query_one("#routing-geodata-status", Static).update(geodata_status)
+
+            # Кнопка-переключатель (Шаг 3.2)
+            toggle_btn = self.query_one("#btn-toggle-routing", Button)
+            if routing_enabled:
+                toggle_btn.label = "⏸ Выключить маршрутизацию"
+                toggle_btn.variant = "warning"
+            else:
+                toggle_btn.label = "▶ Включить маршрутизацию"
+                toggle_btn.variant = "success"
+
+            # Таблица профилей (Шаг 3.3 — подсветка активного)
             rt = self.query_one("#routing-table", DataTable)
             rt.clear()
-            for rp in self._store.get("routing_profiles", []):
-                enabled = "Вкл" if rp.get("enabled") else "Выкл"
+            for rp in profiles:
+                is_active = active is not None and active.id == rp.id
+                name_display = f"★ {rp.name}" if is_active else rp.name
+                status_display = (
+                    "Активен" if is_active and routing_enabled
+                    else ("Вкл" if rp.enabled else "Выкл")
+                )
+                type_display = "Авто" if rp.auto_managed else "Вручную"
                 rt.add_row(
-                    rp.get("name", "—"),
-                    enabled,
-                    rp.get("type", "custom"),
-                    key=rp.get("id", ""),
+                    name_display,
+                    status_display,
+                    type_display,
+                    str(rp.total_rules),
+                    key=rp.id,
                 )
 
+            # Прямые маршруты
             dt = self.query_one("#direct-table", DataTable)
             dt.clear()
             vm = build_view_model(self._status)
@@ -1151,25 +1192,6 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(f"Ошибка обновления geodata: {exc}", severity="error")
 
-    async def _action_activate_routing_profile(self) -> None:
-        if self.service is None:
-            return
-        routing_tab = self.query_one("#routing-tab", RoutingTab)
-        rp_id = routing_tab.selected_profile_id
-        if not rp_id:
-            self.notify("Сначала выберите профиль в таблице", severity="warning")
-            return
-        try:
-            await self._run_service_action(
-                "Активация профиля...",
-                self.service.activate_routing_profile,
-                rp_id,
-            )
-            self.notify("Профиль активирован", severity="information")
-            self._update_routing()
-            self._update_dashboard()
-        except Exception as exc:
-            self.notify(f"Ошибка активации: {exc}", severity="error")
 
     async def _action_toggle_routing(self) -> None:
         if self.service is None:
@@ -1178,6 +1200,21 @@ class SubvostTUI(App):
             store = self.service.ensure_store_ready()
             routing_state = store.get("routing", {})
             current = bool(routing_state.get("enabled", False))
+            routing_tab = self.query_one("#routing-tab", RoutingTab)
+            rp_id = routing_tab.selected_profile_id
+
+            # Если маршрутизация выключена и нет активного профиля —
+            # активируем выбранный в таблице профиль
+            if not current and not routing_state.get("active_profile_id"):
+                if not rp_id:
+                    self.notify("Сначала выберите профиль в таблице", severity="warning")
+                    return
+                await self._run_service_action(
+                    "Активация профиля...",
+                    self.service.activate_routing_profile,
+                    rp_id,
+                )
+
             await self._run_service_action(
                 "Переключение маршрутизации...",
                 self.service.set_routing_enabled,

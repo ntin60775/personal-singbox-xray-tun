@@ -154,6 +154,19 @@ def routing_profile_from_store_dict(d: dict[str, Any]) -> RoutingProfile:
         provider_id=str(d.get("provider_id", "")),
         created_at=str(d.get("created_at", "")),
         updated_at=str(d.get("updated_at", "")),
+        raw_payload=dict(d.get("raw_payload", {})) if isinstance(d.get("raw_payload"), dict) else {},
+        domestic_dns_domain=str(d.get("domestic_dns_domain", "")),
+        domestic_dns_ip=str(d.get("domestic_dns_ip", "")),
+        domestic_dns_type=str(d.get("domestic_dns_type", "")),
+        remote_dns_domain=str(d.get("remote_dns_domain", "")),
+        remote_dns_ip=str(d.get("remote_dns_ip", "")),
+        remote_dns_type=str(d.get("remote_dns_type", "")),
+        fake_dns=bool(d.get("fake_dns", False)),
+        last_updated=str(d.get("last_updated", "")),
+        supported_entry_count=int(d.get("supported_entry_count", 0)),
+        stored_only_fields=list(d.get("stored_only_fields", [])),
+        ignored_fields=list(d.get("ignored_fields", [])),
+        unknown_fields=list(d.get("unknown_fields", [])),
     )
 
 

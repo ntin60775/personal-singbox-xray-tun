@@ -19,6 +19,7 @@ from typing import Any
 from gui_contract import GUI_VERSION
 from subvost_paths import AppPaths, build_app_paths
 from subvost_routing import build_direct_routes_report
+from infrastructure.json_repositories import JsonRoutingRepository
 from subvost_runtime import node_can_render_runtime, read_json_config
 from subvost_store import (
     activate_routing_profile as store_activate_routing_profile,
@@ -971,6 +972,11 @@ class SubvostAppService:
                 return candidate
 
         return self.context.app_paths.generated_xray_config_file
+
+    @property
+    def routing_repo(self) -> JsonRoutingRepository:
+        """Возвращает репозиторий routing-профилей для чтения."""
+        return JsonRoutingRepository(self.ensure_store_ready())
 
     def describe_runtime_state(
         self,

@@ -243,5 +243,65 @@ class SubvostRoutingTests(unittest.TestCase):
             self.assertEqual(paths.geosite_asset_file.read_bytes(), b"geosite-bytes")
 
 
+    def test_parse_rejects_json_with_happ_prefix_in_value(self) -> None:
+        """JSON с текстом 'happ://routing/' в значении поля парсится как JSON, а не URI."""
+        text = json.dumps({"name": "test", "desc": "happ://routing/add/..."})
+        profile = parse_routing_profile_input(text)
+        self.assertEqual(profile["source_format"], "json")
+        self.assertEqual(profile["name"], "test")
+
+    def test_catchall_heuristic_rejects_non_proxy_outbound(self) -> None:
+        """Правило с outboundTag=block и network=tcp,udp НЕ определяется как catchall."""
+        config = {
+            "routing": {
+                "rules": [
+                    {
+                        "type": "field",
+                        "inboundTag": ["tun-in"],
+                        "network": "tcp,udp",
+                        "outboundTag": "block",
+                        "domain": ["geosite:ads"],
+                    },
+                    {
+                        "type": "field",
+                        "inboundTag": ["tun-in"],
+                        "network": "tcp,udp",
+                        "outboundTag": "proxy",
+                    },
+                    {
+                        "type": "field",
+                        "domain": ["geosite:ads"],
+                        "outboundTag": "direct",
+                    },
+                ]
+            }
+        }
+        entries = extract_direct_rules_from_xray_config(
+            config,
+            source="template",
+            source_label="Test",
+            priority=10,
+            reason="Test.",
+        )
+        # Block rule's domain is tracked (not treated as catchall),
+        # so the direct rule with same domain is shadowed → entries empty.
+        # Proxy catchall rule is correctly skipped.
+        self.assertEqual([], entries)
+
+    def test_domain_strategy_invalid_added_to_ignored(self) -> None:
+        """Невалидный domainstrategy попадает в ignored_fields."""
+        # Invalid value → added to ignored_fields, domain_strategy falls back to AsIs
+        profile = parse_routing_profile_input(
+            json.dumps({"name": "Test", "domainstrategy": "InvalidValue", "globalproxy": True})
+        )
+        self.assertIn("domainstrategy=InvalidValue", profile["ignored_fields"])
+        self.assertEqual(profile["domain_strategy"], "AsIs")
+
+        # Valid strategy → ignored_fields stays empty
+        profile = parse_routing_profile_input(
+            json.dumps({"name": "Test", "domainstrategy": "IPIfNonMatch", "globalproxy": True})
+        )
+        self.assertEqual(profile["ignored_fields"], [])
+
 if __name__ == "__main__":
     unittest.main()

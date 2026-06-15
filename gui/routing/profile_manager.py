@@ -165,7 +165,7 @@ def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
 
     source_format = "json"
     activation_mode = "manual"
-    if any(text.startswith(prefix) for prefix in ROUTING_URI_PREFIXES) or "happ://routing/" in text:
+    if any(line.strip().startswith(prefix) for line in text.splitlines() for prefix in ROUTING_URI_PREFIXES):
         payload, source_format, activation_mode = _extract_happ_routing_payload(text)
     else:
         try:
@@ -203,6 +203,10 @@ def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
         "last_updated": "lastupdated" in key_map,
     }
 
+    ignored_fields: list[str] = []
+    raw_strategy = str(key_map.get("domainstrategy") or "").strip()
+    if raw_strategy and raw_strategy not in SUPPORTED_DOMAIN_STRATEGIES:
+        ignored_fields.append(f"domainstrategy={raw_strategy}")
     return {
         "name": name,
         "name_key": name.casefold(),
@@ -229,9 +233,9 @@ def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
         "fake_dns": _coerce_bool(key_map.get("fakedns")),
         "route_order": _normalize_route_order(key_map.get("routeorder")),
         "last_updated": str(key_map.get("lastupdated") or "").strip(),
+        "ignored_fields": ignored_fields,
         "supported_entry_count": supported_entries,
         "stored_only_fields": sorted(field for field, present in stored_only_presence.items() if present and field in STORED_ONLY_FIELDS),
-        "ignored_fields": [],
         "unknown_fields": unknown_fields,
     }
 
@@ -340,6 +344,8 @@ def routing_profile_rule_count(profile: dict[str, Any]) -> int:
 def _is_tun_catchall_rule(rule: dict[str, Any]) -> bool:
     inbound_tag = rule.get("inboundTag")
     if not isinstance(inbound_tag, list) or "tun-in" not in inbound_tag:
+        return False
+    if str(rule.get("outboundTag") or "").strip() != "proxy":
         return False
     return str(rule.get("network") or "").strip().lower() == "tcp,udp"
 

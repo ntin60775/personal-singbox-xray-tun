@@ -1603,8 +1603,8 @@
               <section class="panel routing-panel" id="panel-routing">
                 <div class="panel-head">
                   <div>
-                    <h2>Профиль маршрутизации</h2>
-                    <p id="routing-copy">Профиль может подтянуться автоматически после обновления подписки. Поле ниже нужно только для ручного импорта JSON или `happ://routing/...`.</p>
+                    <h2>Маршрутизация</h2>
+                    <p id="routing-copy">Профиль подтягивается автоматически из подписки или импортируется вручную JSON/happ://routing/.</p>
                   </div>
                   <span class="panel-badge" id="routing-panel-badge">Ожидание</span>
                 </div>
@@ -2411,8 +2411,8 @@
       setTextIfChanged(
         els.routingCopy,
         profiles.length
-          ? `${profiles.length} профил${profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"} маршрутизации в хранилище. Авто-профили приходят из подписок после их обновления, поле ниже нужно только для ручного импорта.`
-          : "Если подписка отдает метаданные маршрутизации, нажмите «Обновить» на карточке подписки. Поле ниже нужно только для ручного импорта."
+          ? `${profiles.length} профил${profiles.length === 1 ? "ь" : "ей"}`
+          : "Профилей нет"
       );
 
       if (active) {
@@ -2420,22 +2420,17 @@
         setTextIfChanged(
           els.routingStatusLine,
           enabled && ready
-            ? `Активен профиль '${active.name}', применяется ${active.supported_entry_count || 0} правил, режим ${modeLabel}.`
-            : `Выбран профиль '${active.name}', правил ${active.supported_entry_count || 0}, режим ${modeLabel}.`
+            ? `Активен '${active.name}', ${active.supported_entry_count || 0} правил, ${modeLabel}.`
+            : `Выбран '${active.name}', ${active.supported_entry_count || 0} правил, ${modeLabel}.`
         );
       } else {
-        setTextIfChanged(els.routingStatusLine, "Профиль маршрутизации ещё не выбран.");
+        setTextIfChanged(els.routingStatusLine, "Профиль не выбран.");
       }
-
       const geodataMessage = geodata.ready
-        ? `Наборы GeoIP и GeoSite готовы: geoip.dat и geosite.dat доступны в ${geodata.asset_dir || "asset-dir"}.`
+        ? "GeoIP/GeoSite готовы."
         : geodata.status === "error"
-          ? `Наборы GeoIP и GeoSite не готовы: ${geodata.error || "ошибка загрузки"}.`
-          : active
-            ? "Наборы GeoIP и GeoSite пока не подготовлены. Нажмите «Подготовить GeoIP и GeoSite» или просто включите маршрутизацию."
-            : enabledProfiles.length === 1
-              ? "Наборы GeoIP и GeoSite пока не подготовлены. Можно нажать «Подготовить GeoIP и GeoSite», профиль будет выбран автоматически."
-              : "Наборы GeoIP и GeoSite пока не подготовлены.";
+          ? `GeoIP/GeoSite ошибка: ${geodata.error || "загрузка"}.`
+          : "GeoIP/GeoSite не подготовлены — нажмите «Подготовить»."
       setTextIfChanged(els.routingGeodataLine, geodataMessage);
       setTextIfChanged(els.routingGeodataButton, geodata.ready ? "Обновить GeoIP и GeoSite" : "Подготовить GeoIP и GeoSite");
       setTextIfChanged(els.routingToggleButton, enabled ? "Выключить маршрутизацию" : "Включить маршрутизацию");
@@ -2469,18 +2464,10 @@
         const meta = [
           `правил ${profile.supported_entry_count || 0}`,
           profile.global_proxy ? "через прокси" : "с прямым обходом",
-          `формат ${profile.source_format || "json"}`,
         ].join(" · ");
         const sourceMeta = [
           profile.auto_managed ? "авто из подписки" : "ручной импорт",
           sourceSubscription ? `подписка ${sourceSubscription}` : "",
-          profile.provider_id ? `providerId ${profile.provider_id}` : "",
-          profile.activation_mode && profile.activation_mode !== "manual" ? `режим ${profile.activation_mode}` : "",
-          profile.source_kind && profile.source_kind !== "manual_import" ? `канал ${profile.source_kind}` : "",
-        ].filter(Boolean).join(" · ");
-        const extra = [
-          (profile.stored_only_fields || []).length ? `dns-полей сохранено ${profile.stored_only_fields.length}` : "",
-          (profile.unknown_fields || []).length ? `неизвестных полей ${profile.unknown_fields.length}` : "",
         ].filter(Boolean).join(" · ");
 
         return `
@@ -2489,7 +2476,6 @@
               <strong>${escapeHtml(profile.name || "Без имени")}</strong>
               <div class="row-meta">${escapeHtml(meta)}</div>
               <div class="row-meta">${escapeHtml(sourceMeta || "Источник не указан.")}</div>
-              <div class="row-meta">${escapeHtml(extra || "Дополнительных полей нет.")}</div>
             </div>
             <div class="row-side">
               <div class="subscription-badges">
