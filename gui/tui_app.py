@@ -101,6 +101,8 @@ def _run_in_thread(func, *args, **kwargs):
 class LoadingModal(ModalScreen):
     """Модальный экран загрузки с сообщением."""
 
+    BINDINGS = [("escape", "dismiss_loading", "Закрыть")]
+
     def __init__(self, message: str = "Выполнение...") -> None:
         self.message = message
         super().__init__()
@@ -109,6 +111,8 @@ class LoadingModal(ModalScreen):
         with Container(id="loading-container"):
             yield Label(self.message, id="loading-label")
 
+    def action_dismiss_loading(self) -> None:
+        self.dismiss(False)
 
 class ConfirmModal(ModalScreen):
     """Модальный экран подтверждения."""
@@ -719,6 +723,8 @@ class SubvostTUI(App):
             libexec_dir=PROJECT_ROOT / "libexec",
         )
         self.network_adapter = SystemNetworkAdapter()
+        self._loading_modal: LoadingModal | None = None
+        self._action_in_progress: bool = False
         super().__init__()
 
     def _check_lock_conflict(self) -> tuple[int, str] | None:
@@ -864,16 +870,6 @@ class SubvostTUI(App):
                 dashboard.connection_time_text = "—"
         else:
             dashboard.connection_time_text = "—"
-
-        processes = status.get("processes", {})
-        is_live = bool(processes.get("xray_alive"))
-        try:
-            start_btn = dashboard.query_one("#btn-start", Button)
-            stop_btn = dashboard.query_one("#btn-stop", Button)
-            start_btn.disabled = is_live
-            stop_btn.disabled = not is_live
-        except Exception:
-            pass
 
     def _update_nodes(self) -> None:
         if self.service is None:
@@ -1073,14 +1069,21 @@ class SubvostTUI(App):
         inp = tab.query_one("#inp-retention", Input)
         inp.value = str(settings.get("artifact_retention_days", 7))
 
-    def _show_loading(self, message: str = "Выполнение...") -> None:
-        self.push_screen(LoadingModal(message))
+    async def _show_loading(self, message: str = "Выполнение...") -> None:
+        self._loading_modal = LoadingModal(message)
+        await self.push_screen(self._loading_modal)
 
     def _hide_loading(self) -> None:
-        self.pop_screen()
+        modal = self._loading_modal
+        self._loading_modal = None
+        if modal is not None and self.is_screen_installed(modal):
+            try:
+                self.pop_screen()
+            except Exception:
+                pass
 
     async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
-        self._show_loading(action_name)
+        await self._show_loading(action_name)
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, lambda: func(*args, **kwargs))
@@ -1134,6 +1137,10 @@ class SubvostTUI(App):
     async def _action_start(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
             self.notify("Подключение запущено", severity="information")
@@ -1141,6 +1148,7 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_dashboard()
 
     async def _action_stop(self) -> None:
