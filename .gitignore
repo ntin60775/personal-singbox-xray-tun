@@ -27,4 +27,7 @@ zip_context_ignore.md
 output/share/*-zip-context-*.zip
 # zip-context:artifacts:end
 .coverage
-banks/
+
+# SQLite WAL — временные файлы, не коммитятся
+banks/**/*.db-shm
+banks/**/*.db-wal
