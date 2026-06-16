@@ -3,7 +3,7 @@ Version=1.0
 Type=Application
 Name=Subvost Xray TUN
 Comment=Универсальный TUI для управления туннелем
-Exec=/usr/bin/env bash launch-tui-in-terminal.sh
+Exec=sh -c 'DIR="$(dirname "$(readlink -f "$1")")" && exec "$DIR"/launch-tui-in-terminal.sh' _ %k
 Icon=subvost-xray-tun-icon
 Terminal=false
 Categories=Network;
