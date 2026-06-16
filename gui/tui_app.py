@@ -98,22 +98,6 @@ def _run_in_thread(func, *args, **kwargs):
         return executor.submit(func, *args, **kwargs).result()
 
 
-class LoadingModal(ModalScreen):
-    """Модальный экран загрузки с сообщением."""
-
-    BINDINGS = [("escape", "dismiss_loading", "Закрыть")]
-
-    def __init__(self, message: str = "Выполнение...") -> None:
-        self.message = message
-        super().__init__()
-
-    def compose(self) -> ComposeResult:
-        with Container(id="loading-container"):
-            yield Label(self.message, id="loading-label")
-
-    def action_dismiss_loading(self) -> None:
-        self.dismiss(False)
-
 class ConfirmModal(ModalScreen):
     """Модальный экран подтверждения."""
 
@@ -627,8 +611,21 @@ class SubvostTUI(App):
     #nodes-table {
         height: 1fr;
     }
+    /* loading-overlay заполняет весь main-container поверх tabs */
+    #loading-overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        layer: overlay;
+        align: center middle;
+        background: $surface 85%;
+        border: solid $accent;
+        display: none;
+    }
+    #loading-overlay.-visible {
+        display: block;
+    }
     #main-container {
-        height: 1fr;
     }
     #main-tabs {
         height: 1fr;
@@ -809,6 +806,7 @@ class SubvostTUI(App):
                     yield RoutingTab(id="routing-tab")
                 with TabPane("Настройки", id="tab-settings"):
                     yield SettingsTab(id="settings-tab")
+            yield Static("Выполнение...", id="loading-overlay")
             with Horizontal(id="footer-bar"):
                 yield Button("Обновить  Alt+R", id="btn-footer-refresh")
                 yield Button("Команды   Alt+P", id="btn-footer-palette")
@@ -1085,20 +1083,23 @@ class SubvostTUI(App):
         inp.value = str(settings.get("artifact_retention_days", 7))
 
 
-    async def _show_loading(self, message: str = "Выполнение...") -> LoadingModal:
-        modal = LoadingModal(message)
-        await self.push_screen(modal)
-        return modal
+    def _show_loading(self, message: str = "Выполнение...") -> None:
+        try:
+            overlay = self.query_one("#loading-overlay", Static)
+            overlay.update(message)
+            overlay.add_class("-visible")
+        except Exception:
+            pass
 
-    def _hide_loading(self, modal: LoadingModal | None) -> None:
-        if modal is not None and self.is_screen_installed(modal):
-            try:
-                self.pop_screen()
-            except Exception:
-                pass
+    def _hide_loading(self, modal: object = None) -> None:
+        try:
+            overlay = self.query_one("#loading-overlay", Static)
+            overlay.remove_class("-visible")
+        except Exception:
+            pass
 
     async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
-        modal = await self._show_loading(action_name)
+        self._show_loading(action_name)
         try:
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
@@ -1114,7 +1115,7 @@ class SubvostTUI(App):
             self.notify(str(exc), severity="error")
             raise
         finally:
-            self._hide_loading(modal)
+            self._hide_loading()
 
     async def _auto_activate_first_node(self) -> None:
         if self.service is None:
@@ -1201,6 +1202,10 @@ class SubvostTUI(App):
     async def _action_diag(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
             self.notify("Диагностика сохранена", severity="information")
@@ -1208,11 +1213,16 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_dashboard()
 
     async def _do_import_subscription(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             def _do_add():
                 store = self.service.ensure_store_ready()
@@ -1226,6 +1236,8 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(f"Ошибка: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     def _action_import_subscription(self) -> None:
         if self.service is None:
@@ -1235,6 +1247,10 @@ class SubvostTUI(App):
     async def _action_refresh_all(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
             self.notify("Подписки обновлены", severity="information")
@@ -1242,11 +1258,16 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_nodes()
 
     async def _do_add_manual(self, result: dict[str, Any] | None) -> None:
         if result is None or self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             def _do_import():
                 store = self.service.ensure_store_ready()
@@ -1265,6 +1286,8 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
+        finally:
+            self._action_in_progress = False
 
     def _action_add_manual(self) -> None:
         if self.service is None:
@@ -1273,6 +1296,9 @@ class SubvostTUI(App):
 
     async def _action_activate_node(self) -> None:
         if self.service is None:
+            return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
             return
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         key = nodes_tab.selected_row_key
@@ -1283,6 +1309,7 @@ class SubvostTUI(App):
         if len(parts) != 2:
             return
         profile_id, node_id = parts
+        self._action_in_progress = True
         try:
             def _do_activate():
                 store = self.service.ensure_store_ready()
@@ -1297,11 +1324,15 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_dashboard()
             self._update_nodes()
 
     async def _action_ping_node(self) -> None:
         if self.service is None:
+            return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
             return
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         key = nodes_tab.selected_row_key
@@ -1312,6 +1343,7 @@ class SubvostTUI(App):
         if len(parts) != 2:
             return
         profile_id, node_id = parts
+        self._action_in_progress = True
         try:
             result = await self._run_service_action(
                 "Пинг узла...",
@@ -1325,15 +1357,21 @@ class SubvostTUI(App):
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка пинга: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     async def _action_refresh_sub(self) -> None:
         if self.service is None:
+            return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
             return
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         sub_id = nodes_tab.selected_sub_id
         if not sub_id:
             self.notify("Сначала выберите подписку в таблице", severity="warning")
             return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Обновление подписки...",
@@ -1344,15 +1382,21 @@ class SubvostTUI(App):
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка обновления: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     async def _do_delete_sub(self, confirmed: bool) -> None:
         if not confirmed or self.service is None:
+            return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
             return
         nodes_tab = self.query_one("#nodes-tab", NodesTab)
         sub_id = nodes_tab.selected_sub_id
         if not sub_id:
             self.notify("Сначала выберите подписку в таблице", severity="warning")
             return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Удаление подписки...",
@@ -1363,6 +1407,8 @@ class SubvostTUI(App):
             self._update_nodes()
         except Exception as exc:
             self.notify(f"Ошибка удаления: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     def _action_delete_sub(self) -> None:
         if self.service is None:
@@ -1377,6 +1423,10 @@ class SubvostTUI(App):
     async def _action_refresh_geodata(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Обновление geodata...",
@@ -1386,15 +1436,21 @@ class SubvostTUI(App):
             self._update_routing()
         except Exception as exc:
             self.notify(f"Ошибка обновления geodata: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
 
     async def _action_activate_profile(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
         routing_tab = self.query_one("#routing-tab", RoutingTab)
         if not routing_tab.selected_profile_id:
             self.notify("Выберите профиль в таблице.", severity="warning")
             return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Активация профиля маршрутизации...",
@@ -1405,10 +1461,16 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(f"Ошибка активации: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     async def _action_deactivate_profile(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Деактивация профиля маршрутизации...",
@@ -1418,10 +1480,16 @@ class SubvostTUI(App):
             self._update_dashboard()
         except Exception as exc:
             self.notify(f"Ошибка деактивации: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     async def _do_import_routing_profile(self, result: dict[str, str] | None) -> None:
         if result is None or self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         try:
             await self._run_service_action(
                 "Импорт профиля...",
@@ -1432,6 +1500,8 @@ class SubvostTUI(App):
             self._update_routing()
         except Exception as exc:
             self.notify(f"Ошибка импорта: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
     def _action_import_routing_profile(self) -> None:
         if self.service is None:
@@ -1460,6 +1530,10 @@ class SubvostTUI(App):
     async def _action_cleanup(self) -> None:
         if self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         def do_cleanup():
             return self.service.cleanup_runtime_artifacts()
         try:
@@ -1470,6 +1544,7 @@ class SubvostTUI(App):
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
+            self._action_in_progress = False
             self._update_dashboard()
 
     def _action_check_xray_updates(self) -> None:
@@ -1477,9 +1552,13 @@ class SubvostTUI(App):
         if self.service is None:
             return
         async def _run():
-            def do_check():
-                return self.service.get_latest_xray_version()
+            if self._action_in_progress:
+                self.notify("Действие уже выполняется, подождите...", severity="warning")
+                return
+            self._action_in_progress = True
             try:
+                def do_check():
+                    return self.service.get_latest_xray_version()
                 latest = await self._run_service_action("Проверка обновлений Xray...", do_check)
                 tab = self.query_one("#settings-tab", SettingsTab)
                 lbl = tab.query_one("#lbl-xray-latest", Static)
@@ -1492,6 +1571,8 @@ class SubvostTUI(App):
                         self.notify("У вас последняя версия Xray", severity="information")
             except Exception as exc:
                 self.notify(f"Ошибка проверки: {exc}", severity="error")
+            finally:
+                self._action_in_progress = False
         asyncio.create_task(_run())
 
     def _action_update_xray(self) -> None:
@@ -1506,6 +1587,10 @@ class SubvostTUI(App):
     async def _do_update_xray(self, confirmed: bool) -> None:
         if not confirmed or self.service is None:
             return
+        if self._action_in_progress:
+            self.notify("Действие уже выполняется, подождите...", severity="warning")
+            return
+        self._action_in_progress = True
         def do_update():
             return self.service.update_xray_core()
         try:
@@ -1521,6 +1606,8 @@ class SubvostTUI(App):
             self.notify(str(exc), severity="error")
         except Exception as exc:
             self.notify(f"Ошибка: {exc}", severity="error")
+        finally:
+            self._action_in_progress = False
 
 
     async def _refresh_xray_version_label(self) -> None:

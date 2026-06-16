@@ -46,7 +46,6 @@ class SubvostTUITests(unittest.TestCase):
             Screen=MagicMock(),
             ShellRuntimeAdapter=MagicMock(),
             SystemNetworkAdapter=MagicMock(),
-            LoadingModal=MagicMock(side_effect=lambda msg="": MagicMock(message=msg)),
             ConfirmModal=MagicMock(),
             ImportSubscriptionModal=MagicMock(),
             ImportLinkModal=MagicMock(),
@@ -263,63 +262,50 @@ class SubvostTUITests(unittest.TestCase):
         asyncio.run(self.app._action_cleanup())
         self.app.notify.assert_any_call("cleanup failed", severity="error")
 
-    # ─── 10i: Модальное окно загрузки ───────────────────────────────
+    # ─── 10i: Оверлей загрузки ────────────────────────────────────
 
-    def test_show_loading_pushes_modal_and_returns_it(self) -> None:
-        """_show_loading пушит LoadingModal и возвращает его."""
-        async def run():
-            return await self.app._show_loading("Тестовое сообщение")
+    def test_show_loading_updates_overlay_and_adds_class(self) -> None:
+        """_show_loading обновляет текст и показывает оверлей."""
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
 
-        modal = asyncio.run(run())
+        self.app._show_loading("Тестовое сообщение")
 
-        from tui_app import LoadingModal
-        # LoadingModal создан с правильным сообщением
-        LoadingModal.assert_called_once_with("Тестовое сообщение")
-        # push_screen вызван ровно один раз — с тем же объектом, что вернул LoadingModal
-        self.app.push_screen.assert_awaited_once()
-        pushed_arg = self.app.push_screen.await_args[0][0]
-        # возвращаемое значение _show_loading — то же модальное окно, что передано в push_screen
-        self.assertIs(modal, pushed_arg)
-    def test_hide_loading_pops_when_screen_installed(self) -> None:
-        """_hide_loading вызывает pop_screen когда экран установлен."""
-        modal = MagicMock()
-        self.app.is_screen_installed.return_value = True
+        self.app.query_one.assert_called_once()
+        args, _ = self.app.query_one.call_args
+        self.assertEqual(args[0], "#loading-overlay")
+        mock_overlay.update.assert_called_once_with("Тестовое сообщение")
+        mock_overlay.add_class.assert_called_once_with("-visible")
 
-        self.app._hide_loading(modal)
+    def test_hide_loading_removes_class(self) -> None:
+        """_hide_loading скрывает оверлей."""
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
 
-        self.app.is_screen_installed.assert_called_once_with(modal)
-        self.app.pop_screen.assert_called_once()
+        self.app._hide_loading()
 
-    def test_hide_loading_skips_when_screen_not_installed(self) -> None:
-        """_hide_loading не вызывает pop_screen когда экран не установлен."""
-        modal = MagicMock()
-        self.app.is_screen_installed.return_value = False
+        self.app.query_one.assert_called_once()
+        args, _ = self.app.query_one.call_args
+        self.assertEqual(args[0], "#loading-overlay")
+        mock_overlay.remove_class.assert_called_once_with("-visible")
 
-        self.app._hide_loading(modal)
-
-        self.app.is_screen_installed.assert_called_once_with(modal)
-        self.app.pop_screen.assert_not_called()
-
-    def test_hide_loading_none_is_noop(self) -> None:
-        """_hide_loading(None) не падает и ничего не делает."""
-        self.app._hide_loading(None)
-        self.app.is_screen_installed.assert_not_called()
-        self.app.pop_screen.assert_not_called()
-
-    def test_hide_loading_swallows_pop_exception(self) -> None:
-        """_hide_loading глотает исключение из pop_screen."""
-        modal = MagicMock()
-        self.app.is_screen_installed.return_value = True
-        self.app.pop_screen.side_effect = RuntimeError("stack error")
-
+    def test_show_loading_swallows_query_exception(self) -> None:
+        """_show_loading молча глотает исключение query_one."""
+        self.app.query_one = MagicMock(side_effect=Exception("no overlay"))
         # Не должно быть исключения
-        self.app._hide_loading(modal)
+        self.app._show_loading("Тест")
 
-        self.app.pop_screen.assert_called_once()
+    def test_hide_loading_swallows_query_exception(self) -> None:
+        """_hide_loading молча глотает исключение query_one."""
+        self.app.query_one = MagicMock(side_effect=Exception("no overlay"))
+        # Не должно быть исключения
+        self.app._hide_loading()
 
-    def test_run_service_action_opens_and_closes_modal(self) -> None:
-        """_run_service_action показывает окно до действия и скрывает после."""
+    def test_run_service_action_shows_and_hides_overlay(self) -> None:
+        """_run_service_action показывает оверлей до действия и скрывает после."""
         action = MagicMock(return_value="result")
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
 
         async def run():
             return await self.app._run_service_action("Тест...", action, "arg1", kw="val")
@@ -327,16 +313,19 @@ class SubvostTUITests(unittest.TestCase):
         result = asyncio.run(run())
 
         self.assertEqual(result, "result")
-        # push_screen был вызван (через _show_loading)
-        self.app.push_screen.assert_awaited_once()
-        # pop_screen был вызван (через _hide_loading)
-        self.app.pop_screen.assert_called_once()
+        # оверлей показан
+        mock_overlay.update.assert_called_once_with("Тест...")
+        mock_overlay.add_class.assert_called_once_with("-visible")
+        # оверлей скрыт
+        mock_overlay.remove_class.assert_called_once_with("-visible")
         # Действие выполнено с правильными аргументами
         action.assert_called_once_with("arg1", kw="val")
 
-    def test_run_service_action_closes_modal_on_exception(self) -> None:
+    def test_run_service_action_hides_overlay_on_exception(self) -> None:
         """_hide_loading вызывается даже если действие упало с исключением."""
         action = MagicMock(side_effect=ValueError("boom"))
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
 
         async def run():
             await self.app._run_service_action("Тест...", action)
@@ -344,14 +333,35 @@ class SubvostTUITests(unittest.TestCase):
         with self.assertRaises(ValueError):
             asyncio.run(run())
 
-        # pop_screen всё равно вызван (finally)
-        self.app.pop_screen.assert_called_once()
+        # оверлей всё равно скрыт (finally)
+        mock_overlay.remove_class.assert_called_once_with("-visible")
         self.app.notify.assert_called_with("boom", severity="error")
 
-    def test_two_parallel_actions_use_separate_modals(self) -> None:
-        """Два параллельных _run_service_action не перезаписывают модальные окна."""
+    def test_run_service_action_hides_overlay_on_timeout(self) -> None:
+        """_hide_loading вызывается после таймаута _run_service_action."""
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
+
+        async def run():
+            await self.app._run_service_action("Тест...", MagicMock())
+
+        with patch("tui_app.asyncio.wait_for", side_effect=TimeoutError()):
+            with self.assertRaises(TimeoutError):
+                asyncio.run(run())
+
+        # оверлей скрыт
+        mock_overlay.remove_class.assert_called_once_with("-visible")
+        self.app.notify.assert_called_with(
+            "Действие 'Тест...' превысило таймаут (120 с).",
+            severity="error",
+        )
+
+    def test_two_parallel_actions_use_same_overlay(self) -> None:
+        """Два параллельных _run_service_action используют один оверлей."""
         action1 = MagicMock(return_value="r1")
         action2 = MagicMock(return_value="r2")
+        mock_overlay = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_overlay)
 
         async def run_both():
             return await asyncio.gather(
@@ -362,26 +372,11 @@ class SubvostTUITests(unittest.TestCase):
         results = asyncio.run(run_both())
 
         self.assertEqual(results, ["r1", "r2"])
-        # push_screen вызван дважды (по одному на каждое действие)
-        self.assertEqual(self.app.push_screen.await_count, 2)
-        # pop_screen вызван дважды
-        self.assertEqual(self.app.pop_screen.call_count, 2)
-
-    def test_run_service_action_timeout_closes_modal(self) -> None:
-        """_hide_loading вызывается после таймаута _run_service_action."""
-        async def run():
-            await self.app._run_service_action("Тест...", MagicMock())
-
-        with patch("tui_app.asyncio.wait_for", side_effect=TimeoutError()):
-            with self.assertRaises(TimeoutError):
-                asyncio.run(run())
-
-        # pop_screen всё равно вызван (finally)
-        self.app.pop_screen.assert_called_once()
-        self.app.notify.assert_called_with(
-            "Действие 'Тест...' превысило таймаут (120 с).",
-            severity="error",
-        )
+        # query_one вызван 4 раза (show+hide для каждого действия — но query_one закэширован?)
+        # на самом деле каждый вызов _show_loading и _hide_loading делает свой query_one
+        self.assertEqual(mock_overlay.update.call_count, 2)
+        self.assertEqual(mock_overlay.add_class.call_count, 2)
+        self.assertEqual(mock_overlay.remove_class.call_count, 2)
 
     def test_action_start_resets_flag_on_timeout_error(self) -> None:
         """_action_start сбрасывает _action_in_progress при TimeoutError."""
@@ -428,6 +423,49 @@ class SubvostTUITests(unittest.TestCase):
         self.app._run_service_action = MagicMock(side_effect=Exception("fail"))
 
         asyncio.run(self.app._action_stop())
+
+        self.assertFalse(self.app._action_in_progress)
+
+    def test_action_refresh_all_blocked_when_action_in_progress(self) -> None:
+        """_action_refresh_all с _action_in_progress=True показывает предупреждение."""
+        self.app._action_in_progress = True
+        self.app._run_service_action = MagicMock()
+
+        asyncio.run(self.app._action_refresh_all())
+
+        self.app._run_service_action.assert_not_called()
+        self.app.notify.assert_called_with(
+            "Действие уже выполняется, подождите...", severity="warning"
+        )
+
+    def test_action_refresh_all_resets_flag_in_finally(self) -> None:
+        """_action_refresh_all сбрасывает _action_in_progress даже при ошибке."""
+        self.app._run_service_action = MagicMock(side_effect=Exception("fail"))
+
+        asyncio.run(self.app._action_refresh_all())
+
+        self.assertFalse(self.app._action_in_progress)
+
+    def test_action_activate_node_blocked_when_action_in_progress(self) -> None:
+        """_action_activate_node с _action_in_progress=True показывает предупреждение."""
+        self.app._action_in_progress = True
+        self.app._run_service_action = MagicMock()
+
+        asyncio.run(self.app._action_activate_node())
+
+        self.app._run_service_action.assert_not_called()
+        self.app.notify.assert_called_with(
+            "Действие уже выполняется, подождите...", severity="warning"
+        )
+
+    def test_action_activate_node_resets_flag_in_finally(self) -> None:
+        """_action_activate_node сбрасывает _action_in_progress даже при ошибке."""
+        mock_tab = MagicMock()
+        mock_tab.selected_row_key = "prof-1:node-1"
+        self.app.query_one = MagicMock(return_value=mock_tab)
+        self.app._run_service_action = MagicMock(side_effect=Exception("fail"))
+
+        asyncio.run(self.app._action_activate_node())
 
         self.assertFalse(self.app._action_in_progress)
 
