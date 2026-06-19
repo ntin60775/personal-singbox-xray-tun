@@ -522,6 +522,50 @@ class SubvostTUITests(unittest.TestCase):
             "Остановка завершилась ошибкой, код 126.", severity="warning"
         )
 
+    def test_action_refresh_all_emits_single_summary_toast(self) -> None:
+        """_action_refresh_all эмитит ровно один notify с правильным severity."""
+        from unittest.mock import AsyncMock
+
+        def _run_with_refresh_all(ok_count: int, error_count: int) -> None:
+            self.app.notify.reset_mock()
+            payload = {
+                "ok": True,
+                "message": "Все включённые подписки обновлены.",
+                "refresh_all": {"ok": ok_count, "error": error_count},
+            }
+            self.app._run_service_action = AsyncMock(return_value=payload)
+            asyncio.run(self.app._action_refresh_all())
+            self.assertEqual(self.app.notify.call_count, 1)
+            self.app.notify.assert_called_once()
+
+        # Все успешно → severity="information"
+        _run_with_refresh_all(ok_count=3, error_count=0)
+        args, kwargs = self.app.notify.call_args
+        message = args[0] if args else kwargs.get("message", "")
+        self.assertEqual(kwargs.get("severity"), "information")
+        self.assertIn("Обновлено подписок: 3", message)
+
+        # Полный провал → severity="error"
+        _run_with_refresh_all(ok_count=0, error_count=2)
+        args, kwargs = self.app.notify.call_args
+        message = args[0] if args else kwargs.get("message", "")
+        self.assertEqual(kwargs.get("severity"), "error")
+        self.assertIn("Ошибок: 2", message)
+
+        # Частичный успех → severity="warning"
+        _run_with_refresh_all(ok_count=1, error_count=1)
+        args, kwargs = self.app.notify.call_args
+        message = args[0] if args else kwargs.get("message", "")
+        self.assertEqual(kwargs.get("severity"), "warning")
+        self.assertIn("Обновлено: 1", message)
+        self.assertIn("ошибок: 1", message)
+
+        # Нет активных подписок → severity="information", "Нет активных..."
+        _run_with_refresh_all(ok_count=0, error_count=0)
+        args, kwargs = self.app.notify.call_args
+        message = args[0] if args else kwargs.get("message", "")
+        self.assertEqual(kwargs.get("severity"), "information")
+        self.assertIn("Нет активных подписок", message)
 
 if __name__ == "__main__":
     unittest.main()

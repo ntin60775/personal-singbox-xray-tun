@@ -1252,14 +1252,25 @@ class SubvostTUI(App):
             return
         self._action_in_progress = True
         try:
-            await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
-            self.notify("Подписки обновлены", severity="information")
-            self._update_nodes()
+            result = await self._run_service_action("Обновление подписок...", self.service.refresh_all_subscriptions)
         except Exception as exc:
             self.notify(str(exc), severity="error")
+            return
         finally:
             self._action_in_progress = False
             self._update_nodes()
+
+        refresh_all = (result.get("refresh_all") or {}) if isinstance(result, dict) else {}
+        ok = refresh_all.get("ok", 0)
+        error = refresh_all.get("error", 0)
+        if error == 0 and ok == 0:
+            self.notify("Нет активных подписок для обновления", severity="information")
+        elif error == 0:
+            self.notify(f"Обновлено подписок: {ok}, ошибок: 0", severity="information")
+        elif ok == 0:
+            self.notify(f"Не удалось обновить подписки. Ошибок: {error}", severity="error")
+        else:
+            self.notify(f"Обновлено: {ok}, ошибок: {error}", severity="warning")
 
     async def _do_add_manual(self, result: dict[str, Any] | None) -> None:
         if result is None or self.service is None:

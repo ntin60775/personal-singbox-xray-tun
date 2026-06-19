@@ -787,6 +787,47 @@ class SubvostStoreTests(unittest.TestCase):
             self.assertEqual(store["routing"]["profiles"], [])
             self.assertIsNone(store["routing"]["active_profile_id"])
 
+    def test_refresh_subscription_handles_304_as_not_modified(self) -> None:
+        """При HTTP 304 функция возвращает not_modified-success, не падает ValueError."""
+        import urllib.error
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            real_home = project_root / "home"
+            real_home.mkdir()
+            paths = build_app_paths(real_home, str(real_home / ".config"))
+
+            store = ensure_store_initialized(paths, project_root)
+            subscription = add_subscription(store, "Cached", "https://example.com/sub")
+            subscription["etag"] = "etag-prev"
+            subscription["last_status"] = "error"
+            subscription["last_error"] = "предыдущая ошибка"
+
+            http_error = urllib.error.HTTPError(
+                url="https://example.com/sub",
+                code=304,
+                msg="Not Modified",
+                hdrs={},
+                fp=None,
+            )
+            with patch(
+                "subvost_store.urllib.request.urlopen",
+                side_effect=http_error,
+            ):
+                result = refresh_subscription(store, subscription["id"], paths=paths)
+
+            updated = store["subscriptions"][0]
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["format"], "not_modified")
+            self.assertEqual(result["valid"], 0)
+            self.assertEqual(result["invalid"], 0)
+            self.assertEqual(result["duplicate_lines"], 0)
+            self.assertIn("provider_id", result)
+            self.assertIn("routing", result)
+
+            self.assertEqual(updated["last_status"], "ok")
+            self.assertEqual(updated["last_error"], "")
+            self.assertTrue(updated["last_success_at"])
 
 if __name__ == "__main__":
     unittest.main()

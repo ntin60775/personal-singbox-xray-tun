@@ -1154,6 +1154,71 @@ class SubvostAppServiceTests(unittest.TestCase):
             self.assertEqual(payload["ping"]["node_id"], "node-1")
             self.assertIn("manual:node-1", service.state.ping_cache)
 
+    def test_refresh_subscription_persists_on_success_and_304_aware_message(self) -> None:
+        """refresh_subscription сохраняет store и подбирает сообщение по формату."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_home = root / "home"
+            real_home.mkdir()
+            (root / "xray-tun-subvost.json").write_text(
+                json.dumps({"outbounds": [{"tag": "proxy"}]}),
+                encoding="utf-8",
+            )
+            service = self.make_service(root, real_home)
+
+            not_modified_result = {
+                "status": "ok",
+                "valid": 0,
+                "invalid": 0,
+                "unique_nodes": 0,
+                "duplicate_lines": 0,
+                "format": "not_modified",
+                "provider_id": "provider-304",
+                "routing": {
+                    "status": "linked",
+                    "provider_id": "provider-304",
+                    "profile_id": "routing-existing",
+                },
+            }
+            with (
+                patch(
+                    "subvost_app_service.store_refresh_subscription",
+                    return_value=not_modified_result,
+                ) as refresh_mock,
+                patch.object(service, "persist_store") as persist_mock,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.refresh_subscription("sub-1")
+
+            refresh_mock.assert_called_once()
+            persist_mock.assert_called_once()
+            self.assertTrue(payload["ok"])
+            self.assertTrue(service.state.last_action["message"].startswith("Подписка не изменилась (HTTP 304)"))
+            self.assertEqual(payload["refresh"], not_modified_result)
+
+            refreshed_result = {
+                "status": "ok",
+                "valid": 3,
+                "invalid": 0,
+                "unique_nodes": 3,
+                "duplicate_lines": 0,
+                "format": "base64",
+                "provider_id": "provider-fresh",
+                "routing": {"status": "none", "provider_id": "", "profile_id": None},
+            }
+            with (
+                patch(
+                    "subvost_app_service.store_refresh_subscription",
+                    return_value=refreshed_result,
+                ),
+                patch.object(service, "persist_store") as persist_mock2,
+                patch.object(service, "collect_status", return_value={"summary": {"state": "stopped"}}),
+            ):
+                payload = service.refresh_subscription("sub-1")
+
+            persist_mock2.assert_called_once()
+            self.assertTrue(service.state.last_action["message"].startswith("Подписка обновлена"))
+            self.assertEqual(payload["refresh"], refreshed_result)
 
 if __name__ == "__main__":
     unittest.main()

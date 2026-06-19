@@ -1388,7 +1388,11 @@ class SubvostAppService:
             store,
             name="Обновление подписки",
             ok=True,
-            message=f"Подписка обновлена: сохранено {result['unique_nodes']} уникальных узлов.",
+            message=(
+                f"Подписка обновлена: сохранено {result['unique_nodes']} уникальных узлов."
+                if result.get("format") != "not_modified"
+                else f"Подписка не изменилась (HTTP 304): сохранено {result['unique_nodes']} уникальных узлов."
+            ),
             details=json.dumps(result, ensure_ascii=False),
             extra={"refresh": result},
         )
@@ -1402,12 +1406,16 @@ class SubvostAppService:
             gid=self.context.real_gid,
         )
         ok = result["error"] == 0
-        message = "Все включённые подписки обновлены." if ok else "Часть подписок не обновилась."
+        summary = (
+            f"Обновлено {result['ok']} подписок, ошибок: {result['error']}."
+            if result["ok"] or result["error"]
+            else "Нет активных подписок для обновления."
+        )
         return self.build_store_response(
             store,
             name="Обновить все подписки",
             ok=ok,
-            message=message,
+            message=summary,
             details=json.dumps(result, ensure_ascii=False),
             extra={"refresh_all": result},
         )

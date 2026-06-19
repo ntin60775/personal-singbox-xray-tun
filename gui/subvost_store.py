@@ -1136,26 +1136,6 @@ def refresh_subscription(
 
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
-            status_code = getattr(response, "status", 200)
-            if status_code == 304:
-                subscription["last_status"] = "ok"
-                subscription["last_error"] = ""
-                subscription["last_success_at"] = iso_now()
-                return {
-                    "status": "ok",
-                    "valid": 0,
-                    "invalid": 0,
-                    "unique_nodes": len(profile["nodes"]) if (profile := _find_profile(store, subscription["profile_id"])) else 0,
-                    "duplicate_lines": 0,
-                    "format": "not_modified",
-                    "provider_id": str(subscription.get("provider_id") or ""),
-                    "routing": {
-                        "status": str(subscription.get("last_routing_status") or "never"),
-                        "provider_id": str(subscription.get("provider_id") or ""),
-                        "profile_id": subscription.get("routing_profile_id"),
-                    },
-                }
-
             payload = response.read()
             links, response_format = parse_subscription_payload(payload)
             previews = []
@@ -1265,6 +1245,25 @@ def refresh_subscription(
                 "routing": routing_result,
             }
     except urllib.error.HTTPError as exc:
+        if exc.code == 304:
+            subscription["last_status"] = "ok"
+            subscription["last_error"] = ""
+            subscription["last_success_at"] = iso_now()
+            profile = _find_profile(store, subscription["profile_id"])
+            return {
+                "status": "ok",
+                "valid": 0,
+                "invalid": 0,
+                "unique_nodes": len(profile["nodes"]) if profile else 0,
+                "duplicate_lines": 0,
+                "format": "not_modified",
+                "provider_id": str(subscription.get("provider_id") or ""),
+                "routing": {
+                    "status": str(subscription.get("last_routing_status") or "never"),
+                    "provider_id": str(subscription.get("provider_id") or ""),
+                    "profile_id": subscription.get("routing_profile_id"),
+                },
+            }
         body = ""
         try:
             body = exc.read().decode("utf-8", errors="replace").strip()
