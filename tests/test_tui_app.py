@@ -265,29 +265,40 @@ class SubvostTUITests(unittest.TestCase):
     # ─── 10i: Оверлей загрузки ────────────────────────────────────
 
     def test_show_loading_updates_overlay_and_adds_class(self) -> None:
-        """_show_loading обновляет текст и показывает оверлей."""
+        """_show_loading обновляет текст, показывает оверлей и блокирует вкладки/footer."""
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        self.app.query_one = MagicMock(side_effect=[mock_overlay, mock_tabs, mock_footer])
 
         self.app._show_loading("Тестовое сообщение")
 
-        self.app.query_one.assert_called_once()
-        args, _ = self.app.query_one.call_args
-        self.assertEqual(args[0], "#loading-overlay")
+        # query_one должен быть вызван 3 раза: overlay, tabs, footer
+        self.assertEqual(self.app.query_one.call_count, 3)
+        call_args = [c.args[0] for c in self.app.query_one.call_args_list]
+        self.assertEqual(call_args, ["#loading-overlay", "#main-tabs", "#footer-bar"])
         mock_overlay.update.assert_called_once_with("Тестовое сообщение")
         mock_overlay.add_class.assert_called_once_with("-visible")
+        mock_tabs.disabled = True
+        mock_footer.disabled = True
+        self.app.notify.assert_called_once_with("Тестовое сообщение", severity="information")
 
     def test_hide_loading_removes_class(self) -> None:
-        """_hide_loading скрывает оверлей."""
+        """_hide_loading скрывает оверлей и разблокирует вкладки/footer."""
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        self.app.query_one = MagicMock(side_effect=[mock_overlay, mock_tabs, mock_footer])
 
         self.app._hide_loading()
 
-        self.app.query_one.assert_called_once()
-        args, _ = self.app.query_one.call_args
-        self.assertEqual(args[0], "#loading-overlay")
+        # query_one должен быть вызван 3 раза: overlay, tabs, footer
+        self.assertEqual(self.app.query_one.call_count, 3)
+        call_args = [c.args[0] for c in self.app.query_one.call_args_list]
+        self.assertEqual(call_args, ["#loading-overlay", "#main-tabs", "#footer-bar"])
         mock_overlay.remove_class.assert_called_once_with("-visible")
+        mock_tabs.disabled = False
+        mock_footer.disabled = False
 
     def test_show_loading_swallows_query_exception(self) -> None:
         """_show_loading молча глотает исключение query_one."""
@@ -305,7 +316,9 @@ class SubvostTUITests(unittest.TestCase):
         """_run_service_action показывает оверлей до действия и скрывает после."""
         action = MagicMock(return_value="result")
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        self.app.query_one = MagicMock(side_effect=[mock_overlay, mock_tabs, mock_footer, mock_overlay, mock_tabs, mock_footer])
 
         async def run():
             return await self.app._run_service_action("Тест...", action, "arg1", kw="val")
@@ -316,8 +329,16 @@ class SubvostTUITests(unittest.TestCase):
         # оверлей показан
         mock_overlay.update.assert_called_once_with("Тест...")
         mock_overlay.add_class.assert_called_once_with("-visible")
+        # tabs/footer заблокированы на время loading
+        mock_tabs.disabled = True
+        mock_footer.disabled = True
+        # toast объявляет о начале действия
+        self.app.notify.assert_any_call("Тест...", severity="information")
         # оверлей скрыт
         mock_overlay.remove_class.assert_called_once_with("-visible")
+        # tabs/footer разблокированы после loading
+        mock_tabs.disabled = False
+        mock_footer.disabled = False
         # Действие выполнено с правильными аргументами
         action.assert_called_once_with("arg1", kw="val")
 
@@ -325,7 +346,9 @@ class SubvostTUITests(unittest.TestCase):
         """_hide_loading вызывается даже если действие упало с исключением."""
         action = MagicMock(side_effect=ValueError("boom"))
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        self.app.query_one = MagicMock(side_effect=[mock_overlay, mock_tabs, mock_footer, mock_overlay, mock_tabs, mock_footer])
 
         async def run():
             await self.app._run_service_action("Тест...", action)
@@ -335,12 +358,23 @@ class SubvostTUITests(unittest.TestCase):
 
         # оверлей всё равно скрыт (finally)
         mock_overlay.remove_class.assert_called_once_with("-visible")
+        # tabs/footer разблокированы (finally)
+        mock_tabs.disabled = False
+        mock_footer.disabled = False
         self.app.notify.assert_called_with("boom", severity="error")
 
     def test_run_service_action_hides_overlay_on_timeout(self) -> None:
         """_hide_loading вызывается после таймаута _run_service_action."""
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        mock_strip = MagicMock()
+        # show(3) + _set_status(1) + hide(3) = 7 вызовов
+        self.app.query_one = MagicMock(side_effect=[
+            mock_overlay, mock_tabs, mock_footer,
+            mock_strip,
+            mock_overlay, mock_tabs, mock_footer,
+        ])
 
         async def run():
             await self.app._run_service_action("Тест...", MagicMock())
@@ -351,6 +385,9 @@ class SubvostTUITests(unittest.TestCase):
 
         # оверлей скрыт
         mock_overlay.remove_class.assert_called_once_with("-visible")
+        # tabs/footer разблокированы (finally)
+        mock_tabs.disabled = False
+        mock_footer.disabled = False
         self.app.notify.assert_called_with(
             "Действие 'Тест...' превысило таймаут (120 с).",
             severity="error",
@@ -361,7 +398,15 @@ class SubvostTUITests(unittest.TestCase):
         action1 = MagicMock(return_value="r1")
         action2 = MagicMock(return_value="r2")
         mock_overlay = MagicMock()
-        self.app.query_one = MagicMock(return_value=mock_overlay)
+        mock_tabs = MagicMock()
+        mock_footer = MagicMock()
+        # 2 действия × (show: 3 query_one + hide: 3 query_one) = 12 вызовов
+        self.app.query_one = MagicMock(side_effect=[
+            mock_overlay, mock_tabs, mock_footer,  # show A
+            mock_overlay, mock_tabs, mock_footer,  # hide A
+            mock_overlay, mock_tabs, mock_footer,  # show B
+            mock_overlay, mock_tabs, mock_footer,  # hide B
+        ])
 
         async def run_both():
             return await asyncio.gather(
@@ -372,11 +417,12 @@ class SubvostTUITests(unittest.TestCase):
         results = asyncio.run(run_both())
 
         self.assertEqual(results, ["r1", "r2"])
-        # query_one вызван 4 раза (show+hide для каждого действия — но query_one закэширован?)
-        # на самом деле каждый вызов _show_loading и _hide_loading делает свой query_one
         self.assertEqual(mock_overlay.update.call_count, 2)
         self.assertEqual(mock_overlay.add_class.call_count, 2)
         self.assertEqual(mock_overlay.remove_class.call_count, 2)
+        # tabs/footer блокировались и разблокировались по 2 раза
+        self.assertEqual(mock_tabs.disabled, False)  # финальное состояние — разблокирован
+        self.assertEqual(mock_footer.disabled, False)
 
     def test_action_start_resets_flag_on_timeout_error(self) -> None:
         """_action_start сбрасывает _action_in_progress при TimeoutError."""
@@ -566,6 +612,50 @@ class SubvostTUITests(unittest.TestCase):
         message = args[0] if args else kwargs.get("message", "")
         self.assertEqual(kwargs.get("severity"), "information")
         self.assertIn("Нет активных подписок", message)
+
+    # ─── 10k: action_switch_tab / _set_status (P3 из review) ──────────
+
+    def test_action_switch_tab_sets_active(self) -> None:
+        """action_switch_tab устанавливает active на TabbedContent."""
+        mock_tabs = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_tabs)
+        self.app.action_switch_tab("tab-routing")
+        mock_tabs.active = "tab-routing"
+        # query_one вызван с id main-tabs (тип опускаем — он замокан)
+        self.assertEqual(self.app.query_one.call_args.args[0], "#main-tabs")
+
+    def test_action_switch_tab_swallows_query_exception(self) -> None:
+        """action_switch_tab молча глотает исключение query_one."""
+        self.app.query_one = MagicMock(side_effect=Exception("not mounted"))
+        # Не должно быть исключения
+        self.app.action_switch_tab("tab-dashboard")
+
+    def test_set_status_updates_strip_without_notify(self) -> None:
+        """_set_status без severity обновляет status-strip без toast."""
+        mock_strip = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_strip)
+        self.app.notify.reset_mock()
+        self.app._set_status("Готово")
+        mock_strip.update.assert_called_once_with("Готово")
+        self.app.notify.assert_not_called()
+
+    def test_set_status_with_severity_also_notifies(self) -> None:
+        """_set_status с severity обновляет strip и шлёт toast."""
+        mock_strip = MagicMock()
+        self.app.query_one = MagicMock(return_value=mock_strip)
+        self.app.notify.reset_mock()
+        self.app._set_status("Ошибка", severity="error")
+        mock_strip.update.assert_called_once_with("Ошибка")
+        self.app.notify.assert_called_once_with("Ошибка", severity="error")
+
+    def test_set_status_swallows_query_exception(self) -> None:
+        """_set_status молча глотает исключение query_one (но notify всё равно шлёт)."""
+        self.app.query_one = MagicMock(side_effect=Exception("not mounted"))
+        self.app.notify.reset_mock()
+        # Не должно быть исключения
+        self.app._set_status("Готово", severity="information")
+        # notify вызывается даже если strip не найден
+        self.app.notify.assert_called_once_with("Готово", severity="information")
 
 if __name__ == "__main__":
     unittest.main()

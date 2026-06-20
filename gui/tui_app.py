@@ -174,11 +174,11 @@ class ImportSubscriptionModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="import-sub-container"):
-            yield Static("[b]Импорт подписки[/b]", classes="title")
+            yield Static("[b]# Импорт подписки[/b]", classes="title")
             yield Label("Название:")
-            yield Input(placeholder="Название подписки", id="inp-sub-name")
+            yield Input(placeholder="Название подписки", id="inp-sub-name").with_tooltip("Название подписки")
             yield Label("URL:")
-            yield Input(placeholder="https://", id="inp-sub-url")
+            yield Input(placeholder="https://", id="inp-sub-url").with_tooltip("URL подписки")
             with Horizontal(id="import-sub-buttons"):
                 yield Button("Добавить", variant="success", id="btn-sub-add")
                 yield Button("Отмена", variant="error", id="btn-sub-cancel")
@@ -204,9 +204,9 @@ class ImportLinkModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="import-link-container"):
-            yield Static("[b]Импорт ссылок[/b]", classes="title")
+            yield Static("[b]# Импорт ссылок[/b]", classes="title")
             yield Label("Вставьте ссылки (по одной на строку):")
-            yield TextArea(id="ta-links")
+            yield TextArea(id="ta-links").with_tooltip("VLESS/VMess/Trojan/SS ссылки, по одной на строку")
             with Horizontal(id="import-link-buttons"):
                 yield Button("Импортировать", variant="success", id="btn-link-import")
                 yield Button("Отмена", variant="error", id="btn-link-cancel")
@@ -229,9 +229,9 @@ class ImportRoutingProfileModal(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="import-rp-container"):
-            yield Static("[b]Импорт routing-профиля[/b]", classes="title")
+            yield Static("[b]# Импорт routing-профиля[/b]", classes="title")
             yield Label("Вставьте JSON профиля:")
-            yield TextArea(id="ta-rp")
+            yield TextArea(id="ta-rp").with_tooltip("JSON routing-профиля")
             with Horizontal(id="import-rp-buttons"):
                 yield Button("Импортировать", variant="success", id="btn-rp-import")
                 yield Button("Отмена", variant="error", id="btn-rp-cancel")
@@ -259,29 +259,29 @@ class DashboardTab(Container):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dashboard-vertical"):
-            yield Static("[b]Subvost Xray TUN[/b]", id="dashboard-title", classes="title")
+            yield Static("[b]# Subvost Xray TUN[/b]", id="dashboard-title", classes="title")
             with Grid(id="dashboard-grid"):
                 with Vertical(classes="dashboard-card"):
-                    yield Static("[b]Статус[/b]", classes="card-header")
+                    yield Static("[b]## Статус[/b]", classes="card-header")
                     yield Label(self.status_text, id="status-label")
                 with Vertical(classes="dashboard-card"):
-                    yield Static("[b]Активный узел[/b]", classes="card-header")
+                    yield Static("[b]## Активный узел[/b]", classes="card-header")
                     yield Label(self.active_node_text, id="active-node-label")
                 with Vertical(classes="dashboard-card"):
-                    yield Static("[b]Трафик[/b]", classes="card-header")
+                    yield Static("[b]## Трафик[/b]", classes="card-header")
                     with Horizontal(id="traffic-row"):
                         yield Label(self.traffic_rx_text, id="traffic-rx-label")
                         yield Label(self.traffic_tx_text, id="traffic-tx-label")
                 with Vertical(classes="dashboard-card"):
-                    yield Static("[b]Время подключения[/b]", classes="card-header")
+                    yield Static("[b]## Время подключения[/b]", classes="card-header")
                     yield Label(self.connection_time_text, id="conn-time-label")
                 with Vertical(classes="dashboard-card"):
-                    yield Static("[b]Маршрутизация[/b]", classes="card-header")
+                    yield Static("[b]## Маршрутизация[/b]", classes="card-header")
                     yield Label(self.routing_badge_text, id="routing-badge-label")
             with Horizontal(id="dashboard-actions"):
-                yield Button("▶ Старт", variant="success", id="btn-start")
-                yield Button("■ Стоп", variant="error", id="btn-stop")
-                yield Button("🔍 Диагностика", variant="primary", id="btn-diag")
+                yield Button("▶ Старт", variant="success", id="btn-start").with_tooltip("Запустить VPN-подключение")
+                yield Button("■ Стоп", variant="error", id="btn-stop").with_tooltip("Остановить VPN-подключение")
+                yield Button("🔍 Диагностика", variant="primary", id="btn-diag").with_tooltip("Снять диагностику и сохранить в лог")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -346,18 +346,18 @@ class NodesTab(Container):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="nodes-vertical"):
-            yield Static("[b]Подписки[/b]", classes="section-header")
+            yield Static("[b]# Подписки[/b]", classes="section-header")
             with Horizontal(id="sub-actions"):
-                yield Button("➕ Импорт подписки", id="btn-import-sub")
-                yield Button("🔄 Обновить все", id="btn-refresh-all")
-                yield Button("🔄 Обновить", id="btn-refresh-sub")
-                yield Button("❌ Удалить", variant="error", id="btn-delete-sub")
+                yield Button("➕ Импорт подписки", id="btn-import-sub").with_tooltip("Добавить подписку по URL")
+                yield Button("🔄 Обновить все", id="btn-refresh-all").with_tooltip("Обновить все подписки")
+                yield Button("🔄 Обновить", id="btn-refresh-sub").with_tooltip("Обновить выбранную подписку")
+                yield Button("❌ Удалить", variant="error", id="btn-delete-sub").with_tooltip("Удалить выбранную подписку и все её узлы")
             yield DataTable(id="sub-table")
-            yield Static("[b]Узлы[/b]", classes="section-header")
+            yield Static("[b]# Узлы[/b]", classes="section-header")
             with Horizontal(id="nodes-actions"):
-                yield Button("➕ Добавить вручную", id="btn-add-manual")
-                yield Button("▶ Активировать", variant="success", id="btn-activate-node")
-                yield Button("📡 Пинг", id="btn-ping-node")
+                yield Button("➕ Добавить вручную", id="btn-add-manual").with_tooltip("Импортировать ссылки VLESS/VMess/Trojan/SS вручную")
+                yield Button("▶ Активировать", variant="success", id="btn-activate-node").with_tooltip("Сделать выбранный узел активным")
+                yield Button("📡 Пинг", id="btn-ping-node").with_tooltip("Проверить задержку до выбранного узла")
             yield DataTable(id="nodes-table")
             yield Label("Выберите строку и нажмите действие", id="nodes-hint")
 
@@ -428,7 +428,7 @@ class LogTab(Container):
     def compose(self) -> ComposeResult:
         with Vertical(id="log-vertical"):
             with Horizontal(id="log-actions"):
-                yield Button("🔄 Обновить", id="btn-refresh-log")
+                yield Button("🔄 Обновить", id="btn-refresh-log").with_tooltip("Обновить записи лога")
                 yield Select(
                     [("Все", "all"), ("Ошибки", "error"), ("Предупреждения", "warning"), ("Инфо", "info")],
                     value="all",
@@ -456,18 +456,18 @@ class RoutingTab(Container):
             yield Static(id="routing-geodata-status")
             # Секция 2: кнопки действий
             with Horizontal(id="routing-actions"):
-                yield Button("▶ Активировать", id="btn-activate-rp", variant="success", disabled=True)
-                yield Button("⏸ Деактивировать", id="btn-deactivate-rp", variant="warning", disabled=True)
-                yield Button("➕ Импорт", id="btn-import-rp", variant="default")
-                yield Button("🔄 GeoIP/GeoSite", id="btn-refresh-geodata", variant="default")
+                yield Button("▶ Активировать", id="btn-activate-rp", variant="success", disabled=True).with_tooltip("Активировать выбранный профиль маршрутизации")
+                yield Button("⏸ Деактивировать", id="btn-deactivate-rp", variant="warning", disabled=True).with_tooltip("Отключить активный профиль маршрутизации")
+                yield Button("➕ Импорт", id="btn-import-rp", variant="default").with_tooltip("Импортировать профиль маршрутизации из JSON")
+                yield Button("🔄 GeoIP/GeoSite", id="btn-refresh-geodata", variant="default").with_tooltip("Скачать свежие GeoIP/GeoSite базы")
             # Секция 3: двухколоночный layout
             with Horizontal(id="routing-columns"):
                 with Vertical(id="routing-left"):
-                    yield Static("[b]Профили маршрутизации[/b]", classes="section-header")
+                    yield Static("[b]# Профили маршрутизации[/b]", classes="section-header")
                     yield DataTable(id="routing-table", cursor_type="row")
                     yield Static("", id="routing-empty-hint")
                 with Vertical(id="routing-right"):
-                    yield Static("[b]Прямые маршруты[/b]", classes="section-header")
+                    yield Static("[b]# Прямые маршруты[/b]", classes="section-header")
                     yield DataTable(id="routing-direct-table", cursor_type="cell")
 
     def on_mount(self) -> None:
@@ -509,17 +509,17 @@ class SettingsTab(Container):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-vertical"):
-            yield Static("[b]Настройки[/b]", classes="title")
+            yield Static("[b]# Настройки[/b]", classes="title")
             with Horizontal(classes="setting-row"):
                 yield Label("Файловые логи:", classes="setting-label")
-                yield Switch(id="sw-file-logs")
+                yield Switch(id="sw-file-logs").with_tooltip("Включить запись логов в файл")
             with Horizontal(classes="setting-row"):
                 yield Label("Retention (дней):", classes="setting-label")
-                yield Input("7", id="inp-retention", classes="setting-input")
+                yield Input("7", id="inp-retention", classes="setting-input").with_tooltip("Срок хранения логов в днях")
             with Horizontal(id="settings-actions"):
-                yield Button("💾 Сохранить", variant="success", id="btn-save-settings")
-                yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup")
-            yield Static("[b]Ядро Xray[/b]", classes="section-header")
+                yield Button("💾 Сохранить", variant="success", id="btn-save-settings").with_tooltip("Сохранить настройки")
+                yield Button("🧹 Очистить артефакты", variant="warning", id="btn-cleanup").with_tooltip("Удалить временные runtime-файлы")
+            yield Static("[b]# Ядро Xray[/b]", classes="section-header")
             with Horizontal(classes="setting-row"):
                 yield Label("Текущая версия:", classes="setting-label")
                 yield Static("...", id="lbl-xray-version")
@@ -527,8 +527,8 @@ class SettingsTab(Container):
                 yield Label("Последняя версия:", classes="setting-label")
                 yield Static("...", id="lbl-xray-latest")
             with Horizontal(id="xray-update-actions"):
-                yield Button("🔍 Проверить обновления", id="btn-check-updates")
-                yield Button("⬆ Обновить ядро Xray", variant="warning", id="btn-update-xray")
+                yield Button("🔍 Проверить обновления", id="btn-check-updates").with_tooltip("Проверить наличие новой версии Xray на GitHub")
+                yield Button("⬆ Обновить ядро Xray", variant="warning", id="btn-update-xray").with_tooltip("Скачать и установить последнюю версию Xray")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         app = self.app
@@ -640,6 +640,11 @@ class SubvostTUI(App):
     #footer-bar Button {
         margin: 0 2;
     }
+    #status-strip {
+        width: 1fr;
+        content-align: left middle;
+        padding: 0 1;
+    }
     #import-sub-container, #import-link-container {
         width: 60;
         height: auto;
@@ -673,6 +678,9 @@ class SubvostTUI(App):
     .setting-label {
         width: 24;
         content-align-vertical: middle;
+    }
+    .setting-row Label {
+        margin-right: 2;
     }
     .setting-input {
         width: 12;
@@ -725,6 +733,11 @@ class SubvostTUI(App):
         ("alt+й", "quit", ""),
         ("alt+к", "refresh", ""),
         ("alt+з", "command_palette", ""),
+        ("1", "switch_tab('tab-dashboard')", "Подключение"),
+        ("2", "switch_tab('tab-nodes')", "Подписки"),
+        ("3", "switch_tab('tab-log')", "Лог"),
+        ("4", "switch_tab('tab-routing')", "Маршруты"),
+        ("5", "switch_tab('tab-settings')", "Настройки"),
     ]
 
     def __init__(self, service: SubvostAppService | None = None) -> None:
@@ -808,6 +821,7 @@ class SubvostTUI(App):
                     yield SettingsTab(id="settings-tab")
             yield Static("Выполнение...", id="loading-overlay")
             with Horizontal(id="footer-bar"):
+                yield Static("Готов", id="status-strip")
                 yield Button("Обновить  Alt+R", id="btn-footer-refresh")
                 yield Button("Команды   Alt+P", id="btn-footer-palette")
                 yield Button("Выход     Alt+Q", id="btn-footer-quit")
@@ -990,17 +1004,17 @@ class SubvostTUI(App):
             # Секция 1: верхний статус
             active_name = active.name if active else "—"
             if active:
-                active_status = f"[bold green]★ Активный профиль: {active_name}[/bold green]"
+                active_status = f"[bold green][АКТИВЕН] ★ {active_name}[/bold green]"
             else:
-                active_status = "[dim]✕ Активный профиль не выбран[/dim]"
+                active_status = "[dim][НЕ ВЫБРАН] ✕ Активный профиль не выбран[/dim]"
             self.query_one("#routing-active-status", Static).update(active_status)
 
             if geodata_ready:
-                geodata_status = "[green]GeoIP/GeoSite: готовы[/green]"
+                geodata_status = "[green][ГОТОВО] GeoIP/GeoSite загружены[/green]"
             elif runtime_error:
-                geodata_status = f"[red]GeoIP/GeoSite: ошибка — {runtime_error}[/red]"
+                geodata_status = f"[red][ОШИБКА] GeoIP/GeoSite: {runtime_error}[/red]"
             else:
-                geodata_status = "[yellow]GeoIP/GeoSite: не подготовлены[/yellow]"
+                geodata_status = "[yellow][НЕ ГОТОВО] GeoIP/GeoSite не подготовлены[/yellow]"
             self.query_one("#routing-geodata-status", Static).update(geodata_status)
 
             # Чувствительность кнопок
@@ -1088,6 +1102,11 @@ class SubvostTUI(App):
             overlay = self.query_one("#loading-overlay", Static)
             overlay.update(message)
             overlay.add_class("-visible")
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            tabs.disabled = True
+            footer = self.query_one("#footer-bar", Horizontal)
+            footer.disabled = True
+            self.notify(message, severity="information")
         except Exception:
             pass
 
@@ -1095,8 +1114,22 @@ class SubvostTUI(App):
         try:
             overlay = self.query_one("#loading-overlay", Static)
             overlay.remove_class("-visible")
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            tabs.disabled = False
+            footer = self.query_one("#footer-bar", Horizontal)
+            footer.disabled = False
         except Exception:
             pass
+
+    def _set_status(self, text: str, severity: str | None = None) -> None:
+        """Обновить status-strip и опционально показать toast."""
+        try:
+            strip = self.query_one("#status-strip", Static)
+            strip.update(text)
+        except Exception:
+            pass
+        if severity is not None:
+            self.notify(text, severity=severity)
 
     async def _run_service_action(self, action_name: str, func, *args, **kwargs) -> Any:
         self._show_loading(action_name)
@@ -1109,7 +1142,7 @@ class SubvostTUI(App):
             return result
         except TimeoutError:
             msg = f"Действие '{action_name}' превысило таймаут ({self._SERVICE_ACTION_TIMEOUT} с)."
-            self.notify(msg, severity="error")
+            self._set_status(msg, severity="error")
             raise TimeoutError(msg)
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -1168,9 +1201,9 @@ class SubvostTUI(App):
             result = await self._run_service_action("Запуск подключения...", self.runtime_adapter.start_runtime, self.service)
             last = result.get("last_action", {})
             if last.get("ok"):
-                self.notify("Подключение запущено", severity="information")
+                self._set_status("Подключение запущено", severity="information")
             elif last.get("ok") is False:
-                self.notify(last.get("message", "Запуск не выполнен"), severity="warning")
+                self._set_status(last.get("message", "Запуск не выполнен"), severity="warning")
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -1189,9 +1222,9 @@ class SubvostTUI(App):
             result = await self._run_service_action("Остановка подключения...", self.runtime_adapter.stop_runtime, self.service)
             last = result.get("last_action", {})
             if last.get("ok"):
-                self.notify("Подключение остановлено", severity="information")
+                self._set_status("Подключение остановлено", severity="information")
             elif last.get("ok") is False:
-                self.notify(last.get("message", "Остановка не выполнена"), severity="warning")
+                self._set_status(last.get("message", "Остановка не выполнена"), severity="warning")
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -1208,7 +1241,7 @@ class SubvostTUI(App):
         self._action_in_progress = True
         try:
             await self._run_service_action("Снятие диагностики...", self.runtime_adapter.diagnose, self.service)
-            self.notify("Диагностика сохранена", severity="information")
+            self._set_status("Диагностика сохранена", severity="information")
             self._update_dashboard()
         except Exception as exc:
             self.notify(str(exc), severity="error")
@@ -1329,7 +1362,7 @@ class SubvostTUI(App):
                 self.service.persist_store(store)
                 return {"ok": True}
             await self._run_service_action("Активация узла...", _do_activate)
-            self.notify("Узел активирован", severity="information")
+            self._set_status("Узел активирован", severity="information")
             self._update_dashboard()
             self._update_nodes()
         except Exception as exc:
@@ -1702,6 +1735,14 @@ class SubvostTUI(App):
         if confirmed:
             self._stop_tray()
             self.exit()
+
+    def action_switch_tab(self, tab_id: str) -> None:
+        """Переключиться на вкладку по id."""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+            tabs.active = tab_id
+        except Exception:
+            pass
 
     def action_quit(self) -> None:
         if self.service is None:
