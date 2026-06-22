@@ -15,13 +15,23 @@ from subvost_paths import AppPaths, atomic_write_bytes, ensure_owned_dir
 
 
 DEFAULT_GEOIP_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+"""URL по умолчанию для geoip.dat (актуальный релиз Loyalsoldier)."""
+
 DEFAULT_GEOSITE_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+"""URL по умолчанию для geosite.dat (актуальный релиз Loyalsoldier)."""
+
 SUPPORTED_DOMAIN_STRATEGIES = {"AsIs", "IPIfNonMatch", "IPOnDemand", "UseIP"}
+"""Допустимые значения поля `domainStrategy` Xray (см. Xray-документацию)."""
+
 ROUTING_URI_PREFIXES = ("happ://routing/add/", "happ://routing/onadd/")
+"""Префиксы happ-URI для импорта routing-профиля."""
+
 ROUTING_URI_ACTIVATION_MODE = {
     "happ://routing/add/": "add",
     "happ://routing/onadd/": "onadd",
 }
+"""Маппинг префикс happ-URI → режим активации (`add` импортирует, `onadd` импортирует и сразу активирует)."""
+
 STORED_ONLY_FIELDS = {
     "dns_hosts",
     "domestic_dns_domain",
@@ -33,6 +43,8 @@ STORED_ONLY_FIELDS = {
     "fake_dns",
     "last_updated",
 }
+"""Поля, которые принимаются при импорте, но хранятся только в store и не участвуют в Xray-конфиге."""
+
 KNOWN_IMPORT_KEYS = {
     "name",
     "globalproxy",
@@ -56,9 +68,12 @@ KNOWN_IMPORT_KEYS = {
     "routeorder",
     "lastupdated",
 }
+"""Все известные ключи импорта routing-профиля (нижний регистр, case-insensitive)."""
+
 
 
 class RoutingProfileError(ValueError):
+    """Исключение для ошибок разбора, импорта и загрузки routing-профиля."""
     pass
 
 
@@ -159,6 +174,20 @@ def _payload_key_map(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_routing_profile_input(raw_text: str) -> dict[str, Any]:
+    """Разбирает сырой текст routing-профиля и возвращает нормализованный dict.
+
+    Поддерживаемые форматы ввода:
+      - happ-URI с префиксом из `ROUTING_URI_PREFIXES` (base64-JSON после префикса);
+      - JSON-объект;
+      - base64-кодированный JSON (если прямой JSON не распарсился).
+
+    Инвариант: чистая функция — не пишет на диск, не меняет store и не сетится.
+    Побочные эффекты отсутствуют.
+
+    Raises:
+        RoutingProfileError: пустой ввод, битый base64, невалидный JSON,
+            JSON-не-объект, отсутствует непустое поле `name`.
+    """
     text = str(raw_text or "").strip()
     if not text:
         raise RoutingProfileError("Текст routing-профиля пуст.")
@@ -253,6 +282,22 @@ def download_routing_geodata(
     gid: int | None = None,
     timeout: int = 20,
 ) -> dict[str, Any]:
+    """Скачивает `geoip.dat` и `geosite.dat` по URL из профиля и атомарно пишет на диск.
+
+    Использует `geoip_url`/`geosite_url` из профиля; при отсутствии — `DEFAULT_GEOIP_URL`/`DEFAULT_GEOSITE_URL`.
+    Каталог `paths.xray_asset_dir` создаётся с владельцем `uid`:`gid` и правами 0o700.
+    Файлы пишутся через `atomic_write_bytes` (tmp + rename), владелец выставляется.
+
+    Инвариант: `profile` не мутируется (read-only).
+    Побочные эффекты: HTTP-запросы, создание/перезапись `paths.geoip_asset_file` и `paths.geosite_asset_file`.
+
+    Returns:
+        Словарь статуса geodata (`status="ready"`, `error=""`, пути и т. п.).
+
+    Raises:
+        RoutingProfileError: некорректный URL, HTTP-ошибка, сетевая ошибка,
+            пустое тело ответа, ошибка записи на диск.
+    """
     geoip_url = str(profile.get("geoip_url") or DEFAULT_GEOIP_URL).strip() or DEFAULT_GEOIP_URL
     geosite_url = str(profile.get("geosite_url") or DEFAULT_GEOSITE_URL).strip() or DEFAULT_GEOSITE_URL
 
@@ -298,6 +343,15 @@ def build_geodata_status(
     status: str,
     error: str,
 ) -> dict[str, Any]:
+    """Строит словарь статуса geodata по переданным значениям и фактическому наличию файлов.
+
+    Проверяет, что файлы `paths.geoip_asset_file` и `paths.geosite_asset_file` существуют и не пусты.
+    Итоговое `ready=True` только при `status == "ready"` и оба файла на месте; иначе `status`
+    понижается до `"missing"`.
+
+    Инвариант: чистая функция — нет побочных эффектов, не пишет, не сетится.
+    Файлы только читаются через `Path.is_file` / `Path.stat`.
+    """
     geoip_exists = paths.geoip_asset_file.is_file() and paths.geoip_asset_file.stat().st_size > 0 if paths.geoip_asset_file.exists() else False
     geosite_exists = paths.geosite_asset_file.is_file() and paths.geosite_asset_file.stat().st_size > 0 if paths.geosite_asset_file.exists() else False
     ready = status == "ready" and geoip_exists and geosite_exists
@@ -323,6 +377,13 @@ def get_existing_geodata_status(
     geoip_url: str,
     geosite_url: str,
 ) -> dict[str, Any]:
+    """Возвращает статус готовности geodata по факту наличия файлов на диске.
+
+    Используется на старте, чтобы определить, нужно ли скачивание.
+    Если оба файла существуют и не пусты — `status="ready"`, иначе `"missing"`.
+
+    Инвариант: read-only, только `Path.exists`/`Path.stat`. Не пишет, не сетится.
+    """
     ready = paths.geoip_asset_file.exists() and paths.geoip_asset_file.stat().st_size > 0
     ready = ready and paths.geosite_asset_file.exists() and paths.geosite_asset_file.stat().st_size > 0
     return build_geodata_status(
@@ -335,6 +396,13 @@ def get_existing_geodata_status(
 
 
 def routing_profile_rule_count(profile: dict[str, Any]) -> int:
+    """Суммирует количество записей по всем шести полям правил профиля.
+
+    Поля: `direct_sites`, `direct_ip`, `proxy_sites`, `proxy_ip`, `block_sites`, `block_ip`.
+    Пустые поля и значения `None` трактуются как 0.
+
+    Инвариант: чистая функция — нет побочных эффектов, не мутирует `profile`.
+    """
     return sum(
         len(profile.get(key) or [])
         for key in ["direct_sites", "direct_ip", "proxy_sites", "proxy_ip", "block_sites", "block_ip"]
@@ -400,8 +468,6 @@ def _make_direct_report_entry(
         "covered_by": [],
         "wins_over": [],
     }
-
-
 def extract_direct_rules_from_xray_config(
     config: dict[str, Any],
     *,
@@ -410,6 +476,22 @@ def extract_direct_rules_from_xray_config(
     priority: int,
     reason: str,
 ) -> list[dict[str, Any]]:
+    """Извлекает `direct`-правила из routing.rules Xray-конфига.
+
+    Возвращает по одной записи отчёта на каждый домен/IP/process-значение правил с
+    `outboundTag == "direct"`. Правила, перекрытые более ранними не-direct правилами
+    с тем же kind и перекрывающимся значением, пропускаются.
+    Catch-all (`tun-in` + `tcp,udp` → `proxy`) тоже пропускается.
+
+    Args:
+        config: Xray-конфиг (словарь с ключом `routing.rules`).
+        source: машинный идентификатор источника (`template`/`runtime`).
+        source_label: человекочитаемая метка источника для UI.
+        priority: числовой приоритет правила для UI-сортировки.
+        reason: человекочитаемое объяснение происхождения правила.
+
+    Инвариант: read-only — `config` не мутируется, копии не создаются.
+    """
     entries: list[dict[str, Any]] = []
     rules = list(config.get("routing", {}).get("rules", []) or [])
     earlier_non_direct_values: list[tuple[str, str]] = []
@@ -447,6 +529,15 @@ def extract_direct_rules_from_xray_config(
 
 
 def extract_direct_rules_from_routing_profile(profile: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Извлекает direct-правила (`direct_sites`/`direct_ip`) из профиля маршрутизации.
+
+    Возвращает по одной записи отчёта на каждое значение. Все записи получают
+    `source="profile"`, `priority=20`.
+
+    При `profile is None` или пустом профиле возвращает пустой список.
+
+    Инвариант: read-only — `profile` не мутируется.
+    """
     if not profile:
         return []
     profile_name = str(profile.get("name") or "активный профиль").strip()
@@ -515,6 +606,19 @@ def annotate_direct_report_conflicts(
     entries: list[dict[str, Any]],
     active_profile: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
+    """Обогащает записи отчёта полями `conflicts`/`wins_over`/`covered_by`.
+
+    Сравнивает template-правила (`source == "template"`) с записями активного
+    профиля (через `_profile_policy_entries`):
+      - правило шаблона «побеждает» (`wins_over`), если профиль ведёт то же значение напрямую;
+      - правило шаблона «конфликтует» (`conflicts`), если профиль применяет
+        к этому значению другую политику (`proxy`/`block`);
+      - правило профиля «покрывается» (`covered_by`), если значение уже покрыто
+        более приоритетным правилом шаблона.
+
+    Инвариант: работает на `copy.deepcopy(entries)` — исходный список не мутируется.
+    Возвращает новый список аннотированных записей.
+    """
     annotated = copy.deepcopy(entries)
     template_entries = [entry for entry in annotated if entry.get("source") == "template"]
     profile_policy_entries = _profile_policy_entries(active_profile)
@@ -577,6 +681,18 @@ def build_direct_routes_report(
     active_profile: dict[str, Any] | None,
     runtime_config: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    """Собирает полный отчёт «Прямые маршруты» для вкладки Маршруты TUI.
+
+    Извлекает direct-правила из шаблона (`template_config`), активного профиля
+    (`active_profile`) и фактического runtime-конфига (`runtime_config`),
+    аннотирует конфликты через `annotate_direct_report_conflicts` и формирует
+    сводку для UI.
+
+    Все аргументы keyword-only и опциональны: `None`/`non-dict` трактуется как `{}`.
+    Отсутствие `runtime_config` отмечается в `summary.runtime_available == False`.
+
+    Инвариант: чистая функция — нет побочных эффектов, не пишет, не сетится.
+    """
     template_config = template_config if isinstance(template_config, dict) else {}
     runtime_config = runtime_config if isinstance(runtime_config, dict) else {}
     template_entries = extract_direct_rules_from_xray_config(

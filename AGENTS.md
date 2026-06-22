@@ -49,12 +49,27 @@ Bundle умеет:
 - **Парсер ссылок**: `gui/subvost_parser.py` — VLESS, VMess, Trojan, Shadowsocks (SIP002).
 - **Store**: `gui/subvost_store.py` — JSON-хранилище узлов, подписок, routing-профилей, настроек GUI.
 - **Runtime-генератор**: `gui/subvost_runtime.py` — сборка готового Xray-конфига из шаблона и выбранного узла.
-- **Routing**: `gui/subvost_routing.py` — управление активным профилем маршрутизации, скачивание `geoip.dat`/`geosite.dat`.
+- **Routing**: пакет `gui/routing/` — `profile_manager.py` (парсинг, скачивание geodata, отчёты прямых маршрутов) + `config_rewriter.py` (применение профиля к Xray-конфигу). Импортируется через `gui/subvost_routing.py`.
 - **Пути**: `gui/subvost_paths.py` — XDG-совместимое разрешение путей к хранилищу.
 - **App Service**: `gui/subvost_app_service.py` — общая бизнес-логика для Linux-backend.
 
 ---
 
+### DDD-слои и правила вызова
+
+Проект использует многослойную архитектуру в `gui/`. **Правила для AI-агентов:**
+
+| Слой | Путь | Разрешено | Запрещено |
+|------|------|-----------|-----------|
+| **Domain** | `gui/domain/` | Читать сущности, value objects, фабрики из любого слоя | Мутировать store; импортировать infrastructure или presentation |
+| **Application** | `gui/application/` | Порты (Protocol) и use cases — только интерфейсы | Реализовывать репозитории; импортировать infrastructure |
+| **Infrastructure** | `gui/infrastructure/` | `json_repositories.py` (обёртки над store), `adapters.py` (shell-команды) | Импортироваться из TUI/presentation напрямую |
+| **Presentation** | `gui/presentation/`, `gui/tui_app.py` | ViewModel, UI-компоненты. Импортировать **только** `SubvostAppService` | Создавать `Json*Repository` напрямую; вызывать `subvost_store.*` минуя сервис |
+| **Routing** | `gui/routing/` | Импортировать через `gui/subvost_routing.py`. Оперирует `dict[str, Any]` (техдолг — целевая миграция на domain-сущности) | Импортировать `subvost_store`; писать в store напрямую |
+
+**Главное правило**: presentation-слой (TUI) **никогда** не создаёт репозитории или адаптеры инфраструктуры напрямую. Любое чтение или запись данных идёт через методы `SubvostAppService`. Если нужного метода нет — добавить его в сервис, а не импортировать `Json*Repository` в TUI.
+
+---
 ## Структура каталогов
 
 ```text
@@ -116,6 +131,8 @@ sudo ./capture-xray-tun-state.sh
 
 ```bash
 python3 -m unittest tests.test_subvost_parser tests.test_subvost_store tests.test_subvost_runtime tests.test_subvost_app_service tests.test_subvost_routing
+# E2E-тесты маршрутизации
+python3 -m unittest tests.e2e.test_routing_e2e
 ```
 
 Также выполняются проверки синтаксиса:

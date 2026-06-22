@@ -1594,6 +1594,24 @@ class SubvostAppService:
         }
 
     def import_routing_profile(self, text: str) -> dict[str, Any]:
+        """Импортирует routing-профиль из текста (happ-URI, JSON или base64-JSON).
+
+        Разбирает вход через `routing.profile_manager.parse_routing_profile_input`,
+        создаёт новый профиль или обновляет существующий (по `name_key`),
+        скачивает geodata и при отсутствии активного профиля делает импортированный активным.
+
+        Returns:
+            Стандартный store-response (через `build_store_response`) с дополнительными
+            полями `extra.routing_profile` и `extra.routing_import` (включая `geodata`).
+
+        Raises:
+            RoutingProfileError: ошибка разбора входа.
+            ValueError: ошибка скачивания geodata (откат не производится автоматически —
+                активация выполняется только после успешного скачивания).
+
+        Эффект: мутирует store (`routing.profiles`, `routing.active_profile_id`,
+        `routing.geodata`), пишет на диск через `persist_store`.
+        """
         store = self.ensure_store_ready()
         result = store_import_routing_profile(store, self.context.app_paths, text, uid=self.context.real_uid, gid=self.context.real_gid)
         message = (
@@ -1617,6 +1635,22 @@ class SubvostAppService:
         )
 
     def activate_routing_profile(self, profile_id: str) -> dict[str, Any]:
+        """Делает профиль маршрутизации активным.
+
+        Загружает профиль по `profile_id`, скачивает geodata и записывает его id
+        в `routing.active_profile_id`. При ошибке скачивания geodata активация
+        откатывается (`store_activate_routing_profile` сам отвечает за rollback).
+
+        Returns:
+            Стандартный store-response с `extra.routing_profile`.
+
+        Raises:
+            ValueError: профиль не найден, отключён (`enabled=False`) или
+                geodata не удалось подготовить.
+
+        Эффект: мутирует store (`routing.active_profile_id`, `routing.geodata`),
+        пишет на диск через `persist_store`.
+        """
         store = self.ensure_store_ready()
         profile = store_activate_routing_profile(
             store,
@@ -1635,6 +1669,25 @@ class SubvostAppService:
         )
 
     def prepare_routing_geodata(self) -> dict[str, Any]:
+        """Подготавливает GeoIP/GeoSite для активного профиля (с принудительной перекачкой).
+
+        Логика:
+          - если активного профиля нет, но есть ровно один `enabled=True` профиль —
+            он автоматически активируется;
+          - если активного нет и enabled-профилей ≠ 1 — выбрасывает `ValueError`;
+          - иначе запускается `store_prepare_routing_runtime` с `force_download=True`,
+            что гарантирует свежие geoip.dat/geosite.dat на диске.
+
+        Returns:
+            Стандартный store-response с `extra.routing_profile` и `extra.geodata`.
+
+        Raises:
+            ValueError: нет активного профиля и нельзя выбрать однозначно
+                (`>1` enabled) или geodata не удалось подготовить (`ready=False`).
+
+        Эффект: мутирует store (может сменить `active_profile_id` и всегда
+        перезаписывает geodata), пишет на диск через `persist_store`.
+        """
         store = self.ensure_store_ready()
         geodata_before = copy.deepcopy(store.get("routing", {}).get("geodata") or {})
         profile = get_active_routing_profile(store)
@@ -1683,6 +1736,21 @@ class SubvostAppService:
         )
 
     def clear_active_routing_profile(self) -> dict[str, Any]:
+        """Снимает активный профиль маршрутизации (отключает routing).
+
+        Делегирует в `store_clear_active_routing_profile`: `active_profile_id`
+        сбрасывается в `None`, маршрутизация при следующем старте runtime
+        применяться не будет.
+
+        Returns:
+            Стандартный store-response.
+
+        Raises:
+            ValueError: store не инициализирован (`ensure_store_ready`).
+
+        Эффект: мутирует store (`routing.active_profile_id = None`),
+        пишет на диск через `persist_store`.
+        """
         store = self.ensure_store_ready()
         store_clear_active_routing_profile(store, self.context.app_paths)
         return self.build_store_response(
