@@ -1461,6 +1461,44 @@ class SubvostAppService:
             extra={"node": node},
         )
 
+    def auto_activate_first_node(self) -> dict[str, Any]:
+        """Активирует первый доступный узел, если ни один ещё не выбран.
+
+        Если active_selection уже содержит profile_id и node_id — ничего не делает.
+        Иначе перебирает профили и узлы, активирует первый enabled-узел.
+        Если подходящих узлов нет — возвращает ok=True без действия.
+
+        Инвариант: read + conditional write; не активирует, если выбор уже есть.
+        """
+        store = self.ensure_store_ready()
+        selection = store.get("active_selection", {})
+        if selection.get("profile_id") and selection.get("node_id"):
+            return self.build_store_response(
+                store, name="Авто-активация", ok=True,
+                message="Узел уже выбран.", details="skipped=already_selected",
+            )
+
+        for profile in store.get("profiles", []):
+            if not profile.get("enabled", True):
+                continue
+            for node in profile.get("nodes", []):
+                if node.get("enabled", True):
+                    node = store_activate_selection(store, profile["id"], node["id"])
+                    return self.build_store_response(
+                        store, name="Авто-активация", ok=True,
+                        message=f"Автоматически активирован узел '{node['name']}'.",
+                        details=json.dumps(
+                            {"profile_id": profile["id"], "node_id": node["id"]},
+                            ensure_ascii=False,
+                        ),
+                        extra={"node": node},
+                    )
+
+        return self.build_store_response(
+            store, name="Авто-активация", ok=True,
+            message="Нет доступных узлов для авто-активации.", details="skipped=no_nodes",
+        )
+
     def update_profile(
         self,
         profile_id: str,
@@ -1760,6 +1798,78 @@ class SubvostAppService:
             message="Активный профиль маршрутизации снят, маршрутизация выключена.",
             details="routing_active_profile_cleared=1",
         )
+
+    def collect_routing_snapshot(self) -> dict[str, Any]:
+        """Возвращает все данные для вкладки Маршрутизация без доступа к store/repo из TUI.
+
+        Собирает профили, состояние geodata, флаги runtime и отчёт прямых маршрутов
+        в один словарь с простыми типами. Presentation-слой не должен ходить в
+        `JsonRoutingRepository` или `self._store["routing"]` напрямую — все чтения
+        идут через этот метод.
+
+        Returns:
+            {
+                "profiles": [{"id": ..., "name": ..., "auto_managed": ..., "total_rules": ..., "is_active": ...}],
+                "active_profile_id": str | None,
+                "active_profile_name": str | None,
+                "runtime_ready": bool,
+                "runtime_error": str,
+                "geodata_ready": bool,
+                "geodata_status": str,
+                "direct_report_entries": [{"network": ..., "action": ..., "source": ...}],
+            }
+
+        Инвариант: read-only — store не мутируется, на диск не пишет.
+        """
+        store = self.ensure_store_ready()
+        repo = JsonRoutingRepository(store)
+        profiles = repo.get_all()
+        active = repo.get_active()
+        routing_state = store.get("routing", {})
+
+        profile_dicts = [
+            {
+                "id": rp.id,
+                "name": rp.name,
+                "auto_managed": rp.auto_managed,
+                "total_rules": rp.total_rules,
+                "is_active": active is not None and active.id == rp.id,
+            }
+            for rp in profiles
+        ]
+
+        geodata = routing_state.get("geodata", {})
+
+        # Отчёт прямых маршрутов
+        template_config = read_json_config(self.context.xray_template_path)
+        active_routing_profile = get_active_routing_profile(store)
+        direct_report = build_direct_routes_report(
+            template_config=template_config,
+            active_profile=active_routing_profile,
+            runtime_config=None,
+        )
+
+        # Преобразуем в простые dict для presentation
+        action_map = {"direct": "напрямую", "proxy": "через прокси", "block": "блокировать"}
+        source_map = {"template": "встроенное", "profile": "из профиля"}
+        direct_entries: list[dict[str, str]] = []
+        for entry in direct_report.get("entries", []):
+            direct_entries.append({
+                "network": str(entry.get("value") or "—"),
+                "action": action_map.get(str(entry.get("action") or ""), str(entry.get("action") or "—")),
+                "source": source_map.get(str(entry.get("source") or ""), str(entry.get("source") or "—")),
+            })
+
+        return {
+            "profiles": profile_dicts,
+            "active_profile_id": active.id if active else None,
+            "active_profile_name": active.name if active else None,
+            "runtime_ready": bool(routing_state.get("runtime_ready", False)),
+            "runtime_error": str(routing_state.get("runtime_error") or ""),
+            "geodata_ready": bool(geodata.get("ready", False)),
+            "geodata_status": str(geodata.get("status", "missing")),
+            "direct_report_entries": direct_entries,
+        }
 
 
 

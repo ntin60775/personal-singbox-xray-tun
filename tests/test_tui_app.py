@@ -50,8 +50,7 @@ class SubvostTUITests(unittest.TestCase):
             ImportSubscriptionModal=MagicMock(),
             ImportLinkModal=MagicMock(),
             ImportRoutingProfileModal=MagicMock(),
-            JsonNodeRepository=MagicMock(),
-            JsonSubscriptionRepository=MagicMock(),
+            # NOTE: репозитории теперь не патчатся — TUI работает через SubvostAppService
         )
         self.textual_patcher.start()
 
@@ -76,102 +75,87 @@ class SubvostTUITests(unittest.TestCase):
     # ─── 10f: Автоактивация ─────────────────────────────────────────
 
     def test_auto_activate_first_node_selects_first_enabled(self) -> None:
-        """Автоактивация выбирает первый enabled-узел при пустом active_selection."""
-        store = {
-            "active_selection": {},
-            "profiles": [
-                {
-                    "id": "prof-1",
-                    "name": "Profile 1",
-                    "enabled": True,
-                    "nodes": [
-                        {"id": "node-1", "name": "Node 1", "enabled": True},
-                    ],
-                },
-            ],
-        }
-        self.mock_service.ensure_store_ready.return_value = store
+        """Автоактивация выбирает первый enabled-узел при пустом active_selection через service.auto_activate_first_node."""
+        from unittest.mock import AsyncMock
 
-        asyncio.run(self.app._auto_activate_first_node())
-
-        from tui_app import JsonNodeRepository
-
-        repo_instance = JsonNodeRepository.return_value
-        repo_instance.activate.assert_called_once_with("prof-1", "node-1")
-        self.mock_service.persist_store.assert_called_once_with(store)
-        self.app.notify.assert_called_with(
-            "Автоматически активирован узел: Node 1",
-            severity="information",
+        self.app._run_service_action = AsyncMock(
+            return_value={
+                "ok": True,
+                "message": "Автоматически активирован узел 'Node 1'.",
+            }
         )
 
+        asyncio.run(self.app._auto_activate_first_node())
+
+        self.app._run_service_action.assert_called_once()
+        args, kwargs = self.app._run_service_action.call_args
+        self.assertEqual(args[0], "Авто-активация узла...")
+        self.assertIs(args[1], self.mock_service.auto_activate_first_node)
+        self.app.notify.assert_called_with(
+            "Автоматически активирован узел 'Node 1'.",
+            severity="information",
+        )
+        self.app._update_dashboard.assert_called_once()
+        self.app._update_nodes.assert_called_once()
+
     def test_auto_activate_skips_when_selection_exists(self) -> None:
-        """Автоактивация не трогает active_selection, если она уже установлена."""
-        store = {
-            "active_selection": {"profile_id": "prof-1", "node_id": "node-2"},
-            "profiles": [
-                {
-                    "id": "prof-1",
-                    "nodes": [
-                        {"id": "node-1", "name": "Node 1"},
-                        {"id": "node-2", "name": "Node 2"},
-                    ],
-                },
-            ],
-        }
-        self.mock_service.ensure_store_ready.return_value = store
+        """Автоактивация вызывает service.auto_activate_first_node (выбор уже есть — сервис вернёт skip)."""
+        from unittest.mock import AsyncMock
+
+        self.app._run_service_action = AsyncMock(
+            return_value={"ok": True, "message": "Узел уже выбран."}
+        )
 
         asyncio.run(self.app._auto_activate_first_node())
 
-        from tui_app import JsonNodeRepository
-
-        repo_instance = JsonNodeRepository.return_value
-        repo_instance.activate.assert_not_called()
+        self.app._run_service_action.assert_called_once()
+        args, kwargs = self.app._run_service_action.call_args
+        self.assertIs(args[1], self.mock_service.auto_activate_first_node)
+        # Сообщение "уже выбран" не содержит "автоматически активирован" — notify не вызывается
+        self.app.notify.assert_not_called()
+        self.app._update_dashboard.assert_called_once()
+        self.app._update_nodes.assert_called_once()
 
     def test_auto_activate_skips_disabled_nodes(self) -> None:
-        """Автоактивация пропускает disabled-узлы и профили."""
-        store = {
-            "active_selection": {},
-            "profiles": [
-                {
-                    "id": "prof-1",
-                    "enabled": False,
-                    "nodes": [
-                        {"id": "node-1", "enabled": True},
-                    ],
-                },
-                {
-                    "id": "prof-2",
-                    "enabled": True,
-                    "nodes": [
-                        {"id": "node-2", "enabled": False},
-                        {"id": "node-3", "enabled": True},
-                    ],
-                },
-            ],
-        }
-        self.mock_service.ensure_store_ready.return_value = store
+        """Автоактивация делегирует выбор enabled-узла в service.auto_activate_first_node (фильтрация внутри сервиса)."""
+        from unittest.mock import AsyncMock
+
+        self.app._run_service_action = AsyncMock(
+            return_value={
+                "ok": True,
+                "message": "Автоматически активирован узел 'node-3'.",
+            }
+        )
 
         asyncio.run(self.app._auto_activate_first_node())
 
-        from tui_app import JsonNodeRepository
-
-        repo_instance = JsonNodeRepository.return_value
-        repo_instance.activate.assert_called_once_with("prof-2", "node-3")
+        self.app._run_service_action.assert_called_once()
+        args, kwargs = self.app._run_service_action.call_args
+        self.assertIs(args[1], self.mock_service.auto_activate_first_node)
+        self.app.notify.assert_called_with(
+            "Автоматически активирован узел 'node-3'.",
+            severity="information",
+        )
+        self.app._update_dashboard.assert_called_once()
+        self.app._update_nodes.assert_called_once()
 
     def test_auto_activate_does_nothing_when_no_nodes(self) -> None:
-        """Автоактивация ничего не делает при пустом profiles."""
-        store = {"active_selection": {}, "profiles": []}
-        self.mock_service.ensure_store_ready.return_value = store
+        """Автоактивация при пустом profiles вызывает сервис, который вернёт skip без notify."""
+        from unittest.mock import AsyncMock
+
+        self.app._run_service_action = AsyncMock(
+            return_value={
+                "ok": True,
+                "message": "Нет доступных узлов для авто-активации.",
+            }
+        )
 
         asyncio.run(self.app._auto_activate_first_node())
 
-        from tui_app import JsonNodeRepository
-
-        repo_instance = JsonNodeRepository.return_value
-        repo_instance.activate.assert_not_called()
-
-    # ─── 10g: Tray ───────────────────────────────────────────────────
-
+        self.app._run_service_action.assert_called_once()
+        self.app.notify.assert_not_called()
+        self.app._update_dashboard.assert_called_once()
+        self.app._update_nodes.assert_called_once()
     def test_start_tray_launches_subprocess(self) -> None:
         """_start_tray запускает tui_tray.py через subprocess.Popen."""
         with (

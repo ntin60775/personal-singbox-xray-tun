@@ -370,11 +370,40 @@ class TestActivateAndDeactivateProfile(unittest.TestCase):
             self.assertIsNone(store["routing"]["active_profile_id"])
             self.assertFalse(store["routing"]["runtime_ready"])
 
-@unittest.skipUnless(
-    os.environ.get("SUBVOST_TEST_SUBSCRIPTION_URL"),
-    "SUBVOST_TEST_SUBSCRIPTION_URL not set — skipping live subscription routing auto-import test. "
-    "Set it to a real subscription URL that returns happ://routing/... header to run this test.",
-)
+
+def _resolve_first_real_subscription_url() -> str | None:
+    """Читает реальный store.json пользователя и возвращает URL первой enabled-подписки.
+
+    Возвращает None если:
+    - store.json не существует или не читается;
+    - в store нет подписок;
+    - все подписки disabled.
+    """
+    config_home = os.environ.get("SUBVOST_REAL_XDG_CONFIG_HOME") or Path.home() / ".config"
+    store_path = Path(config_home) / "subvost-xray-tun" / "store.json"
+    if not store_path.is_file():
+        return None
+    try:
+        store = json.loads(store_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    for sub in store.get("subscriptions", []):
+        if sub.get("enabled", True) and sub.get("url"):
+            return sub["url"]
+    return None
+
+
+def _resolve_first_subscription_url() -> str | None:
+    """Возвращает URL первой живой подписки: сначала ищет в реальном store.json,
+    затем в переменной окружения SUBVOST_TEST_SUBSCRIPTION_URL.
+    """
+    url = _resolve_first_real_subscription_url()
+    if url:
+        return url
+    return os.environ.get("SUBVOST_TEST_SUBSCRIPTION_URL") or None
+
+
+_first_subscription_url = _resolve_first_subscription_url()
 class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
     """E2E 5.5: автоимпорт routing-профиля из живой подписки.
 
@@ -388,7 +417,12 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
         """Реальная подписка: либо импортирует routing, либо корректно
         сообщает 'none' / 'skipped'. Любая ошибка сети — SkipTest.
         """
-        url = os.environ.get("SUBVOST_TEST_SUBSCRIPTION_URL") or ""
+        url = _first_subscription_url
+        if not url:
+            raise unittest.SkipTest(
+                "Нет доступной подписки: store.json не содержит enabled-подписок "
+                "и SUBVOST_TEST_SUBSCRIPTION_URL не задан."
+            )
         with tempfile.TemporaryDirectory() as temp_dir:
             store, paths, project_root = _setup_environment(temp_dir)
             subscription = add_subscription(store, "Live Test Sub", url)
@@ -402,7 +436,6 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
                     f"Live subscription unreachable: {exc}"
                 ) from exc
             except ValueError as exc:
-                # refresh_subscription маппит HTTP/сетевые ошибки в ValueError
                 message = str(exc)
                 if any(
                     marker in message
@@ -419,7 +452,6 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
 
             routing_block = result.get("routing") or {}
             status = routing_block.get("status")
-            # Допустимые статусы: created/updated/never/none/skipped/error.
 
             self.assertIn(
                 status,
@@ -427,7 +459,6 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
             )
 
             if status in {"created", "updated"}:
-                # --- Профиль создан/обновлён: проверяем целостность ---
                 profile_id = routing_block.get("profile_id")
                 self.assertIsNotNone(
                     profile_id,
@@ -444,7 +475,8 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
                 )
                 self.assertIsNotNone(
                     profile,
-                    f"профиль {profile_id} не найден в store",
+                    f"Профиль {profile_id} не найден в store: "
+                    f"{store['routing']['profiles']}",
                 )
                 if routing_block.get("activated"):
                     self.assertEqual(
@@ -462,7 +494,6 @@ class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
                         f"(activation_mode не onadd) — geodata не требуется немедленно."
                     )
             elif status == "none":
-                # Провайдер не отдаёт routing-заголовок — это допустимо.
                 print(
                     f"[live routing] подписка '{subscription['name']}' "
                     f"не отдаёт happ://routing заголовок — пропускаем."

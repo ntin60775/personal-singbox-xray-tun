@@ -51,7 +51,7 @@ from subvost_store import save_manual_import_results, store_payload
 from subvost_paths import APP_DIRNAME, resolve_config_home
 from gui.presentation.view_models import build_view_model, humanize_bytes as _humanize_bytes, humanize_rate as _humanize_rate
 from infrastructure.adapters import ShellRuntimeAdapter, SystemNetworkAdapter
-from infrastructure.json_repositories import JsonNodeRepository, JsonRoutingRepository, JsonSubscriptionRepository
+# infrastructure.json_repositories больше не используются напрямую — все вызовы через SubvostAppService
 
 TUI_LOCK_PATH = PROJECT_ROOT / ".subvost" / "tui.lock"
 
@@ -980,30 +980,24 @@ class SubvostTUI(App):
         if self.service is None:
             return
         try:
-            snapshot = self.service.collect_store_snapshot()
-            store_payload = snapshot.get("store", {})
-            store = store_payload.get("store", {})
-            if not store:
-                return
-            self._store = store
+            snap = self.service.collect_routing_snapshot()
         except Exception as exc:
-            self.notify(f"Ошибка обновления store: {exc}", severity="error")
+            self.notify(f"Ошибка обновления routing: {exc}", severity="error")
             return
 
         try:
-            repo = JsonRoutingRepository(self._store)
-            profiles = repo.get_all()
-            active = repo.get_active()
-            routing_state = self._store.get("routing", {})
-            runtime_ready = bool(routing_state.get("runtime_ready", False))
-            runtime_error = str(routing_state.get("runtime_error") or "")
-            geodata = routing_state.get("geodata", {})
-            geodata_ready = bool(geodata.get("ready", False))
+            profiles = snap["profiles"]
+            active_id = snap["active_profile_id"]
+            active_name = snap["active_profile_name"]
+            runtime_ready = snap["runtime_ready"]
+            runtime_error = snap["runtime_error"]
+            geodata_ready = snap["geodata_ready"]
+            geodata_status_str = snap["geodata_status"]
+            direct_entries = snap["direct_report_entries"]
             routing_tab = self.query_one("#routing-tab", RoutingTab)
 
             # Секция 1: верхний статус
-            active_name = active.name if active else "—"
-            if active:
+            if active_name:
                 active_status = f"[bold green][АКТИВЕН] ★ {active_name}[/bold green]"
             else:
                 active_status = "[dim][НЕ ВЫБРАН] ✕ Активный профиль не выбран[/dim]"
@@ -1021,23 +1015,23 @@ class SubvostTUI(App):
             activate_btn = self.query_one("#btn-activate-rp", Button)
             deactivate_btn = self.query_one("#btn-deactivate-rp", Button)
             selected_profile_id = routing_tab.selected_profile_id
-            activate_btn.disabled = not selected_profile_id or (active is not None and str(selected_profile_id) == str(active.id))
-            deactivate_btn.disabled = active is None
+            activate_btn.disabled = not selected_profile_id or (active_id is not None and str(selected_profile_id) == str(active_id))
+            deactivate_btn.disabled = active_id is None
 
             # Таблица профилей
             rt = self.query_one("#routing-table", DataTable)
             rt.clear()
             for rp in profiles:
-                is_active = active is not None and active.id == rp.id
-                name_display = f"★ {rp.name}" if is_active else rp.name
+                is_active = rp["is_active"]
+                name_display = f"★ {rp['name']}" if is_active else rp["name"]
                 status_display = "★ Активен" if is_active else "—"
-                type_display = "Авто" if rp.auto_managed else "Вручную"
+                type_display = "Авто" if rp["auto_managed"] else "Вручную"
                 rt.add_row(
                     name_display,
                     status_display,
                     type_display,
-                    str(rp.total_rules),
-                    key=rp.id,
+                    str(rp["total_rules"]),
+                    key=rp["id"],
                 )
 
             # Подсказка если нет профилей
@@ -1047,42 +1041,17 @@ class SubvostTUI(App):
             else:
                 empty_hint.update("")
 
-            # Прямые маршруты (человекочитаемые)
+            # Прямые маршруты
             dt = self.query_one("#routing-direct-table", DataTable)
             dt.clear()
-            action_map = {
-                "direct": "напрямую",
-                "proxy": "через прокси",
-                "block": "блокировать",
-            }
-            source_map = {
-                "Template": "встроенное",
-                "Routing-профиль": "из профиля",
-            }
-
-            def _humanize_network(raw: str) -> str:
-                if raw.startswith("geoip:"):
-                    return f"GeoIP: {raw[6:]}"
-                if raw.startswith("geosite:"):
-                    return f"GeoSite: {raw[8:]}"
-                return raw
-
-            def _humanize_action(raw: str) -> str:
-                return action_map.get(raw, raw)
-
-            def _humanize_source(raw: str) -> str:
-                return source_map.get(raw, raw)
-
-            vm = build_view_model(self._status)
-            for item in vm.direct_report_entries:
+            for item in direct_entries:
                 dt.add_row(
-                    _humanize_network(item.get("network", "—")),
-                    _humanize_action(item.get("action", "—")),
-                    _humanize_source(item.get("source", "—")),
+                    item["network"],
+                    item["action"],
+                    item["source"],
                 )
         except Exception:
             self.log.exception("Ошибка обновления routing-таба")
-
     def _update_settings(self) -> None:
         if self.service is None:
             return
@@ -1153,35 +1122,13 @@ class SubvostTUI(App):
     async def _auto_activate_first_node(self) -> None:
         if self.service is None:
             return
-        store = self.service.ensure_store_ready()
-        selection = store.get("active_selection", {})
-        if selection.get("profile_id") and selection.get("node_id"):
-            return
-
-        first_profile = None
-        first_node = None
-        for profile in store.get("profiles", []):
-            if not profile.get("enabled", True):
-                continue
-            for node in profile.get("nodes", []):
-                if node.get("enabled", True):
-                    first_profile = profile
-                    first_node = node
-                    break
-            if first_node:
-                break
-
-        if first_node is None:
-            return
-
         try:
-            repo = JsonNodeRepository(store)
-            repo.activate(first_profile["id"], first_node["id"])
-            self.service.persist_store(store)
-            self.notify(
-                f"Автоматически активирован узел: {first_node.get('name', '—')}",
-                severity="information",
+            result = await self._run_service_action(
+                "Авто-активация узла...", self.service.auto_activate_first_node
             )
+            msg = result.get("message", "")
+            if "автоматически активирован" in msg.lower():
+                self.notify(msg, severity="information")
         except Exception as exc:
             self.notify(str(exc), severity="error")
         finally:
@@ -1257,13 +1204,12 @@ class SubvostTUI(App):
             return
         self._action_in_progress = True
         try:
-            def _do_add():
-                store = self.service.ensure_store_ready()
-                repo = JsonSubscriptionRepository(store)
-                sub = repo.add_subscription(result["name"], result["url"])
-                self.service.persist_store(store)
-                return sub
-            await self._run_service_action("Добавление подписки...", _do_add)
+            await self._run_service_action(
+                "Добавление подписки...",
+                self.service.add_subscription,
+                result["name"],
+                result["url"],
+            )
             self.notify("Подписка добавлена", severity="information")
             self._update_nodes()
             self._update_dashboard()
@@ -1355,13 +1301,12 @@ class SubvostTUI(App):
         profile_id, node_id = parts
         self._action_in_progress = True
         try:
-            def _do_activate():
-                store = self.service.ensure_store_ready()
-                repo = JsonNodeRepository(store)
-                repo.activate(profile_id, node_id)
-                self.service.persist_store(store)
-                return {"ok": True}
-            await self._run_service_action("Активация узла...", _do_activate)
+            await self._run_service_action(
+                "Активация узла...",
+                self.service.activate_selection,
+                profile_id,
+                node_id,
+            )
             self._set_status("Узел активирован", severity="information")
             self._update_dashboard()
             self._update_nodes()
