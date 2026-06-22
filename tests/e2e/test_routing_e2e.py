@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -367,6 +369,113 @@ class TestActivateAndDeactivateProfile(unittest.TestCase):
             clear_active_routing_profile(store, paths)
             self.assertIsNone(store["routing"]["active_profile_id"])
             self.assertFalse(store["routing"]["runtime_ready"])
+
+@unittest.skipUnless(
+    os.environ.get("SUBVOST_TEST_SUBSCRIPTION_URL"),
+    "SUBVOST_TEST_SUBSCRIPTION_URL not set — skipping live subscription routing auto-import test. "
+    "Set it to a real subscription URL that returns happ://routing/... header to run this test.",
+)
+class TestLiveSubscriptionRoutingAutoImport(unittest.TestCase):
+    """E2E 5.5: автоимпорт routing-профиля из живой подписки.
+
+    Проверяет, что refresh_subscription без моков на живой подписке
+    корректно импортирует routing-профиль (если провайдер отдаёт
+    happ://routing/... header) или корректно сообщает 'none', если
+    провайдер routing не поддерживает.
+    """
+
+    def test_live_subscription_auto_imports_routing_profile(self) -> None:
+        """Реальная подписка: либо импортирует routing, либо корректно
+        сообщает 'none' / 'skipped'. Любая ошибка сети — SkipTest.
+        """
+        url = os.environ.get("SUBVOST_TEST_SUBSCRIPTION_URL") or ""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store, paths, project_root = _setup_environment(temp_dir)
+            subscription = add_subscription(store, "Live Test Sub", url)
+
+            try:
+                result = refresh_subscription(
+                    store, subscription["id"], paths=paths
+                )
+            except (socket.timeout, OSError) as exc:
+                raise unittest.SkipTest(
+                    f"Live subscription unreachable: {exc}"
+                ) from exc
+            except ValueError as exc:
+                # refresh_subscription маппит HTTP/сетевые ошибки в ValueError
+                message = str(exc)
+                if any(
+                    marker in message
+                    for marker in (
+                        "HTTP ",
+                        "Не удалось загрузить подписку",
+                        "timed out",
+                    )
+                ):
+                    raise unittest.SkipTest(
+                        f"Live subscription unreachable: {exc}"
+                    ) from exc
+                raise
+
+            routing_block = result.get("routing") or {}
+            status = routing_block.get("status")
+            # Допустимые статусы: created/updated/never/none/skipped/error.
+
+            self.assertIn(
+                status,
+                {"created", "updated", "never", "none", "skipped", "error"},
+            )
+
+            if status in {"created", "updated"}:
+                # --- Профиль создан/обновлён: проверяем целостность ---
+                profile_id = routing_block.get("profile_id")
+                self.assertIsNotNone(
+                    profile_id,
+                    f"routing status={status} обязан вернуть profile_id, "
+                    f"получили: {routing_block}",
+                )
+                profile = next(
+                    (
+                        p
+                        for p in store["routing"]["profiles"]
+                        if p["id"] == profile_id
+                    ),
+                    None,
+                )
+                self.assertIsNotNone(
+                    profile,
+                    f"профиль {profile_id} не найден в store",
+                )
+                if routing_block.get("activated"):
+                    self.assertEqual(
+                        store["routing"]["active_profile_id"],
+                        profile_id,
+                    )
+                if routing_block.get("activated"):
+                    self.assertTrue(
+                        store["routing"]["geodata"].get("ready"),
+                        f"geodata не готовы: {store['routing']['geodata']}",
+                    )
+                else:
+                    print(
+                        f"[live routing] профиль {profile_id} создан, но не активирован "
+                        f"(activation_mode не onadd) — geodata не требуется немедленно."
+                    )
+            elif status == "none":
+                # Провайдер не отдаёт routing-заголовок — это допустимо.
+                print(
+                    f"[live routing] подписка '{subscription['name']}' "
+                    f"не отдаёт happ://routing заголовок — пропускаем."
+                )
+            elif status == "skipped":
+                print(
+                    f"[live routing] подписка '{subscription['name']}' "
+                    f"skipped: {routing_block.get('message', '')}"
+                )
+            elif status == "error":
+                self.fail(
+                    f"Routing auto-import failed: {routing_block}"
+                )
 
 if __name__ == "__main__":
     unittest.main()
